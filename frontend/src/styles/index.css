@@ -1,0 +1,118 @@
+@import "@fontsource/ibm-plex-sans/400.css";
+@import "@fontsource/ibm-plex-sans/500.css";
+@import "@fontsource/ibm-plex-sans/600.css";
+@import "@fontsource/ibm-plex-mono/400.css";
+@import "@fontsource/ibm-plex-mono/500.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Jetons de l'interface : outil professionnel, dense et sobre.
+   Pétrole pour la structure, ambre pour le repère de navigation,
+   rouge / orange réservés aux violations (bloquant / avertissement). */
+@layer base {
+  :root {
+    --background: 80 9% 96%;
+    --foreground: 202 30% 13%;
+    --card: 0 0% 100%;
+    --card-foreground: 202 30% 13%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 202 30% 13%;
+    --primary: 190 74% 22%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 90 8% 92%;
+    --secondary-foreground: 202 30% 16%;
+    --muted: 90 8% 93%;
+    --muted-foreground: 203 10% 38%;
+    --accent: 190 40% 92%;
+    --accent-foreground: 190 74% 16%;
+    --destructive: 4 72% 44%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 90 7% 85%;
+    --input: 90 6% 76%;
+    --ring: 190 74% 30%;
+
+    --sidebar: 192 48% 12%;
+    --sidebar-foreground: 190 18% 80%;
+    --sidebar-muted: 191 20% 55%;
+    --sidebar-active: 192 42% 19%;
+    --signal: 40 87% 60%;
+
+    --blocking: 4 72% 44%;
+    --blocking-soft: 6 80% 96%;
+    --warning: 28 89% 42%;
+    --warning-soft: 36 95% 93%;
+    --success: 152 59% 28%;
+    --success-soft: 145 45% 93%;
+    --info: 211 62% 40%;
+    --info-soft: 211 70% 95%;
+  }
+
+  * {
+    @apply border-border;
+  }
+  html {
+    font-size: 16px;
+  }
+  body {
+    @apply bg-background font-sans text-sm text-foreground antialiased;
+    font-feature-settings: "tnum" 1;
+  }
+  ::selection {
+    background: hsl(var(--signal) / 0.45);
+  }
+}
+
+@layer utilities {
+  .num {
+    @apply font-mono tabular-nums;
+  }
+  .focus-ring {
+    @apply outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1;
+  }
+}
+
+/* Carte : marqueurs HTML communs à MapLibre et au repli SVG. */
+.tn-marker {
+  display: grid;
+  place-items: center;
+  font-family: "IBM Plex Mono", monospace;
+  font-weight: 500;
+  font-size: 10px;
+  line-height: 1;
+  color: #fff;
+  cursor: default;
+  box-shadow:
+    0 0 0 2px #fff,
+    0 1px 4px rgb(0 0 0 / 0.35);
+}
+.tn-marker--depot {
+  width: 18px;
+  height: 18px;
+  border-radius: 3px;
+  background: hsl(var(--sidebar));
+}
+.tn-marker--station {
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  background: hsl(var(--primary));
+}
+.tn-marker--stop {
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+}
+.tn-marker--selected {
+  box-shadow:
+    0 0 0 2px #fff,
+    0 0 0 4px hsl(var(--signal));
+  z-index: 2;
+}
+.maplibregl-popup-content {
+  font-family: "IBM Plex Sans", sans-serif;
+  font-size: 12px;
+  padding: 8px 10px !important;
+  border-radius: 4px !important;
+}

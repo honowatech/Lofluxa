@@ -1,0 +1,7 @@
+dist
+node_modules
+pnpm-lock.yaml
+public/mockServiceWorker.js
+docs/captures
+test-results
+playwright-report
