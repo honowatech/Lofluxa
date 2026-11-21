@@ -1,0 +1,90 @@
+{% extends "core/templates/pdf_base.html" %}
+{% block title %}Feuille de route — {{ day | date_fr }}{% endblock %}
+{% block doc_title %}Feuille de route{% endblock %}
+{% block doc_sub %}{{ day | date_fr }} — plan version {{ plan_version }}{% endblock %}
+{% block extra_css %}
+  .sheet + .sheet { page-break-before: always; }
+  .status { border: 1px solid #a40000; color: #a40000; font-weight: 700; padding: 3px 6px; margin-bottom: 6px; display: inline-block; }
+  .urgent { font-weight: 700; }
+{% endblock %}
+{% block content %}
+{% for trip in trips %}
+<section class="sheet">
+  {% if archived %}<div class="status">VERSION ARCHIVÉE — document non valable pour l'exécution</div>
+  {% elif draft %}<div class="status">BROUILLON — plan non publié</div>{% endif %}
+  <div class="meta">
+    <div><span>Tournée :</span> n° {{ trip.seq }}</div>
+    <div><span>Date :</span> {{ day | date_fr }}</div>
+    <div><span>Camion :</span> {{ trip.truck_plate or "—" }}</div>
+    <div><span>Chauffeur :</span> {{ trip.driver_name or "non affecté" }}{% if trip.driver_phone %} ({{ trip.driver_phone }}){% endif %}</div>
+    <div><span>Dépôt de chargement :</span> {{ trip.depot_code or "—" }}{% if trip.depot_name %} — {{ trip.depot_name }}{% endif %}</div>
+    <div><span>Arrivée au dépôt :</span> {{ trip.planned_start_at | hm }}</div>
+    <div><span>Départ prévu du dépôt :</span> <strong>{{ trip.planned_depart_at | hm }}</strong></div>
+    <div><span>Retour prévu :</span> {{ trip.planned_return_at | hm }}</div>
+    <div><span>Distance :</span> {{ trip.distance_m | km }}</div>
+    <div><span>Durée :</span> {{ trip.duration_s | duration }}</div>
+  </div>
+
+  <h2>Arrêts</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Ordre</th><th>Station</th><th>Produit</th><th class="num">Volume</th>
+        <th>Heure estimée</th><th>Contact station</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for stop in trip.stops %}
+      {% for delivery in stop.deliveries %}
+      <tr>
+        {% if loop.first %}
+        <td rowspan="{{ stop.deliveries | length }}">{{ stop.seq }}</td>
+        <td rowspan="{{ stop.deliveries | length }}">{{ stop.station_code }} — {{ stop.station_name }}{% if stop.station_city %}<br>{{ stop.station_city }}{% endif %}</td>
+        {% endif %}
+        <td{% if delivery.priority == "urgent" %} class="urgent"{% endif %}>{{ delivery.product_label or delivery.product_code }}{% if delivery.priority == "urgent" %} (urgent){% endif %}</td>
+        <td class="num">{{ delivery.planned_l | liters }}</td>
+        {% if loop.first %}
+        <td rowspan="{{ stop.deliveries | length }}">{{ stop.planned_arrival_at | hm }}</td>
+        <td rowspan="{{ stop.deliveries | length }}">{{ stop.contact_name or "—" }}{% if stop.contact_phone %}<br>{{ stop.contact_phone }}{% endif %}</td>
+        {% endif %}
+      </tr>
+      {% else %}
+      <tr>
+        <td>{{ stop.seq }}</td><td>{{ stop.station_code }} — {{ stop.station_name }}</td><td>—</td><td class="num">—</td>
+        <td>{{ stop.planned_arrival_at | hm }}</td><td>{{ stop.contact_name or "—" }}</td>
+      </tr>
+      {% endfor %}
+    {% else %}
+      <tr><td colspan="6">Aucun arrêt.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+
+  <h2>Plan de chargement</h2>
+  <table>
+    <thead>
+      <tr><th>Compartiment</th><th>Produit</th><th class="num">Volume à charger</th><th class="num">Capacité</th></tr>
+    </thead>
+    <tbody>
+    {% for load in trip.loads %}
+      <tr>
+        <td>{{ load.compartment_position if load.compartment_position is not none else "—" }}</td>
+        <td>{{ load.product_label or load.product_code }}</td>
+        <td class="num">{{ load.planned_l | liters }}</td>
+        <td class="num">{{ load.capacity_l | liters }}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="4">Plan de chargement non établi.</td></tr>
+    {% endfor %}
+      <tr><th colspan="2">Total</th><th class="num">{{ trip.planned_l | liters }}</th><th class="num">{{ trip.truck_capacity_l | liters }}</th></tr>
+    </tbody>
+  </table>
+  <p class="note">Heures en heure locale (Africa/Douala). Volumes en litres.</p>
+
+  <div class="signatures">
+    <div>Chauffeur — nom, date et signature</div>
+    <div>Dispatcher — nom, date et signature</div>
+  </div>
+</section>
+{% endfor %}
+{% endblock %}
