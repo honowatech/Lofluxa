@@ -66,12 +66,6 @@ async def _skip_first_trip(api, plan: dict) -> tuple[dict, set[str]]:
 # --------------------------------------------------------------------------- jeux de données (lot L2)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="L2 — scripts/gen_fixtures.py::build_demo_scale : le code station est `ville[:3]` + rang ; "
-    "Mbanga et Mbalmayo donnent tous deux MBA01. demo_scale/problem.json contient deux stations de même "
-    "identifiant et de même code : 69 stations distinctes au lieu des 70 de la spec §7.5.",
-)
 def test_defaut_demo_scale_a_70_stations_distinctes():
     problem = load_problem("demo_scale")
     duplicates = {k: n for k, n in Counter(s.id for s in problem.stations).items() if n > 1}
