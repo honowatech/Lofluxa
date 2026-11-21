@@ -99,6 +99,10 @@ test("plan calculé → déplacer un arrêt → verrouiller → publier → feui
   await dragTo(page, row.getByRole("button").first(), list.locator(`[data-trip-card="${target.id}"]`));
   expect((await moveResponse).status()).toBe(200);
   await expect(page.getByTestId("plan-sync")).toHaveAttribute("data-state", "saved");
+  // L'annonce (zone aria-live) reprend le résumé journalisé par le serveur (`last_edit.summary`).
+  await expect(page.getByTestId("plan-announcement")).toContainText(
+    /déplacé de la tournée \d+ .* vers la tournée \d+/,
+  );
   // La sélection suit l'arrêt : il est maintenant le dernier de la tournée d'arrivée.
   await expect(detail.getByRole("heading", { name: `Tournée ${target.seq}` })).toBeVisible();
   await expect(detail.locator("[data-stop-row]")).toHaveCount(target.stops.length + 1);
@@ -215,4 +219,91 @@ test("édition au clavier et vue tableau contre la vraie API", async ({ page }) 
   ).toEqual([trip.stops[1].id, trip.stops[0].id]);
   await expect(first).toBeFocused();
   await expect(first.locator("td").nth(1)).toHaveText("2");
+});
+
+test("urgente non servie → reporter → publier ; liens d'exécution ; version archivée par un événement", async ({
+  page,
+}) => {
+  // Aucun gasoil au dépôt : la commande urgente de gasoil ne peut pas être servie (RM-15).
+  const day = freshDay();
+  const { planId, token, driverIds } = await seedPlan({ fixture: "demo_douala", day, stocks: { GASOIL: 0 } });
+  const api = new Api(token);
+
+  await login(page);
+  await page.goto(`/plan?day=${day}`);
+  const publish = page.getByRole("button", { name: "Publier", exact: true });
+  const panel = page.getByTestId("violations-panel");
+  const banner = page.getByTestId("unserved-banner");
+  await expect(banner).toContainText("urgente à traiter (RM-15)");
+  await expect(banner.getByRole("listitem").first()).toContainText("Urgente");
+  await expect(panel).toContainText("RM-15");
+  await expect(publish).toBeDisabled();
+  await expect(page.getByText("Publication impossible : 1 violation bloquante à corriger.")).toBeVisible();
+
+  // Report explicite : le plan relu ne porte plus RM-15 (recontrôle fait par le serveur), Publier s'active.
+  await banner
+    .getByRole("button", { name: /^Reporter la commande de / })
+    .first()
+    .click();
+  await page
+    .getByRole("alertdialog", { name: "Reporter cette commande ?" })
+    .getByRole("button", { name: "Reporter" })
+    .click();
+  await expect(panel).not.toContainText("RM-15");
+  await expect(publish).toBeEnabled();
+  const rechecked = await api.call<ApiPlan & { publishable: boolean }>("GET", `/plans/${planId}`);
+  expect(rechecked.blocking_count).toBe(0);
+  expect(rechecked.publishable).toBe(true);
+
+  await publish.click();
+  await page
+    .getByRole("alertdialog", { name: "Publier ce plan ?" })
+    .getByRole("button", { name: "Publier" })
+    .click();
+  await expect(page.getByText("Publié", { exact: true })).toBeVisible();
+
+  // Détail d'une tournée publiée : camion entier (tous les compartiments), liens Chargement et Suivi.
+  const list = page.getByRole("region", { name: "Liste des tournées" });
+  const detail = page.getByRole("region", { name: "Détail de la tournée" });
+  const trips = (
+    await api.call<ApiPlan & { trips: (ApiTrip & { compartments: unknown[] })[] }>("GET", `/plans/${planId}`)
+  ).trips;
+  const trip = trips[0];
+  await list.getByRole("button", { name: `Afficher la tournée ${trip.seq}` }).click();
+  await expect(detail.getByTestId("truck-tank").locator("> div")).toHaveCount(trip.compartments.length);
+  await expect(
+    detail.getByRole("link", { name: `Ouvrir le chargement de la tournée ${trip.seq}` }),
+  ).toHaveAttribute("href", `/chargement?day=${day}&trip=${trip.id}`);
+  await detail
+    .getByRole("link", { name: `Ouvrir le suivi des livraisons de la tournée ${trip.seq}` })
+    .click();
+  await expect(page).toHaveURL(new RegExp(`/suivi\\?day=${day}&trip=${trip.id}`));
+  await page.goBack();
+  await expect(page.getByTestId("screen-plan")).toHaveAttribute("data-plan-id", planId as string);
+
+  // Un événement (chauffeur indisponible) publie une nouvelle version : celle affichée est archivée.
+  await page.goto(`/plan?day=${day}&plan=${planId}`);
+  await expect(page.getByText("Publié", { exact: true })).toBeVisible();
+  const event = await api.call<{ plan_id?: string; new_plan_id?: string }>(
+    "POST",
+    "/events/driver-unavailable",
+    {
+      trip_id: trip.id,
+      replacement_driver_id: driverIds.CH05,
+    },
+  );
+  expect(JSON.stringify(event)).not.toContain(`"plan_id":"${planId}"`);
+  // La liste des plans du jour est relue toutes les 60 s (ou au retour sur l'onglet).
+  await expect(page.getByText(/Cette version a été remplacée : la version 2 est en vigueur/)).toBeVisible({
+    timeout: 90_000,
+  });
+  await expect(page.getByText(/La version 1 affichée vient d'être archivée/).first()).toBeVisible();
+  await expect(list.getByRole("button", { name: /Verrouiller la tournée/ })).toHaveCount(0);
+  await expect(
+    page.getByTestId("screen-plan").getByRole("link", { name: "Journal des événements" }),
+  ).toHaveAttribute("href", `/journal?day=${day}`);
+  await page.getByRole("button", { name: "Afficher la version en vigueur" }).click();
+  await expect(page.getByTestId("screen-plan")).not.toHaveAttribute("data-plan-id", planId as string);
+  await expect(page.getByText("Publié", { exact: true })).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "Plan et version affichés" })).toContainText("Version 2");
 });

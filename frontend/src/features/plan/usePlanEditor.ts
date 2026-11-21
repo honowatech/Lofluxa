@@ -12,42 +12,10 @@ import { fr } from "@/i18n/fr";
 import { isApiError } from "@/lib/api";
 
 import { planKeys, sendEdit, usePlanCache } from "./api";
-import { findStop, findTrip } from "./edits";
 import { usePlanStore, type StopZone } from "./store";
-import type { EditOp, Plan } from "./types";
+import type { EditOp } from "./types";
 
 const t = fr.screens.plan;
-
-/** Phrase décrivant la modification, lue par les lecteurs d'écran une fois le plan à jour. */
-export function describeOp(before: Plan, after: Plan, op: EditOp): string {
-  const seqBefore = findTrip(before, op.tripId)?.seq ?? 0;
-  switch (op.type) {
-    case "move":
-    case "reorder": {
-      const stopId = op.type === "move" ? op.stopId : null;
-      if (!stopId) return t.edit.reorderedTrip(seqBefore);
-      const station = findStop(before, stopId)?.stop.station_name ?? "";
-      const origin = findStop(before, stopId)?.stop;
-      const at =
-        findStop(after, stopId) ??
-        after.trips
-          .flatMap((trip) => trip.stops.map((stop) => ({ trip, stop })))
-          .find(
-            ({ stop }) =>
-              stop.station_id === origin?.station_id &&
-              stop.deliveries.some((d) => origin?.deliveries.some((o) => o.order_id === d.order_id)),
-          );
-      if (!at) return t.edit.reorderedTrip(seqBefore);
-      const text = t.edit.moved(station, at.trip.seq, at.stop.seq);
-      const removed = !after.trips.some((trip) => trip.seq === seqBefore);
-      return removed ? `${text} ${t.edit.tripRemoved(seqBefore)}` : text;
-    }
-    case "assign":
-      return t.edit.assigned(seqBefore);
-    case "lock":
-      return op.locked ? t.edit.locked(seqBefore) : t.edit.unlocked(seqBefore);
-  }
-}
 
 export interface PlanEditor {
   /** Applique une modification ; `true` si le serveur l'a acceptée. */
@@ -69,12 +37,15 @@ export function usePlanEditor(openPlan: (planId: string) => void): PlanEditor {
         const next = await sendEdit(before.id, op);
         usePlanStore.getState().commit(next);
         cache(next);
-        usePlanStore.getState().announce(describeOp(before, next, op));
+        // Annonce (zone aria-live) : le résumé journalisé par le serveur, tel quel.
+        usePlanStore.getState().announce(next.last_edit?.summary ?? t.edit.done);
         if (next.id !== before.id) {
           // Plan publié → nouvelle version brouillon : nouveaux identifiants, nouvelle adresse.
           openPlan(next.id);
           notify.info(t.edit.newVersionTitle(next.version), t.edit.newVersionBody(before.version));
-          usePlanStore.getState().announce(t.edit.newVersionTitle(next.version));
+          usePlanStore
+            .getState()
+            .announce(`${t.edit.newVersionTitle(next.version)}. ${next.last_edit?.summary ?? ""}`.trim());
         }
         return true;
       } catch (error) {

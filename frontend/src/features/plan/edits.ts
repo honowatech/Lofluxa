@@ -98,6 +98,7 @@ export function applyOp(plan: Plan, op: EditOp): Plan {
           fill_rate: capacity ? next.planned_l / capacity : null,
           // Le plan de chargement dépend des compartiments du nouveau camion : recalculé par le serveur.
           loads: [],
+          compartments: [],
         };
       }
       if (op.driver !== undefined) {
@@ -234,38 +235,4 @@ export function remapSelection(
     findTrip(next, selection.tripId) ??
     (tripBefore ? next.trips.find((candidate) => candidate.seq === tripBefore.seq) : undefined);
   return { tripId: trip?.id ?? null, stopId: null };
-}
-
-const isOpenOrder = (order: Plan["unserved"][number]): boolean =>
-  order.order_status !== "postponed" && order.order_status !== "cancelled";
-
-/**
- * Met le plan lu en cohérence avec l'état des commandes (RM-15, L5-20).
- *
- * Constat sur l'API : après `POST /orders/{id}/postpone`, `GET /plans/{id}` renvoie la commande comme
- * `postponed` dans `unserved`, mais garde la violation RM-15 enregistrée (et `blocking_count`,
- * `publishable`) jusqu'au prochain recontrôle — que seule une modification ou la publication déclenche.
- * Sans correction, le bouton Publier resterait désactivé alors que le serveur accepterait la publication.
- * On retire donc les violations RM-15 en trop par rapport aux commandes urgentes encore à traiter ; le
- * serveur reste seul juge à la publication (409 `rule_violation`).
- */
-export function reconcileUrgentViolations(plan: Plan): Plan {
-  const stale = plan.violations.filter((violation) => violation.rule_code === "RM-15" && !violation.trip_id);
-  const openUrgent = plan.unserved.filter((order) => order.priority === "urgent" && isOpenOrder(order));
-  if (stale.length <= openUrgent.length) return plan;
-  const codes = openUrgent.map((order) => order.station_code).filter((code): code is string => !!code);
-  const mentioned = stale.filter((violation) => codes.some((code) => violation.message.includes(code)));
-  const kept = new Set(
-    (mentioned.length >= openUrgent.length ? mentioned : stale).slice(0, openUrgent.length).map((v) => v.id),
-  );
-  const violations = plan.violations.filter(
-    (violation) => !stale.includes(violation) || kept.has(violation.id),
-  );
-  const blocking = violations.filter((violation) => violation.severity === "blocking").length;
-  return {
-    ...plan,
-    violations,
-    blocking_count: blocking,
-    publishable: plan.status === "draft" && plan.kind === "computed" && blocking === 0,
-  };
 }

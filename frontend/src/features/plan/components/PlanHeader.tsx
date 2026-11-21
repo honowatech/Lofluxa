@@ -236,7 +236,14 @@ export function PlanHeader({
       <div className="flex flex-wrap items-center gap-x-5 gap-y-1">
         <PlanMetrics plan={plan} />
         <span className="text-xs text-muted-foreground">
-          {plan.computed_at && t.header.computedAt(formatLocalTime(plan.computed_at), plan.engine_version)}
+          {plan.computed_at &&
+            t.header.computedAt(
+              formatLocalTime(plan.computed_at),
+              typeof plan.computed_in_ms === "number"
+                ? formatDuration(plan.computed_in_ms / 1000, { seconds: true })
+                : null,
+              plan.engine_version,
+            )}
           {plan.created_by_name && ` · ${t.header.createdBy(plan.created_by_name)}`}
         </span>
         {showPublish && access.publishBlockedReason && (

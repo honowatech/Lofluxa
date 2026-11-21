@@ -1,16 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
-import {
-  applyOp,
-  dropOp,
-  findStop,
-  keyboardMove,
-  opRequest,
-  reconcileUrgentViolations,
-  remapSelection,
-} from "./edits";
+import { applyOp, dropOp, findStop, keyboardMove, opRequest, remapSelection } from "./edits";
 import { usePlanStore } from "./store";
-import { asNewVersion, makePlan, unserved, violation } from "./testing/fixtures";
+import { asNewVersion, makePlan } from "./testing/fixtures";
 import type { EditOp } from "./types";
 
 const stopsOf = (plan: ReturnType<typeof makePlan>, tripId: string) =>
@@ -164,32 +156,6 @@ describe("nouvelle version d'un plan publié (RM-18)", () => {
       tripId: "trip-2-v2",
       stopId: null,
     });
-  });
-});
-
-describe("RM-15 — commande urgente non servie", () => {
-  const rm15 = violation("u", "RM-15", "blocking", "Commande urgente non servie : station DLA09.");
-
-  it("reste bloquante tant que la commande n'est pas reportée", () => {
-    const plan = makePlan({
-      unserved: [unserved("u", "DLA09", "OLA Makepe", true)],
-      violations: [rm15],
-      blocking_count: 1,
-      publishable: false,
-    });
-    expect(reconcileUrgentViolations(plan)).toBe(plan);
-  });
-
-  it("n'est plus comptée une fois la commande reportée, même si le plan lu la porte encore", () => {
-    const plan = makePlan({
-      unserved: [unserved("u", "DLA09", "OLA Makepe", true, "postponed")],
-      violations: [rm15, violation("w", "RM-10", "warning", "Arrivée tardive.")],
-      blocking_count: 1,
-      publishable: false,
-    });
-    const reconciled = reconcileUrgentViolations(plan);
-    expect(reconciled.violations.map((v) => v.rule_code)).toEqual(["RM-10"]);
-    expect(reconciled).toMatchObject({ blocking_count: 0, publishable: true });
   });
 });
 

@@ -7,7 +7,7 @@
  */
 import { useQueryClient } from "@tanstack/react-query";
 import { CalendarSearch, Route } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 
 import {
@@ -32,7 +32,7 @@ import {
 import { fr } from "@/i18n/fr";
 import { usePublishAlerts, type AppAlert } from "@/lib/alerts";
 import { ApiError, isApiError } from "@/lib/api";
-import { useCan } from "@/lib/auth";
+import { useCan, useCanSee } from "@/lib/auth";
 import { formatDate } from "@/lib/format";
 import type { Violation } from "@/lib/types";
 import { useDay, withDay } from "@/lib/useDay";
@@ -156,6 +156,7 @@ function PlanScreen({
   const view = usePlanStore((state) => state.view);
   const pending = usePlanStore((state) => state.pendingOp !== null);
   const announcement = usePlanStore((state) => state.announcement);
+  const canSeeEvents = useCanSee("events");
   const [historyOpen, setHistoryOpen] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [publishError, setPublishError] = useState<ApiError | null>(null);
@@ -167,7 +168,13 @@ function PlanScreen({
   const canEdit = access.canEdit && !recompute.running && !publishing;
 
   const ui = useMemo<PlanUi>(
-    () => ({ canEdit, busy, edit, showRouteSheets: plan.status !== "draft" }),
+    () => ({
+      canEdit,
+      busy,
+      edit,
+      showRouteSheets: plan.status !== "draft",
+      published: plan.status === "published",
+    }),
     [canEdit, busy, edit, plan.status],
   );
 
@@ -186,6 +193,27 @@ function PlanScreen({
     return list;
   }, [plan.blocking_count, plan.day, plan.id, plan.kind, plan.status, urgentUnserved]);
   usePublishAlerts("plan", alerts);
+
+  // La version affichée peut être archivée par ailleurs (publication d'une autre version après une panne ou
+  // une pénurie, lot L10) : la liste du jour, relue régulièrement, le révèle — on relit alors le plan, on
+  // l'annonce, et le bandeau propose de basculer sur la version en vigueur.
+  const listed = plans.find((other) => other.id === plan.id);
+  useEffect(() => {
+    if (listed && listed.status !== plan.status && !pending) {
+      void client.invalidateQueries({ queryKey: planKeys.one(plan.id) });
+    }
+  }, [client, listed, pending, plan.id, plan.status]);
+  const seen = useRef<{ id: string; status: Plan["status"] }>({ id: plan.id, status: plan.status });
+  useEffect(() => {
+    const before = seen.current;
+    seen.current = { id: plan.id, status: plan.status };
+    if (before.id !== plan.id || before.status !== "published" || plan.status !== "archived") return;
+    void client.invalidateQueries({ queryKey: planKeys.ofDay(plan.day) });
+    const current = access.supersededBy?.version;
+    const message = current ? t.readOnly.supersededNow(plan.version, current) : t.readOnly.archived;
+    notify.warning(t.readOnly.supersededTitle, message);
+    usePlanStore.getState().announce(message);
+  }, [access.supersededBy, client, plan.day, plan.id, plan.status, plan.version]);
 
   const selectViolation = useCallback((violation: Violation) => {
     const store = usePlanStore.getState();
@@ -296,7 +324,25 @@ function PlanScreen({
           </div>
         )}
 
-        {access.readOnlyReason ? (
+        {access.supersededBy ? (
+          <Notice
+            tone="warning"
+            action={
+              <span className="flex items-center gap-1.5">
+                {canSeeEvents && (
+                  <Button asChild variant="ghost" size="sm">
+                    <Link to={withDay("/journal", plan.day)}>{t.readOnly.toEvents}</Link>
+                  </Button>
+                )}
+                <Button variant="outline" size="sm" onClick={() => openPlan(access.supersededBy?.id ?? null)}>
+                  {t.readOnly.openCurrent}
+                </Button>
+              </span>
+            }
+          >
+            {t.readOnly.superseded(access.supersededBy.version)}
+          </Notice>
+        ) : access.readOnlyReason ? (
           <Notice
             tone="neutral"
             action={
@@ -365,7 +411,8 @@ function PlanScreen({
                     violations={plan.violations}
                     onSelect={selectViolation}
                     title={t.violations.title}
-                    className="shrink-0 [&_ul]:max-h-40"
+                    maxListHeight="10rem"
+                    className="shrink-0"
                   />
                 </div>
               </>
