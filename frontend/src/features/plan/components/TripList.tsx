@@ -97,16 +97,26 @@ export function LockButton({ trip, className }: { trip: Trip; className?: string
   );
 }
 
-const TripCard = memo(function TripCard({ trip, selected }: { trip: Trip; selected: boolean }) {
+const TripCard = memo(function TripCard({
+  trip,
+  selected,
+  hovered,
+}: {
+  trip: Trip;
+  selected: boolean;
+  hovered: boolean;
+}) {
   const { setNodeRef, isTarget, accepts } = useTripDroppable(trip, "list");
   return (
     <li
       ref={setNodeRef}
       data-trip-card={trip.id}
       data-selected={selected || undefined}
+      data-hovered={hovered || undefined}
       title={accepts ? t.trips.dropHere : undefined}
       className={cn(
         "relative flex gap-2 border-b py-1.5 pl-3 pr-1.5 hover:bg-muted/60",
+        hovered && !selected && "bg-muted",
         selected && "bg-accent hover:bg-accent",
         dropTargetClass(isTarget, accepts),
       )}
@@ -163,6 +173,7 @@ const TripCard = memo(function TripCard({ trip, selected }: { trip: Trip; select
 
 export function TripList({ trips, className }: { trips: Trip[]; className?: string }) {
   const selectedTripId = usePlanStore((state) => state.selectedTripId);
+  const hoveredTripId = usePlanStore((state) => state.hoveredTripId);
   const pending = usePlanStore((state) => state.pendingOp !== null);
 
   // ↑ / ↓ : tournée précédente / suivante ; Début / Fin : première / dernière.
@@ -196,7 +207,12 @@ export function TripList({ trips, className }: { trips: Trip[]; className?: stri
         onKeyDown={onKeyDown}
       >
         {trips.map((trip) => (
-          <TripCard key={trip.id} trip={trip} selected={trip.id === selectedTripId} />
+          <TripCard
+            key={trip.id}
+            trip={trip}
+            selected={trip.id === selectedTripId}
+            hovered={trip.id === hoveredTripId}
+          />
         ))}
       </ul>
     </section>

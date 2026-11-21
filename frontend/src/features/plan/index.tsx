@@ -411,7 +411,8 @@ function PlanScreen({
                     violations={plan.violations}
                     onSelect={selectViolation}
                     title={t.violations.title}
-                    className="shrink-0 [&_ul]:max-h-40"
+                    maxListHeight="10rem"
+                    className="shrink-0"
                   />
                 </div>
               </>

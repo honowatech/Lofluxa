@@ -19,6 +19,8 @@ export interface PlanEditState {
   pendingOp: EditOp | null;
   selectedTripId: string | null;
   selectedStopId: string | null;
+  /** Tournée dont le tracé est survolé sur la carte (mise en évidence dans la liste). */
+  hoveredTripId: string | null;
   /** Arrêt qui doit reprendre le focus clavier après le prochain rendu (suivi d'un déplacement). */
   focusStopId: string | null;
   /** Zone d'où vient la demande de focus : panneau de détail ou vue tableau. */
@@ -34,6 +36,7 @@ export interface PlanEditState {
   rollback: () => void;
   selectTrip: (tripId: string | null) => void;
   selectStop: (stopId: string | null) => void;
+  hoverTrip: (tripId: string | null) => void;
   requestFocus: (stopId: string | null, zone?: StopZone | null) => void;
   setView: (view: PlanView) => void;
   announce: (message: string) => void;
@@ -45,6 +48,7 @@ const INITIAL = {
   pendingOp: null,
   selectedTripId: null,
   selectedStopId: null,
+  hoveredTripId: null,
   focusStopId: null,
   focusZone: null,
   announcement: "",
@@ -117,6 +121,7 @@ export const usePlanStore = create<PlanEditState>((set, get) => ({
       return at ? { selectedTripId: at.trip.id, selectedStopId: at.stop.id } : { selectedStopId: null };
     }),
 
+  hoverTrip: (hoveredTripId) => set({ hoveredTripId }),
   requestFocus: (focusStopId, zone) =>
     set((state) => ({ focusStopId, focusZone: focusStopId ? (zone ?? state.focusZone) : null })),
   setView: (view) => set({ view }),

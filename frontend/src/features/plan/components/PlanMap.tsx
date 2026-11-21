@@ -1,7 +1,8 @@
 /**
  * Carte du plan : une couleur par tournée, arrêts numérotés, détail au survol, dépôts, commandes non
  * servies. La sélection est partagée avec la liste et le détail (store) : une tournée sélectionnée met les
- * autres en retrait ; cliquer un arrêt sélectionne l'arrêt et sa tournée.
+ * autres en retrait et la carte se recadre sur elle ; cliquer un tracé sélectionne la tournée, cliquer un
+ * arrêt sélectionne l'arrêt et sa tournée ; survoler un tracé met sa tournée en évidence dans la liste.
  */
 import { useMemo } from "react";
 
@@ -64,7 +65,7 @@ export function buildMapData(
       lon: order.lon,
       label: order.station_name ?? order.station_code ?? "",
       detail: [t.map.unserved, line],
-      inactive: true,
+      variant: "unserved",
     });
   }
 
@@ -120,9 +121,12 @@ export function PlanMap({ plan, className }: { plan: Plan; className?: string })
         points={points}
         routes={routes}
         selectedId={selectedStopId}
+        focusRouteId={selectedTripId}
         onSelect={(id, kind) => {
           if (kind === "stop") usePlanStore.getState().selectStop(id);
         }}
+        onRouteClick={(id) => usePlanStore.getState().selectTrip(id)}
+        onRouteHover={(id) => usePlanStore.getState().hoverTrip(id)}
       />
       {selectedTripId && (
         <Button

@@ -132,6 +132,12 @@ describe("Plan de tournées — lecture", () => {
     expect(map.querySelector('[data-route="trip-1"]')).toHaveAttribute("opacity", "0.35");
     await user.click(screen.getByRole("button", { name: "Toutes les tournées" }));
     expect(map.querySelector('[data-route="trip-1"]')).toHaveAttribute("opacity", "1");
+    // Clic sur le tracé d'une tournée → tournée sélectionnée ; survol → mise en évidence dans la liste.
+    await user.hover(map.querySelector('[data-route-hit="trip-1"]') as Element);
+    expect(tripList().querySelector("[data-hovered]")).toHaveTextContent("LT-401-AA");
+    await user.click(map.querySelector('[data-route-hit="trip-1"]') as Element);
+    expect(within(detail()).getByRole("heading", { name: "Tournée 1" })).toBeInTheDocument();
+    expect(tripList().querySelector("[data-selected]")).toHaveTextContent("LT-401-AA");
   });
 
   it("aucun plan pour le jour : renvoi vers l'écran Journée", async () => {

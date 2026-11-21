@@ -18,8 +18,8 @@ export const planTexts = {
     approximate: "Distances approchées",
     approximateHint:
       "Le serveur de distances routières n'a pas répondu : distances et durées estimées à vol d'oiseau corrigé.",
-    computedAt: (time: string, engine: string | null | undefined) =>
-      `Calculé à ${time}${engine ? ` · moteur ${engine}` : ""}`,
+    computedAt: (time: string, duration: string | null, engine: string | null | undefined) =>
+      `Calculé à ${time}${duration ? ` en ${duration}` : ""}${engine ? ` · moteur ${engine}` : ""}`,
     createdBy: (name: string) => `par ${name}`,
     viewLabel: "Vue du plan",
     viewMap: "Carte",
