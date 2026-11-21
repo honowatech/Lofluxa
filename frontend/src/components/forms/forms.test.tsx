@@ -265,6 +265,33 @@ describe("champs de formulaire (react-hook-form + zod)", () => {
   });
 });
 
+describe("SelectField", () => {
+  it("accepte `autoFocus` (premier champ d'une petite boîte)", () => {
+    const schema1 = z.object({ size: z.enum(["small", "large"]) });
+    renderWithProviders(
+      <EntityFormDialog
+        open
+        onOpenChange={() => {}}
+        title="Gabarit"
+        schema={schema1}
+        defaultValues={{ size: "large" }}
+        onSubmit={vi.fn()}
+      >
+        <SelectField
+          name="size"
+          label="Gabarit"
+          autoFocus
+          options={[
+            { value: "small", label: "Petit" },
+            { value: "large", label: "Grand" },
+          ]}
+        />
+      </EntityFormDialog>,
+    );
+    expect(screen.getByRole("combobox", { name: /^Gabarit/ })).toHaveFocus();
+  });
+});
+
 describe("DateInput — date en jj/mm/aaaa", () => {
   it("affiche en français, accepte la saisie, se vide si facultatif", async () => {
     const onChange = vi.fn();

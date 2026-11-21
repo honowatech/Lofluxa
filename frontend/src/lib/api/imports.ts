@@ -4,13 +4,17 @@ import type { ImportBatch, ImportIssue, ImportItem, ImportKind } from "@/lib/typ
 import { api } from "./client";
 import { apiUpload, downloadFile } from "./files";
 
-/** `POST /imports/{kind}/preview` (multipart, champ `file`). Rien n'est écrit dans les référentiels. */
+/**
+ * `POST /imports/{kind}/preview` (multipart, champ `file`). Rien n'est écrit dans les référentiels.
+ * `fields` : options propres au type d'import (ex. `{ day }` pour `orders`). L'API les lit dans les
+ * **paramètres de requête** (`?day=AAAA-MM-JJ`), pas dans le formulaire multipart.
+ */
 export function previewImport(
   kind: ImportKind,
   file: File,
   fields?: Record<string, string>,
 ): Promise<ImportBatch> {
-  return apiUpload<ImportBatch>(`/imports/${kind}/preview`, file, { fields });
+  return apiUpload<ImportBatch>(`/imports/${kind}/preview`, file, { query: fields });
 }
 
 /** `POST /imports/{batch_id}/apply` — 409 `import_has_errors`, `already_applied` ou `stale_preview`. */

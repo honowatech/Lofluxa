@@ -1,5 +1,7 @@
 """F7.4 — statuts de tournée et d'arrêt, livraisons, répercussion sur les commandes."""
 
+from datetime import UTC, date, datetime
+
 import pytest
 from sqlalchemy import select
 
@@ -433,3 +435,55 @@ async def test_roles_sur_la_livraison(client, db, auth_headers, products, role, 
         headers=await auth_headers(role),
     )
     assert response.status_code == expected
+
+
+async def test_completed_sans_heure_de_retour_sur_une_journee_future(client, db, auth_headers, products):
+    # Journée datée dans le futur (démonstration) : « maintenant » précède le départ réel saisi.
+    day = date(2099, 6, 15)
+    scenario = await make_trip_scenario(db, products, day=day)
+    headers = await auth_headers("fleet")
+    await client.post(f"/trips/{scenario.trip.id}/loading", json=scenario.loading_payload(), headers=headers)
+    await _advance(client, headers, scenario.trip.id, "at_depot", "loaded")
+    await _advance(client, headers, scenario.trip.id, "in_progress", actual_depart_at=iso(at(7, 25, day)))
+    await client.put(
+        f"/stops/{scenario.stops[0].id}/delivery",
+        json=_deliver(
+            scenario, 0, actual_arrival_at=iso(at(8, 40, day)), actual_departure_at=iso(at(9, 20, day))
+        ),
+        headers=headers,
+    )
+    await client.put(
+        f"/stops/{scenario.stops[1].id}/delivery",
+        json=_deliver(scenario, 1, actual_arrival_at=iso(at(9, 50, day)), actual_departure_at=None),
+        headers=headers,
+    )
+
+    response = await client.put(
+        f"/trips/{scenario.trip.id}/status", json={"status": "completed"}, headers=headers
+    )
+
+    assert response.status_code == 200, response.text
+    # Dernière heure réelle connue de la tournée (arrivée au dernier arrêt), plus tardive que « maintenant ».
+    assert response.json()["actual_return_at"] == "2099-06-15T09:50:00Z"
+
+
+async def test_completed_sans_heure_de_retour_prend_maintenant_si_plus_tardif(client, auth_headers, scenario):
+    headers = await auth_headers("fleet")
+    await _to_in_progress(client, headers, scenario)  # départ réel = maintenant
+    for index in (0, 1):
+        await client.put(
+            f"/stops/{scenario.stops[index].id}/delivery",
+            json=_deliver(
+                scenario,
+                index,
+                actual_arrival_at="2020-01-01T08:00:00Z",
+                actual_departure_at="2020-01-01T08:30:00Z",
+            ),
+            headers=headers,
+        )
+    before = datetime.now(UTC)
+
+    body = (await _advance(client, headers, scenario.trip.id, "completed")).json()
+
+    returned = datetime.fromisoformat(body["actual_return_at"].replace("Z", "+00:00"))
+    assert returned >= before.replace(microsecond=0)

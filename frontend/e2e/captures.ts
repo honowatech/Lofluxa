@@ -22,9 +22,16 @@ test("captures des écrans livrés", async ({ page }) => {
   await shot(page, "01-connexion");
 
   await login(page);
+  // Écran réel de vague 2 servi par les doublures de son lot (mode démonstration sans back-end).
   await page.goto("/journee?day=2027-01-12");
-  await expect(page.getByTestId("screen-day")).toBeVisible();
-  await shot(page, "02-coquille-page-attente");
+  await expect(page.getByRole("heading", { level: 1, name: "Journée" })).toBeVisible();
+  await page.waitForTimeout(600);
+  await shot(page, "02-coquille-journee-demonstration");
+
+  // Page d'attente d'un écran non encore livré.
+  await page.goto("/chargement?day=2027-01-12");
+  await expect(page.getByTestId("screen-loading")).toBeVisible();
+  await shot(page, "02b-coquille-page-attente");
 
   await page.getByRole("button", { name: /Alertes/ }).click();
   await expect(page.getByText(/permis ou une habilitation expiré/)).toBeVisible();

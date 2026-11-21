@@ -1,9 +1,12 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { http, HttpResponse } from "msw";
 import { describe, expect, it, vi } from "vitest";
 
 import { importReportRows } from "@/lib/api/imports";
 import type { ImportBatch } from "@/lib/types";
 import { db } from "@/mocks/db";
+import { API, readUpload } from "@/mocks/handlers/helpers";
+import { server } from "@/mocks/server";
 import { loginAs, renderWithProviders } from "@/test/utils";
 
 import { ImportDialog } from "./ImportDialog";
@@ -135,6 +138,57 @@ describe("ImportDialog", () => {
     ).toBeInTheDocument();
     expect(onApplied).not.toHaveBeenCalled();
     expect(onOpenChange).not.toHaveBeenCalledWith(false);
+  });
+
+  it("`fields` part en paramètres de requête de la prévisualisation (l'API n'y lit pas le formulaire)", async () => {
+    loginAs("admin");
+    let seen: { query: string; formHasDay: boolean } | null = null;
+    server.use(
+      http.post(`${API}/imports/orders/preview`, async ({ request }) => {
+        const upload = await readUpload(request);
+        seen = { query: new URL(request.url).search, formHasDay: "day" in upload.fields };
+        const id = "b-orders";
+        return HttpResponse.json(
+          {
+            id,
+            batch_id: id,
+            kind: "orders",
+            filename: upload.files.file.name,
+            status: "previewed",
+            row_count: 1,
+            error_count: 0,
+            can_apply: true,
+            created_at: "2027-01-12T06:00:00Z",
+            created_by: null,
+            report: {
+              summary: { created: 1, updated: 0, unchanged: 0, errors: 0, warnings: 0 },
+              issues: [],
+              items: [
+                {
+                  row: 2,
+                  key: "DLA-001/SUPER",
+                  label: "OLA Akwa — SUPER 12 000 L",
+                  action: "create",
+                  changes: [],
+                },
+              ],
+              options: { day: "2027-01-12" },
+            },
+          },
+          { status: 201 },
+        );
+      }),
+    );
+    const { user } = renderWithProviders(
+      <ImportDialog kind="orders" fields={{ day: "2027-01-12" }} open onOpenChange={() => {}} />,
+    );
+    await user.upload(
+      screen.getByLabelText("Choisir un fichier"),
+      csv("commandes.csv", ["station;produit;volume", "DLA-001;SUPER;12000"]),
+    );
+    await user.click(screen.getByRole("button", { name: "Prévisualiser" }));
+    expect(await screen.findByRole("button", { name: "Appliquer 1 ligne" })).toBeEnabled();
+    expect(seen).toEqual({ query: "?day=2027-01-12", formHasDay: false });
   });
 
   it("importReportRows regroupe effets et anomalies par ligne ; anomalies du fichier entier en tête", () => {

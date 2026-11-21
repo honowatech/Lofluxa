@@ -2957,6 +2957,14 @@ export interface components {
       gap_l: number | null;
       /** Gap Pct */
       gap_pct: number | null;
+      /** Gap Temperature L */
+      gap_temperature_l: number | null;
+      /** Gap Temperature Pct */
+      gap_temperature_pct: number | null;
+      /** Gap Observed L */
+      gap_observed_l: number | null;
+      /** Gap Observed Pct */
+      gap_observed_pct: number | null;
       /** Out Of Tolerance */
       out_of_tolerance: boolean;
     };
@@ -3003,12 +3011,22 @@ export interface components {
       gap_l: number;
       /** Gap Pct */
       gap_pct: number | null;
+      /** Gap Temperature L */
+      gap_temperature_l: number;
+      /** Gap Temperature Pct */
+      gap_temperature_pct: number | null;
+      /** Gap Observed L */
+      gap_observed_l: number;
+      /** Gap Observed Pct */
+      gap_observed_pct: number | null;
       /** Tolerance Pct */
       tolerance_pct: number;
       /** Out Of Tolerance */
       out_of_tolerance: boolean;
       /** Warning Message */
       warning_message: string | null;
+      /** Gap Explanation */
+      gap_explanation: string | null;
       /** Conversion Note */
       conversion_note: string;
     };
@@ -4621,6 +4639,10 @@ export interface components {
        * Format: uuid
        */
       plan_id: string;
+      /** Plan Version */
+      plan_version: number;
+      /** Plan Label */
+      plan_label: string | null;
       /** Day */
       day: string;
       /** Seq */

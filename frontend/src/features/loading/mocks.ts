@@ -131,6 +131,8 @@ export function createLoadingMocks(day: IsoDate): LoadingMocks {
   const trips: TripLoading[] = planTrips.map((trip) => ({
     id: trip.id,
     plan_id: planId,
+    plan_version: 1,
+    plan_label: null,
     day,
     seq: trip.seq,
     status: "planned",
@@ -179,6 +181,13 @@ export function createLoadingMocks(day: IsoDate): LoadingMocks {
         planned_l: load?.planned_l ?? null,
         gap_l: gap.gapL,
         gap_pct: gap.gapPct,
+        // Décomposition de l'écart comme le serveur : température (15 °C − observé) + volume (observé − planifié).
+        gap_temperature_l: at15 - line.observed_l,
+        gap_temperature_pct: load?.planned_l ? ((at15 - line.observed_l) / load.planned_l) * 100 : null,
+        gap_observed_l: load?.planned_l != null ? line.observed_l - load.planned_l : null,
+        gap_observed_pct: load?.planned_l
+          ? ((line.observed_l - load.planned_l) / load.planned_l) * 100
+          : null,
         out_of_tolerance: gap.outOfTolerance === true,
       };
     });
@@ -186,6 +195,7 @@ export function createLoadingMocks(day: IsoDate): LoadingMocks {
       (load) => !lines.some((line) => line.compartment_id === load.compartment_id),
     );
     const at15Total = lines.reduce((sum, line) => sum + line.volume_15_l, 0);
+    const observedTotal = lines.reduce((sum, line) => sum + line.observed_l, 0);
     const total = computeGap(at15Total, trip.planned_total_l, TOLERANCE);
     const out =
       total.outOfTolerance === true || missing.length > 0 || lines.some((line) => line.out_of_tolerance);
@@ -206,6 +216,17 @@ export function createLoadingMocks(day: IsoDate): LoadingMocks {
       planned_total_l: trip.planned_total_l,
       gap_l: total.gapL,
       gap_pct: total.gapPct,
+      gap_temperature_l: at15Total - observedTotal,
+      gap_temperature_pct: trip.planned_total_l
+        ? ((at15Total - observedTotal) / trip.planned_total_l) * 100
+        : null,
+      gap_observed_l: observedTotal - trip.planned_total_l,
+      gap_observed_pct: trip.planned_total_l
+        ? ((observedTotal - trip.planned_total_l) / trip.planned_total_l) * 100
+        : null,
+      gap_explanation: out
+        ? "Écart dû en partie à la correction de température, en partie au volume observé."
+        : null,
       tolerance_pct: TOLERANCE,
       out_of_tolerance: out,
       warning_message: out

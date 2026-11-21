@@ -23,7 +23,7 @@
 </div>
 
 {% if rm_13_message %}
-<div class="alert"><span class="warn">Avertissement RM-13 :</span> {{ rm_13_message }}</div>
+<div class="alert"><span class="warn">Avertissement RM-13 :</span> {{ rm_13_message }}{% if rm_13_explanation %}<br>{{ rm_13_explanation }}{% endif %}</div>
 {% endif %}
 
 <h2>Chargement réel par compartiment</h2>
