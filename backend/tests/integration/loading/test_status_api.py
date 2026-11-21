@@ -84,7 +84,15 @@ async def test_parcours_complet_d_une_tournee(client, db, auth_headers, scenario
     assert scenario.trip.status == TripStatus.COMPLETED
 
     # F9.3 : les changements de statut sont audités (table `trips`).
-    audits = (await db.execute(select(AuditLog).where(AuditLog.table_name == "trips"))).scalars().all()
+    audits = (
+        (
+            await db.execute(
+                select(AuditLog).where(AuditLog.table_name == "trips").order_by(AuditLog.at, AuditLog.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
     statuses = [a.after["status"] for a in audits if a.action == "update" and "status" in a.after]
     assert statuses == ["at_depot", "loaded", "in_progress", "completed"]
 
