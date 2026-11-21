@@ -10,8 +10,6 @@ from __future__ import annotations
 
 from collections import Counter
 
-import pytest
-
 from app.planning.fixtures import load_problem
 from tests.e2e.conftest import compute_day, get_plan, load, loading_payload, published_day
 
