@@ -1,0 +1,7 @@
+{
+ "params": {
+  "solver_time_limit_s": 30,
+  "solver_no_improvement_s": 15
+ },
+ "driver_assignments": []
+}

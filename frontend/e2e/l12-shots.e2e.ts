@@ -56,8 +56,8 @@ const hideToasts = (page: Page) =>
 test("captures : plan réaliste, édition, violation, publication, versions", async ({ page }) => {
   // Pénurie de gasoil : plusieurs tournées et des commandes non servies.
   const day = freshDay();
-  const { planId } = await seedPlan({ fixture: "demo_douala", day, stocks: { GASOIL: 30000 } });
-  const api = await Api.login();
+  const { planId, token } = await seedPlan({ fixture: "demo_douala", day, stocks: { GASOIL: 30000 } });
+  const api = new Api(token);
   const plan = await api.call<{ trips: ApiTrip[] }>("GET", `/plans/${planId}`);
   // Tournée la plus chargée (cible) et plus gros arrêt d'une autre tournée : le déplacement déborde le camion (RM-05).
   const target = [...plan.trips].sort(

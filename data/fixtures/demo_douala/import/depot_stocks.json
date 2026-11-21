@@ -1,0 +1,20 @@
+{
+ "day": "2027-01-12",
+ "items": [
+  {
+   "depot_code": "SCDP-DLA",
+   "product_code": "GASOIL",
+   "available_l": 64000.0
+  },
+  {
+   "depot_code": "SCDP-DLA",
+   "product_code": "PETROLE",
+   "available_l": 9000.0
+  },
+  {
+   "depot_code": "SCDP-DLA",
+   "product_code": "SUPER",
+   "available_l": 76000.0
+  }
+ ]
+}
