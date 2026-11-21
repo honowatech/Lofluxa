@@ -31,7 +31,7 @@ from app.planning import checking, editing, engine, mapping, versions
 from app.planning.checking import load_plan, log_event
 from app.planning.domain import Params, PlanningProblem, PlanningResult, TripD, ViolationD
 from app.planning.engine import ProgressCallback
-from app.planning.models import Plan, Trip, UnservedOrder
+from app.planning.models import Plan, Stop, StopDelivery, Trip, UnservedOrder
 
 _PARAM_NAMES = {f.name for f in fields(Params)}
 _EPSILON_L = 0.01
@@ -411,6 +411,40 @@ async def recheck_plan(session: AsyncSession, plan_id: uuid.UUID) -> list[Violat
     après modification, et les enregistre (F5.2)."""
     plan = await load_plan(session, plan_id, for_update=True)
     return await checking.recheck(session, plan)
+
+
+async def recheck_drafts_for_orders(session: AsyncSession, order_ids: Iterable[uuid.UUID]) -> list[uuid.UUID]:
+    """À appeler quand le statut d'une commande change hors du service de plans (report,
+    annulation) : recontrôle les plans **brouillons** qui portent ces commandes (servies ou non
+    servies), pour que l'état lu — violations, `blocking_count`, `publishable` — reste cohérent
+    (RM-15 : une urgente non servie ne bloque plus une fois reportée).
+
+    Les plans publiés ou archivés et les journées de référence ne sont pas touchés. Renvoie les
+    identifiants des plans recontrôlés."""
+    ids = list(order_ids)
+    if not ids:
+        return []
+    await session.flush()
+    unserved = select(UnservedOrder.plan_id).where(UnservedOrder.order_id.in_(ids))
+    delivered = (
+        select(Trip.plan_id)
+        .join(Stop, Stop.trip_id == Trip.id)
+        .join(StopDelivery, StopDelivery.stop_id == Stop.id)
+        .where(StopDelivery.order_id.in_(ids))
+    )
+    rows = await session.execute(
+        select(Plan.id)
+        .where(
+            Plan.status == PlanStatus.DRAFT,
+            Plan.kind != PlanKind.MANUAL_REFERENCE,
+            Plan.id.in_(unserved.union(delivered)),
+        )
+        .order_by(Plan.id)
+    )
+    plan_ids = list(rows.scalars())
+    for plan_id in plan_ids:
+        await checking.recheck(session, await load_plan(session, plan_id, for_update=True))
+    return plan_ids
 
 
 # --------------------------------------------------------------------------- publication (F5.4)

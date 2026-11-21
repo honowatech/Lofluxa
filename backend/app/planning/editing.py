@@ -60,7 +60,13 @@ async def _finish(
     await recheck(session, plan)
     log_event(session, plan, EventType.MANUAL_EDIT, payload, trip_id=trip_id)
     await session.flush()
-    return await load_plan(session, plan.id)
+    return _with_last_edit(await load_plan(session, plan.id), payload)
+
+
+def _with_last_edit(plan: Plan, payload: dict[str, Any]) -> Plan:
+    """Attache au plan renvoyé le résumé de la modification (repris par la réponse de l'API)."""
+    plan.last_edit = {"action": payload["action"], "summary": payload["summary"]}
+    return plan
 
 
 async def move_stop(
@@ -227,4 +233,4 @@ async def set_locked(session: AsyncSession, plan_id: uuid.UUID, trip_id: uuid.UU
     await session.flush()
     log_event(session, plan, EventType.MANUAL_EDIT, payload, trip_id=trip.id)
     await session.flush()
-    return await load_plan(session, plan.id)
+    return _with_last_edit(await load_plan(session, plan.id), payload)

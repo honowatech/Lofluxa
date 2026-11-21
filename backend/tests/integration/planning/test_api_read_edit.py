@@ -261,3 +261,84 @@ async def test_lock_et_unlock(client, auth_headers, db, plan):
     ).scalars()
     assert [e.payload["action"] for e in events] == ["lock", "unlock"]
     assert (await client.post(missing, headers=headers)).status_code == 404
+
+
+async def test_A1_report_d_une_urgente_non_servie_met_le_plan_a_jour(
+    client, auth_headers, db, world, fakes, dispatcher
+):
+    """Après `POST /orders/{id}/postpone`, le plan brouillon relu est cohérent sans autre action :
+    plus de RM-15, `blocking_count` et `publishable` à jour."""
+    from app.planning import service
+
+    urgent_id = world.orders["o3"].id
+    fakes.engine.skip = {str(urgent_id)}
+    plan_id = (await service.run_compute(db, world.day)).id
+    await db.commit()
+    headers = await auth_headers()
+
+    body = await _get(client, auth_headers, plan_id)
+    assert [v["rule_code"] for v in body["violations"]] == ["RM-15"] and body["publishable"] is False
+
+    response = await client.post(f"/orders/{urgent_id}/postpone", headers=headers)
+    assert response.status_code == 200 and response.json()["status"] == "postponed"
+
+    body = await _get(client, auth_headers, plan_id)
+    assert body["unserved"][0]["order_status"] == "postponed"  # toujours listée
+    assert body["violations"] == [] and body["blocking_count"] == 0 and body["publishable"] is True
+    assert body["metrics"]["blocking_count"] == 0
+    assert (await client.post(f"/plans/{plan_id}/publish", headers=headers)).status_code == 200
+
+
+async def test_A1_annulation_recontrole_seulement_les_brouillons(db, world, plan, fakes, dispatcher):
+    from app.core.enums import OrderStatus
+    from app.planning import service
+
+    published = await service.publish_plan(db, plan.id)
+    calls = fakes.rules.calls
+    world.orders["o1"].status = OrderStatus.CANCELLED
+    assert await service.recheck_drafts_for_orders(db, [world.orders["o1"].id]) == []
+    assert fakes.rules.calls == calls and published.status == "published"
+    assert await service.recheck_drafts_for_orders(db, []) == []
+
+
+async def test_A3_tous_les_compartiments_du_camion(client, auth_headers, plan, world):
+    """`compartments` liste tous les compartiments du camion, vides compris, dans l'ordre des
+    positions ; `loads` (compartiments chargés) est inchangé."""
+    headers = await auth_headers()
+    first = plan.trips[0]
+    move = {"stop_id": str(first.stops[1].id), "to_trip_id": str(plan.trips[1].id), "to_seq": 1}
+    body = (
+        await client.post(f"/plans/{plan.id}/trips/{first.id}/move-stop", json=move, headers=headers)
+    ).json()
+    # Tournée 1 : il ne reste que du Super (16 000 L) → compartiment 1 chargé, compartiment 2 vide.
+    trip = _trip(body, 1)
+    found = [
+        (x["compartment_position"], x["product_code"], x["planned_l"], x["capacity_l"])
+        for x in trip["compartments"]
+    ]
+    assert found == [(1, "SUPER", 16000.0, 18000.0), (2, None, 0.0, 12000.0)]
+    assert trip["compartments"][1]["product_id"] is None
+    assert trip["compartments"][1]["compartment_id"] == str(world.trucks["LT-001-AA"].compartments[1].id)
+    assert [(x["compartment_position"], x["product_code"]) for x in trip["loads"]] == [(1, "SUPER")]
+    assert all(x["id"] and x["product_id"] for x in trip["loads"])
+
+
+async def test_A5_reponses_d_edition_portent_last_edit(client, auth_headers, plan):
+    headers = await auth_headers()
+    first, second = plan.trips
+    base = f"/plans/{plan.id}/trips/{first.id}"
+    ids = [str(s.id) for s in first.stops]
+
+    assert "last_edit" in (body := await _get(client, auth_headers, plan.id)) and body["last_edit"] is None
+    body = (await client.post(f"{base}/lock", headers=headers)).json()
+    assert body["last_edit"] == {"action": "lock", "summary": "Tournée 1 verrouillée."}
+    body = (await client.post(f"{base}/unlock", headers=headers)).json()
+    assert body["last_edit"] == {"action": "unlock", "summary": "Tournée 1 déverrouillée."}
+    body = (await client.post(f"{base}/reorder", json={"stop_ids": ids[::-1]}, headers=headers)).json()
+    assert body["last_edit"] == {"action": "reorder", "summary": "Arrêts de la tournée 1 réordonnés."}
+    body = (await client.post(f"{base}/assign", json={"driver_id": None}, headers=headers)).json()
+    assert body["last_edit"] == {"action": "assign", "summary": "Tournée 1 : chauffeur retiré."}
+    move = {"stop_id": ids[0], "to_trip_id": str(second.id), "to_seq": 1}
+    body = (await client.post(f"{base}/move-stop", json=move, headers=headers)).json()
+    assert body["last_edit"]["action"] == "move_stop" and "ST-01" in body["last_edit"]["summary"]
+    assert (await _get(client, auth_headers, plan.id))["last_edit"] is None  # lecture : pas de résumé

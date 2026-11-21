@@ -333,6 +333,10 @@ async def _user_transition(session: AsyncSession, order_id: uuid.UUID, target: O
         raise transition_error(order, target)
     apply_status(order, target, idempotent=False)
     await _save(session, order)
+    # Les plans brouillons qui portent cette commande sont recontrôlés (RM-15) — service de plans, lot L5.
+    from app.planning import service as plan_service
+
+    await plan_service.recheck_drafts_for_orders(session, [order.id])
     return _to_out(order, *await _labels(session, order))
 
 
