@@ -49,7 +49,8 @@ describe("ImportDialog", () => {
     expect(rows[1]).toHaveTextContent(/Latitude\s*Nombre attendu\.\s*\(abc\)/);
     expect(rows[2]).toHaveTextContent("Doublon dans le fichier.");
     expect(screen.getByTestId("import-effects")).toHaveTextContent("1 création, 0 mise à jour, 0 inchangée");
-    expect(screen.getByRole("button", { name: "Appliquer l'import" })).toBeDisabled();
+    // Le bouton dit pourquoi il est inactif, au lieu d'annoncer des lignes qui ne seront pas appliquées.
+    expect(screen.getByRole("button", { name: "Import bloqué : 3 lignes en erreur" })).toBeDisabled();
 
     await user.click(screen.getByLabelText("Erreurs seulement"));
     expect(screen.getAllByRole("row").slice(1)).toHaveLength(4);
@@ -116,6 +117,7 @@ describe("ImportDialog", () => {
     await user.click(screen.getByRole("button", { name: "Prévisualiser" }));
     expect(await screen.findByText(/rien à appliquer/)).toBeInTheDocument();
     expect(screen.getAllByRole("row")[1]).toHaveTextContent("Inchangée");
+    expect(screen.getByRole("button", { name: "Rien à appliquer" })).toBeDisabled();
   });
 
   it("refus à l'application (lot déjà appliqué ailleurs) : message du serveur, la boîte reste ouverte", async () => {

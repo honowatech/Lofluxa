@@ -7,6 +7,7 @@ import { Notice } from "@/components/PageHeader";
 import { EmptyState } from "@/components/states";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
+import { DateInput } from "@/components/forms/DateInput";
 import { Input, NativeSelect } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { fr } from "@/i18n/fr";
@@ -281,23 +282,21 @@ export function AuditTab() {
         </div>
         <div className="flex flex-col gap-0.5">
           <Label htmlFor="audit-from">{t.from}</Label>
-          <Input
+          <DateInput
             id="audit-from"
-            type="date"
-            value={filters.from}
-            onChange={(event) => patch({ from: event.target.value })}
-            className="num h-7 w-36 text-xs"
+            value={filters.from || null}
+            onChange={(value) => patch({ from: value ?? "" })}
+            className="h-7 w-32 text-xs"
           />
         </div>
         <div className="flex flex-col gap-0.5">
           <Label htmlFor="audit-to">{t.to}</Label>
-          <Input
+          <DateInput
             id="audit-to"
-            type="date"
-            value={filters.to}
+            value={filters.to || null}
             aria-invalid={periodInvalid}
-            onChange={(event) => patch({ to: event.target.value })}
-            className="num h-7 w-36 text-xs"
+            onChange={(value) => patch({ to: value ?? "" })}
+            className="h-7 w-32 text-xs"
           />
         </div>
         {hasFilters && (

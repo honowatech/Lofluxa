@@ -7,10 +7,11 @@ import { useCallback, useEffect, useRef } from "react";
 import { fr } from "@/i18n/fr";
 import { DEFAULT_MAP_CENTER, TILES_ATTRIBUTION, TILES_URL } from "@/lib/config";
 
-import { allPositions, computeBounds, isValidPosition } from "./geometry";
+import { isValidPosition } from "./geometry";
 import type { MapRendererProps } from "./types";
 
 const ROUTES_SOURCE = "tn-routes";
+const ROUTES_HIT_LAYER = "tn-routes-hit";
 
 function buildStyle(): StyleSpecification {
   const style: StyleSpecification = {
@@ -51,7 +52,10 @@ export default function MapLibreMap({
   selectedId,
   onSelect,
   onMapClick,
+  onRouteClick,
+  onRouteHover,
   fitSignature,
+  fitBounds,
   onTilesError,
 }: MapRendererProps & { onTilesError: () => void }) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -59,16 +63,16 @@ export default function MapLibreMap({
   const markersRef = useRef<maplibregl.Marker[]>([]);
   const popupRef = useRef<maplibregl.Popup | null>(null);
   const loadedRef = useRef(false);
-  const callbacks = useRef({ onSelect, onMapClick, onTilesError });
-  callbacks.current = { onSelect, onMapClick, onTilesError };
-  const dataRef = useRef({ points, routes });
-  dataRef.current = { points, routes };
+  const callbacks = useRef({ onSelect, onMapClick, onRouteClick, onRouteHover, onTilesError });
+  callbacks.current = { onSelect, onMapClick, onRouteClick, onRouteHover, onTilesError };
+  const dataRef = useRef({ points, routes, fitBounds });
+  dataRef.current = { points, routes, fitBounds };
+  const hoveredRoute = useRef<string | null>(null);
 
   const fit = useCallback((animate: boolean) => {
     const map = mapRef.current;
     if (!map) return;
-    const positions = allPositions(dataRef.current.points, dataRef.current.routes);
-    const b = computeBounds(positions);
+    const b = dataRef.current.fitBounds;
     map.fitBounds(
       [
         [b.minLon, b.minLat],
@@ -87,7 +91,7 @@ export default function MapLibreMap({
         .filter((route) => route.path.filter(isValidPosition).length >= 2)
         .map((route) => ({
           type: "Feature",
-          properties: { color: route.color, opacity: route.dimmed ? 0.35 : 1 },
+          properties: { id: route.id, color: route.color, opacity: route.dimmed ? 0.35 : 1 },
           geometry: {
             type: "LineString",
             coordinates: route.path.filter(isValidPosition).map((p) => [p.lon, p.lat]),
@@ -114,6 +118,32 @@ export default function MapLibreMap({
       source: ROUTES_SOURCE,
       layout,
       paint: { "line-color": ["get", "color"], "line-width": 3, "line-opacity": ["get", "opacity"] },
+    });
+    // Bande invisible plus large que le trait : zone de clic et de survol du tracé.
+    map.addLayer({
+      id: ROUTES_HIT_LAYER,
+      type: "line",
+      source: ROUTES_SOURCE,
+      layout,
+      paint: { "line-color": "#000000", "line-width": 16, "line-opacity": 0 },
+    });
+    const routeAt = (event: maplibregl.MapLayerMouseEvent) =>
+      (event.features?.[0]?.properties?.id as string | undefined) ?? null;
+    map.on("click", ROUTES_HIT_LAYER, (event) => {
+      const id = routeAt(event);
+      if (id) callbacks.current.onRouteClick?.(id);
+    });
+    map.on("mousemove", ROUTES_HIT_LAYER, (event) => {
+      const id = routeAt(event);
+      if (id === hoveredRoute.current) return;
+      hoveredRoute.current = id;
+      if (callbacks.current.onRouteClick) map.getCanvas().style.cursor = "pointer";
+      callbacks.current.onRouteHover?.(id);
+    });
+    map.on("mouseleave", ROUTES_HIT_LAYER, () => {
+      hoveredRoute.current = null;
+      map.getCanvas().style.cursor = callbacks.current.onMapClick ? "crosshair" : "";
+      callbacks.current.onRouteHover?.(null);
     });
   }, []);
 
@@ -143,9 +173,13 @@ export default function MapLibreMap({
       drawRoutes();
       fit(false);
     });
-    map.on("click", (event) =>
-      callbacks.current.onMapClick?.({ lat: event.lngLat.lat, lon: event.lngLat.lng }),
-    );
+    map.on("click", (event) => {
+      const onRoute =
+        !!callbacks.current.onRouteClick &&
+        !!map.getLayer(ROUTES_HIT_LAYER) &&
+        map.queryRenderedFeatures(event.point, { layers: [ROUTES_HIT_LAYER] }).length > 0;
+      if (!onRoute) callbacks.current.onMapClick?.({ lat: event.lngLat.lat, lon: event.lngLat.lng });
+    });
     map.on("error", (event) => {
       // Tuiles injoignables (hôte refusé, hors ligne) : la carte reste lisible, on le signale une fois.
       if ((event as { sourceId?: string }).sourceId === "basemap") callbacks.current.onTilesError();
@@ -178,13 +212,15 @@ export default function MapLibreMap({
         text?: string;
         color?: string;
         opacity?: number;
+        variant?: string;
         kindLabel: string;
         title: string;
         detail: string[];
       },
     ) => {
       const element = document.createElement("div");
-      element.className = `tn-marker tn-marker--${kind}${selectedId === id ? " tn-marker--selected" : ""}`;
+      element.className = `tn-marker tn-marker--${options.variant ?? kind}${selectedId === id ? " tn-marker--selected" : ""}`;
+      if (options.variant) element.dataset.variant = options.variant;
       element.dataset.markerId = id;
       element.setAttribute("aria-label", `${options.kindLabel} ${options.title}`);
       if (options.text) element.textContent = options.text;
@@ -204,15 +240,27 @@ export default function MapLibreMap({
         callbacks.current.onSelect(id, kind);
       });
       markersRef.current.push(
-        new maplibregl.Marker({ element }).setLngLat([position.lon, position.lat]).addTo(map),
+        // L'opacité passe par l'option du marqueur : MapLibre gère lui-même `style.opacity` de l'élément.
+        new maplibregl.Marker({
+          element,
+          opacity: options.opacity === undefined ? undefined : String(options.opacity),
+        })
+          .setLngLat([position.lon, position.lat])
+          .addTo(map),
       );
     };
 
     points.filter(isValidPosition).forEach((point) =>
       addMarker(point.id, point.kind, point, {
-        kindLabel: point.kind === "depot" ? fr.map.depot : fr.map.station,
+        kindLabel:
+          point.variant === "unserved"
+            ? fr.map.unserved
+            : point.kind === "depot"
+              ? fr.map.depot
+              : fr.map.station,
         title: point.label,
         detail: point.detail ?? [],
+        variant: point.variant,
         opacity: point.inactive ? 0.45 : undefined,
       }),
     );
@@ -231,7 +279,7 @@ export default function MapLibreMap({
     drawRoutes();
   }, [points, routes, selectedId, drawRoutes]);
 
-  // Cadrage automatique quand les positions changent.
+  // Cadrage automatique quand l'emprise à montrer change (contenu, tournée ciblée ou emprise imposée).
   useEffect(() => {
     if (loadedRef.current) fit(true);
   }, [fitSignature, fit]);

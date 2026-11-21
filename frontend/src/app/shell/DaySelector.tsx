@@ -2,9 +2,9 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { DateInput } from "@/components/forms/DateInput";
 import { fr } from "@/i18n/fr";
-import { formatDateLong, isValidDay } from "@/lib/format";
+import { formatDateLong } from "@/lib/format";
 import { useDay } from "@/lib/useDay";
 import { cn } from "@/lib/utils";
 
@@ -24,12 +24,12 @@ export function DaySelector() {
       >
         <ChevronLeft />
       </Button>
-      <Input
-        type="date"
+      <DateInput
         aria-label={fr.shell.day}
+        required
         value={day}
-        onChange={(event) => isValidDay(event.target.value) && setDay(event.target.value)}
-        className="num h-7 w-[8.25rem] px-1.5"
+        onChange={(next) => next && setDay(next)}
+        className="h-7 w-[7.25rem] px-1.5"
       />
       <Button
         variant="outline"

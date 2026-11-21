@@ -4,14 +4,14 @@
  */
 import { expect, test } from "@playwright/test";
 
-const ADMIN = { email: "admin@honowa.tech", password: "admin-dev-only" };
+import { ADMIN, PATIENT_TIMEOUT, submitLogin } from "./l9-auth";
+
+test.setTimeout(PATIENT_TIMEOUT);
 
 test("connexion refusée avec un mauvais mot de passe", async ({ page }) => {
   await page.goto("/");
   await expect(page).toHaveURL(/\/connexion$/);
-  await page.getByLabel("Adresse e-mail").fill(ADMIN.email);
-  await page.getByLabel("Mot de passe", { exact: true }).fill("mauvais-mot-de-passe");
-  await page.getByRole("button", { name: "Se connecter" }).click();
+  await submitLogin(page, ADMIN.email, "mauvais-mot-de-passe");
   await expect(page.getByRole("alert")).toContainText("E-mail ou mot de passe incorrect.");
   await expect(page).toHaveURL(/\/connexion$/);
 });
@@ -20,9 +20,7 @@ test("connexion admin → coquille → déconnexion", async ({ page }) => {
   // Une route protégée renvoie à la connexion, puis ramène à la page demandée (jour J conservé).
   await page.goto("/plan?day=2027-01-12");
   await expect(page).toHaveURL(/\/connexion$/);
-  await page.getByLabel("Adresse e-mail").fill(ADMIN.email);
-  await page.getByLabel("Mot de passe", { exact: true }).fill(ADMIN.password);
-  await page.getByRole("button", { name: "Se connecter" }).click();
+  await submitLogin(page, ADMIN.email, ADMIN.password);
 
   await expect(page).toHaveURL(/\/plan\?day=2027-01-12$/);
   await expect(page.getByTestId("mocks-badge")).toHaveCount(0);
