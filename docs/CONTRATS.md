@@ -24,7 +24,13 @@ Structures pures : `Params`, `ProductD`, `CompartmentD`, `TruckD`, `DriverD`, `D
 tournée à partir de sa séquence d'arrêts. **Le moteur et l'édition manuelle passent tous deux par cette
 fonction** : mêmes heures pour une même séquence. Aides : `stop_windows`, `lateness_s`.
 
-## 3. Règles — `backend/app/planning/violations/rules.py` (lot L1)
+## 3. Règles — `backend/app/planning/violations/` (lot L1)
+
+Déjà livré par le socle dans `eligibility.py` (à réutiliser tel quel, y compris par le lot L4 pour F2.2/F2.3) :
+`driver_block_reason(driver, day)` (RM-03), `driver_unavailable_reason(driver, day)`, `truck_block_reason(truck)` (RM-04)
+— renvoient le motif en français ou `None`.
+
+À livrer par le lot L1 dans `rules.py` :
 
 ```python
 def check_plan(problem, trips, unserved=None, matrix=None) -> list[ViolationD]

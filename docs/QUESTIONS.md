@@ -26,3 +26,4 @@ adoptée et notée.
 | S5 | Le temps de chargement au dépôt (§7.3 « paramètre ») est distinct du temps d'attente (F1.2). | Deux paramètres : `default_depot_wait_min` (90) et `depot_loading_time_min` (45). À confirmer avec OLA. |
 | S6 | RM-11 : la durée de service court-elle depuis l'arrivée au dépôt ou depuis le départ du dépôt ? La spec dit « départ dépôt → retour dépôt ». | Durée = retour − départ du dépôt (attente et chargement exclus). À confirmer avec OLA. |
 | S7 | RM-16 : la part non livrée d'une commande partielle « reste `confirmed` », mais une commande n'a qu'un statut. | À préciser par le lot L5 (reliquat = demandé − planifié dans le plan publié). |
+| S8 | RM-03 : que faire d'un chauffeur dont la date d'expiration du permis ou de l'habilitation n'est pas renseignée, ou sans habilitation matières dangereuses ? | Date non renseignée : non bloquant. Habilitation absente (`hazmat_cert = false`) : non affectable. À confirmer avec OLA. |
