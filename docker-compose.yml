@@ -1,0 +1,221 @@
+# Tournéo — pile complète (démonstration et production). Voir docs/EXPLOITATION.md.
+#
+#   cp .env.example .env   # puis renseigner les secrets
+#   docker compose up -d --build
+#
+# Aucune donnée n'est perdue par `docker compose down && docker compose up -d` : tout l'état vit dans
+# des volumes nommés (base, Redis, données OSRM, sauvegardes, certificats). Ne jamais ajouter `-v` à `down`.
+
+name: tourneo
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+# Variables communes à l'API et au worker. Le fichier .env est transmis en entier (toute variable
+# TOURNEO_* ajoutée par un module est ainsi prise en compte) ; les adresses internes sont imposées ici.
+x-backend: &backend
+  image: tourneo-backend:${TOURNEO_VERSION:-latest}
+  build:
+    context: .
+    dockerfile: backend/Dockerfile
+  restart: unless-stopped
+  env_file:
+    - .env
+  environment: &backend-env
+    TOURNEO_ENV: ${TOURNEO_ENV:-prod}
+    TOURNEO_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-tourneo}:${POSTGRES_PASSWORD:?Définir POSTGRES_PASSWORD dans .env}@db:5432/${POSTGRES_DB:-tourneo}
+    TOURNEO_REDIS_URL: redis://redis:6379/0
+    TOURNEO_OSRM_URL: http://osrm:5000
+    TOURNEO_JWT_SECRET: ${TOURNEO_JWT_SECRET:?Définir TOURNEO_JWT_SECRET dans .env}
+    TOURNEO_ADMIN_PASSWORD: ${TOURNEO_ADMIN_PASSWORD:?Définir TOURNEO_ADMIN_PASSWORD dans .env}
+    # La phrase secrète des sauvegardes ne concerne que le service `backup` : elle n'entre pas ici.
+    BACKUP_PASSPHRASE: ""
+  logging: *logging
+
+services:
+  caddy:
+    image: caddy:2.8-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:-localhost}
+      # Vide : HTTPS automatique sans adresse de contact. Sinon « tls <adresse> » ou « tls internal ».
+      CADDY_TLS: ${ACME_EMAIL:+tls ${ACME_EMAIL}}
+    volumes:
+      - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - frontend_dist:/srv/www:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+      frontend:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:2019/config/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging: *logging
+
+  api:
+    <<: *backend
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      osrm:
+        # OSRM peut mettre longtemps à démarrer (prétraitement) : l'API n'attend pas qu'il réponde,
+        # le moteur se rabat sur les distances à vol d'oiseau tant qu'il est indisponible.
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=4)"]
+      interval: 20s
+      timeout: 6s
+      retries: 3
+      start_period: 90s
+
+  worker:
+    <<: *backend
+    command: ["sh", "-c", "exec celery -A app.worker.celery_app worker --loglevel=info --concurrency=\"$${WORKER_CONCURRENCY:-2}\""]
+    stop_grace_period: 90s
+    depends_on:
+      api:
+        # L'API applique les migrations au démarrage : le worker attend qu'elle soit prête.
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.worker.celery_app inspect ping -d \"celery@$$HOSTNAME\" --timeout 10 > /dev/null 2>&1"]
+      interval: 60s
+      timeout: 30s
+      retries: 3
+      start_period: 60s
+
+  db:
+    image: postgis/postgis:16-3.4
+    restart: unless-stopped
+    shm_size: 256mb
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-tourneo}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Définir POSTGRES_PASSWORD dans .env}
+      POSTGRES_DB: ${POSTGRES_DB:-tourneo}
+      TZ: UTC
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+    logging: *logging
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--save", "300", "10"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    logging: *logging
+
+  # Téléchargement de l'extrait OpenStreetMap du Cameroun (ne fait rien s'il est déjà dans le volume).
+  osrm-download:
+    image: tourneo-osrm-download:${TOURNEO_VERSION:-latest}
+    build:
+      context: ./infra/osrm
+      target: download
+    restart: "no"
+    environment:
+      OSRM_PBF_URL: ${OSRM_PBF_URL:-https://download.geofabrik.de/africa/cameroon-latest.osm.pbf}
+    volumes:
+      - osrm_data:/data
+    logging: *logging
+
+  osrm:
+    image: tourneo-osrm:${TOURNEO_VERSION:-latest}
+    build:
+      context: ./infra/osrm
+      target: osrm
+    restart: unless-stopped
+    environment:
+      OSRM_ALGORITHM: ${OSRM_ALGORITHM:-mld}
+      OSRM_MAX_TABLE_SIZE: ${OSRM_MAX_TABLE_SIZE:-1000}
+      TRUCK_SPEED_FACTOR: ${TRUCK_SPEED_FACTOR:-0.8}
+      TRUCK_MAX_SPEED_KMH: ${TRUCK_MAX_SPEED_KMH:-80}
+      TRUCK_HEIGHT_M: ${TRUCK_HEIGHT_M:-4.0}
+      TRUCK_WIDTH_M: ${TRUCK_WIDTH_M:-2.55}
+      TRUCK_LENGTH_M: ${TRUCK_LENGTH_M:-16.5}
+      TRUCK_WEIGHT_KG: ${TRUCK_WEIGHT_KG:-40000}
+      TRUCK_HAZMAT: ${TRUCK_HAZMAT:-1}
+    volumes:
+      - osrm_data:/data
+    depends_on:
+      osrm-download:
+        condition: service_completed_successfully
+    logging: *logging
+
+  # Build statique de l'interface : le conteneur publie les fichiers dans le volume servi par Caddy, puis s'arrête.
+  frontend:
+    image: tourneo-frontend:${TOURNEO_VERSION:-latest}
+    build:
+      context: ./frontend
+      dockerfile: ../infra/frontend/Dockerfile
+    restart: "no"
+    volumes:
+      - frontend_dist:/srv/www
+    logging: *logging
+
+  # Sauvegarde quotidienne chiffrée (02:00), rétention 14 jours, copie hebdomadaire hors serveur (rclone).
+  backup:
+    image: tourneo-backup:${TOURNEO_VERSION:-latest}
+    build:
+      context: ./infra/backup
+    restart: unless-stopped
+    env_file:
+      # Identifiants rclone du stockage hors serveur (RCLONE_CONFIG_…), séparés de .env pour ne pas
+      # être transmis à l'API. Fichier facultatif : sans lui, pas de copie hors serveur.
+      - path: .env.backup
+        required: false
+    environment:
+      PGHOST: db
+      PGPORT: "5432"
+      PGUSER: ${POSTGRES_USER:-tourneo}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?Définir POSTGRES_PASSWORD dans .env}
+      PGDATABASE: ${POSTGRES_DB:-tourneo}
+      BACKUP_DIR: /backups
+      BACKUP_PASSPHRASE: ${BACKUP_PASSPHRASE:?Définir BACKUP_PASSPHRASE dans .env}
+      BACKUP_TIME: ${BACKUP_TIME:-02:00}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
+      RCLONE_REMOTE: ${RCLONE_REMOTE:-}
+      BACKUP_OFFSITE_WEEKDAY: ${BACKUP_OFFSITE_WEEKDAY:-7}
+      BACKUP_OFFSITE_RETENTION_DAYS: ${BACKUP_OFFSITE_RETENTION_DAYS:-0}
+      TZ: ${BACKUP_TZ:-Africa/Douala}
+    volumes:
+      - backups:/backups
+    depends_on:
+      db:
+        condition: service_healthy
+    logging: *logging
+
+volumes:
+  db_data:
+  redis_data:
+  osrm_data:
+  backups:
+  frontend_dist:
+  caddy_data:
+  caddy_config:

@@ -1,0 +1,15 @@
+# Contexte de construction de l'image du back-end (backend/Dockerfile, contexte = racine du dépôt).
+# Tout est exclu, sauf ce dont l'image a besoin.
+*
+!backend/pyproject.toml
+!backend/uv.lock
+!backend/alembic.ini
+!backend/alembic/
+!backend/app/
+!data/
+!infra/api/
+**/__pycache__/
+**/*.pyc
+**/.pytest_cache/
+**/.ruff_cache/
+data/osrm/
