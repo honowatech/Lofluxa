@@ -18,12 +18,12 @@ from app.orders.models import Order
 from app.planning import checking, versions
 from app.planning.models import Plan, Trip
 from app.planning.schemas import (
-    CompartmentOut,
     DeliveryOut,
     LoadOut,
     PlanOut,
     PlanSummaryOut,
     StopOut,
+    TripCompartmentOut,
     TripOut,
     UnservedOut,
     VersionChangeOut,
@@ -194,7 +194,7 @@ def trip_out(trip: Trip, labels: Labels, violations: Counter | None = None) -> T
     for compartment in sorted(compartments.values(), key=lambda c: c.position):
         load = by_compartment.get(compartment.id)
         all_compartments.append(
-            CompartmentOut(
+            TripCompartmentOut(
                 compartment_id=compartment.id,
                 compartment_position=compartment.position,
                 capacity_l=float(compartment.capacity_l),

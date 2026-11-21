@@ -2833,7 +2833,20 @@ export interface components {
        */
       warnings: number;
     };
-    /** LoadOut */
+    /**
+     * LastEditOut
+     * @description Ce que la modification qui vient d'être faite a changé (résumé journalisé dans `events`).
+     */
+    LastEditOut: {
+      /** Action */
+      action: string;
+      /** Summary */
+      summary: string;
+    };
+    /**
+     * LoadOut
+     * @description Un compartiment chargé (plan de chargement de la tournée).
+     */
     LoadOut: {
       /**
        * Id
@@ -3646,6 +3659,8 @@ export interface components {
       created_by?: string | null;
       /** Created By Name */
       created_by_name?: string | null;
+      /** @description Présent seulement dans la réponse d'une modification manuelle. */
+      last_edit?: components["schemas"]["LastEditOut"] | null;
       /** Params Snapshot */
       params_snapshot?: {
         [key: string]: unknown;
@@ -4470,6 +4485,31 @@ export interface components {
       blocked_reason?: string | null;
     };
     /**
+     * TripCompartmentOut
+     * @description Un compartiment du camion de la tournée, chargé ou vide (`planned_l = 0`, `product_id = null`).
+     */
+    TripCompartmentOut: {
+      /**
+       * Compartment Id
+       * Format: uuid
+       */
+      compartment_id: string;
+      /** Compartment Position */
+      compartment_position: number;
+      /** Capacity L */
+      capacity_l: number;
+      /** Product Id */
+      product_id?: string | null;
+      /** Product Code */
+      product_code?: string | null;
+      /** Product Label */
+      product_label?: string | null;
+      /** Product Color */
+      product_color?: string | null;
+      /** Planned L */
+      planned_l: number;
+    };
+    /**
      * TripLoadingOut
      * @description Une tournée vue du dépôt : libellés, heures, état de chargement, avancement des arrêts.
      */
@@ -4611,6 +4651,11 @@ export interface components {
       stops: components["schemas"]["app__planning__schemas__StopOut"][];
       /** Loads */
       loads: components["schemas"]["LoadOut"][];
+      /**
+       * Compartments
+       * @description Tous les compartiments du camion, vides compris, dans l'ordre des positions.
+       */
+      compartments?: components["schemas"]["TripCompartmentOut"][];
     };
     /** TripRouteOut */
     TripRouteOut: {

@@ -127,7 +127,7 @@ class LoadOut(BaseModel):
     planned_l: float
 
 
-class CompartmentOut(BaseModel):
+class TripCompartmentOut(BaseModel):
     """Un compartiment du camion de la tournée, chargé ou vide (`planned_l = 0`, `product_id = null`)."""
 
     compartment_id: uuid.UUID
@@ -171,7 +171,7 @@ class TripOut(BaseModel):
     warning_count: int = 0
     stops: list[StopOut]
     loads: list[LoadOut]
-    compartments: list[CompartmentOut] = Field(
+    compartments: list[TripCompartmentOut] = Field(
         default_factory=list,
         description="Tous les compartiments du camion, vides compris, dans l'ordre des positions.",
     )
