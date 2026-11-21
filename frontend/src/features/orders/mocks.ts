@@ -1,6 +1,7 @@
 /**
  * Doublures MSW de l'écran Commandes du jour (routes du lot L4), au plus près du comportement réel :
- * transitions, contrôle de volume F3.4 (refus 422 `order_exceeds_tank_capacity` ou avertissement `tank_unknown`),
+ * transitions, contrôle de volume F3.4 (refus 422 `order_exceeds_tank_capacity`, avertissements `tank_unknown` et
+ * `exceeds_tank_capacity` renvoyés en lecture pour les brouillons et les commandes confirmées),
  * confirmation en masse avec un résultat par commande. Stations et produits viennent du jeu fictif commun.
  * À brancher par `server.use(...createOrdersMocks().handlers)`.
  */
@@ -92,6 +93,14 @@ export function createOrdersMocks() {
     return { max_l: max, warnings: [] };
   };
 
+  /** `warnings[]` d'une commande lue : vide hors brouillon / confirmée ; le dépassement s'annonce dès le brouillon. */
+  const warningsOf = (order: Order): OrderWarning[] => {
+    if (order.status !== "draft" && order.status !== "confirmed") return [];
+    const result = check(order);
+    return result.blocking ? [{ code: "exceeds_tank_capacity", message: result.blocking }] : result.warnings;
+  };
+  const out = (order: Order): Order => ({ ...order, warnings: warningsOf(order) });
+
   const capacityError = (order: Order, result: Check) =>
     errorResponse(422, "order_exceeds_tank_capacity", result.blocking as string, [
       { order_id: order.id, field: "requested_l", message: result.blocking, max_l: result.max_l },
@@ -129,14 +138,12 @@ export function createOrdersMocks() {
     }
     const next = { ...order, ...changes } as Order;
     Object.assign(next, labels(next));
-    let warnings: OrderWarning[] = [];
     if (next.status === "confirmed") {
       const result = check(next);
       if (result.blocking) return capacityError(order, result);
-      warnings = result.warnings;
     }
     Object.assign(order, next, { updated_at: new Date().toISOString() });
-    return HttpResponse.json({ ...order, warnings });
+    return HttpResponse.json(out(order));
   };
 
   const handlers: HttpHandler[] = [
@@ -157,9 +164,8 @@ export function createOrdersMocks() {
       );
       const limit = Number(params.get("limit") ?? 50);
       const offset = Number(params.get("offset") ?? 0);
-      // Comme le serveur réel : les avertissements ne sont pas renvoyés par la liste.
       return HttpResponse.json({
-        items: rows.slice(offset, offset + limit).map((order) => ({ ...order, warnings: [] })),
+        items: rows.slice(offset, offset + limit).map(out),
         total: rows.length,
         limit,
         offset,
@@ -208,7 +214,7 @@ export function createOrdersMocks() {
         return {
           order_id,
           ok: true,
-          order: { ...order, warnings: result.warnings },
+          order: out(order),
           warnings: result.warnings,
           error: null,
         };
@@ -239,7 +245,7 @@ export function createOrdersMocks() {
         comment: input.comment ?? null,
       });
       state.orders.push(order);
-      return HttpResponse.json(order, { status: 201 });
+      return HttpResponse.json(out(order), { status: 201 });
     }),
 
     http.put(`${API}/orders/:id`, async ({ request, params }) => {
@@ -286,11 +292,11 @@ export function createOrdersMocks() {
         const result = check(order);
         if (result.blocking) return capacityError(order, result);
         order.status = "confirmed";
-        return HttpResponse.json({ ...order, warnings: result.warnings });
+        return HttpResponse.json(out(order));
       }
       if (order.status !== "draft" && order.status !== "confirmed") return transitionError(order);
       order.status = params.action === "cancel" ? "cancelled" : "postponed";
-      return HttpResponse.json(order);
+      return HttpResponse.json(out(order));
     }),
   ];
 

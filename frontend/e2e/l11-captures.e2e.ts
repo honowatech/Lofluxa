@@ -91,6 +91,14 @@ test("captures des écrans Journée, Commandes du jour et Disponibilité du jour
   await cells.first().fill("66500");
   await page.getByRole("button", { name: "Enregistrer (1)" }).click();
   await expect(page.getByText("1 stock enregistré", { exact: true })).toBeVisible();
+  // Une saisie effacée puis reprise : l'historique en garde la trace.
+  await cells.nth(1).fill("");
+  await page.getByRole("button", { name: "Enregistrer (1)" }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Effacer" }).click();
+  await expect(page.getByText("1 saisie effacée", { exact: true })).toBeVisible();
+  await cells.nth(1).fill("9500");
+  await page.getByRole("button", { name: "Enregistrer (1)" }).click();
+  await expect(page.getByText(`${count - 1} / ${count} renseignés`)).toBeVisible();
   await cells.nth(2).fill("70000");
   await cells.nth(2).blur();
   await shot(page, "l11-07-disponibilite-stocks");

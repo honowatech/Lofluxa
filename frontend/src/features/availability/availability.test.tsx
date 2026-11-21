@@ -76,26 +76,21 @@ describe("Disponibilité — stocks dépôt", () => {
     expect(screen.getByRole("button", { name: "Enregistrer" })).toBeDisabled();
   });
 
-  it("refuse une valeur effacée ou négative et permet d'annuler la saisie", async () => {
+  it("refuse une valeur négative et permet d'annuler la saisie", async () => {
     const { state } = setup();
     loginAs("supply");
     const { user } = renderApp(route("stocks"));
     await screen.findByRole("table", { name: "Stock disponible par dépôt et par produit" });
 
-    await user.clear(cell("SCDP-DLA — Gasoil"));
-    expect(within(screen.getByTestId("stock-dep-dla:prod-gasoil")).getByRole("alert")).toHaveTextContent(
-      /ne peut pas être effacé : saisir 0/,
-    );
     await user.type(cell("SCDP-YDE — Gasoil"), "-5");
     expect(within(screen.getByTestId("stock-dep-yde:prod-gasoil")).getByRole("alert")).toHaveTextContent(
       "Le volume ne peut pas être négatif",
     );
-    expect(screen.getByRole("button", { name: "Enregistrer (2)" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Enregistrer (1)" })).toBeDisabled();
     await user.keyboard("{Enter}");
     expect(state.stockPuts).toHaveLength(0);
 
     await user.click(screen.getByRole("button", { name: "Annuler les modifications" }));
-    expect(shown("SCDP-DLA — Gasoil")).toBe("120 000");
     expect(shown("SCDP-YDE — Gasoil")).toBe("");
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     // Zéro est une valeur saisie (≠ non renseigné).
@@ -104,6 +99,42 @@ describe("Disponibilité — stocks dépôt", () => {
     await waitFor(() =>
       expect(state.stockPuts).toEqual([[{ depot_id: "dep-yde", product_id: "prod-gasoil", available_l: 0 }]]),
     );
+  });
+
+  it("efface une saisie après confirmation : le stock redevient non renseigné, l'historique en garde la trace", async () => {
+    const { state } = setup();
+    loginAs("supply");
+    const { user } = renderApp(route("stocks"));
+    await screen.findByRole("table", { name: "Stock disponible par dépôt et par produit" });
+
+    await user.clear(cell("SCDP-DLA — Gasoil"));
+    expect(screen.getByTestId("stock-dep-dla:prod-gasoil")).toHaveTextContent("Sera effacé");
+    await user.click(screen.getByRole("button", { name: "Enregistrer (1)" }));
+    let dialog = await screen.findByRole("alertdialog", { name: "Effacer la saisie ?" });
+    expect(dialog).toHaveTextContent("SCDP-DLA — Gasoil");
+    // Sans confirmation, rien ne part.
+    await user.click(within(dialog).getByRole("button", { name: "Annuler" }));
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
+    expect(state.stockPuts).toHaveLength(0);
+    expect(screen.getByText("1 modification non enregistrée")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Enregistrer (1)" }));
+    dialog = await screen.findByRole("alertdialog", { name: "Effacer la saisie ?" });
+    await user.click(within(dialog).getByRole("button", { name: "Effacer" }));
+    expect(await screen.findByText("1 saisie effacée")).toBeInTheDocument();
+    expect(state.stockPuts).toEqual([
+      [{ depot_id: "dep-dla", product_id: "prod-gasoil", available_l: null }],
+    ]);
+    await waitFor(() => expect(screen.getByText("0 / 6 renseignés")).toBeInTheDocument());
+    expect(shown("SCDP-DLA — Gasoil")).toBe("");
+    expect(screen.getByTestId("stock-dep-dla:prod-gasoil")).toHaveTextContent(
+      /Non renseigné — effacé à \d\d:\d\d par Hervé Mbah/,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Historique — SCDP-DLA — Gasoil" }));
+    const history = await screen.findByRole("dialog", { name: "Historique des saisies — SCDP-DLA · Gasoil" });
+    await waitFor(() => expect(within(history).getAllByRole("row")).toHaveLength(4));
+    expect(within(history).getAllByRole("row")[1]).toHaveTextContent("Saisie effacée");
   });
 
   it("donne accès à l'historique d'une cellule et à celui du jour", async () => {

@@ -219,7 +219,28 @@ describe("Commandes du jour — confirmation, annulation, report, suppression", 
     expect(within(rowOf(table, "OLA Deido", "Pétrole")).getByTestId("order-warning")).toHaveAccessibleName(
       /Cuve non renseignée/,
     );
-    expect(screen.getByText(/1 commande confirmée avec avertissement/)).toBeInTheDocument();
+    expect(screen.getByText(/1 commande avec avertissement : cuve non renseignée/)).toBeInTheDocument();
+  });
+
+  it("signale dès le brouillon un volume que la cuve ne peut pas recevoir", async () => {
+    const { state } = setup();
+    state.orders[5].requested_l = 99000; // Deido, super : dépasse la cuve
+    loginAs("dispatcher");
+    renderApp(ROUTE);
+    const table = await loadedGrid(6);
+    // L'avertissement vient du serveur à la lecture, avant toute tentative de confirmation.
+    const mark = within(rowOf(table, "OLA Deido", "Super")).getByTestId("order-warning");
+    expect(mark).toHaveAttribute("data-code", "exceeds_tank_capacity");
+    expect(mark).toHaveAccessibleName(
+      /Confirmation impossible : Volume demandé .* supérieur au volume recevable/,
+    );
+    expect(
+      screen
+        .getByText(/1 commande dépasse le volume recevable par la cuve de sa station/)
+        .closest('[role="alert"]'),
+    ).toBeInTheDocument();
+    expect(within(rowOf(table, "OLA Bonanjo")).queryByTestId("order-warning")).not.toBeInTheDocument();
+    expect(state.bulkConfirms).toHaveLength(0);
   });
 
   it("confirme tous les brouillons affichés après confirmation", async () => {

@@ -13,12 +13,15 @@ export type PlanPage = Schemas["Page_PlanSummaryOut_"];
 export type Dashboard = Schemas["DashboardOut"];
 export type DashboardAlert = Schemas["DashboardAlertOut"];
 export type Task = Schemas["TaskOut"];
+export type DayEvent = Schemas["EventOut"];
+export type EventPage = Schemas["Page_EventOut_"];
 export type TaskAccepted = Schemas["TaskAccepted"];
 
 export const dayKeys = {
   summary: (day: string) => ["/availability/summary", day] as const,
   plans: (day: string) => ["/plans", "list", { day }] as const,
   dashboard: (day: string) => ["/dashboard", day] as const,
+  events: (day: string) => ["/events", "recent", day] as const,
   task: (taskId: string) => ["/tasks", taskId] as const,
 };
 
@@ -41,6 +44,19 @@ export function useDashboard(day: string) {
   return useQuery<Dashboard, ApiError>({
     queryKey: dayKeys.dashboard(day),
     queryFn: ({ signal }) => api<Dashboard>("/dashboard", { query: { day }, signal }),
+  });
+}
+
+/** Nombre d'événements montrés sur l'accueil ; le fil complet est sur l'écran Journal des événements. */
+export const RECENT_EVENTS = 6;
+
+/** Derniers événements du jour (le serveur les renvoie du plus récent au plus ancien). */
+export function useRecentEvents(day: string, enabled: boolean) {
+  return useQuery<EventPage, ApiError>({
+    queryKey: dayKeys.events(day),
+    queryFn: ({ signal }) =>
+      api<EventPage>("/events", { query: { day, limit: RECENT_EVENTS, offset: 0 }, signal }),
+    enabled,
   });
 }
 
@@ -128,6 +144,7 @@ export function useComputePlan(day: string) {
     void client.invalidateQueries({ queryKey: dayKeys.summary(day) });
     void client.invalidateQueries({ queryKey: dayKeys.dashboard(day) });
     void client.invalidateQueries({ queryKey: ["/orders"] });
+    void client.invalidateQueries({ queryKey: dayKeys.events(day) });
   }, [finalState, day, client]);
 
   const dismiss = useCallback(() => {

@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tip } from "@/components/ui/tooltip";
 import { fr } from "@/i18n/fr";
-import { EMPTY, formatDateTime, formatNumber } from "@/lib/format";
+import { EMPTY, formatDateTime, formatDuration } from "@/lib/format";
 import { withDay } from "@/lib/useDay";
 
 import { computeTiming, useComputePlan, type PlanSummary } from "./api";
@@ -61,7 +61,7 @@ function LastCompute({ plan }: { plan: PlanSummary | undefined }) {
     [
       t.last.duration,
       <span className="num">
-        {plan.computed_in_ms == null ? EMPTY : t.last.seconds(formatNumber(plan.computed_in_ms / 1000, 1))}
+        {plan.computed_in_ms == null ? EMPTY : formatDuration(plan.computed_in_ms / 1000, { seconds: true })}
       </span>,
     ],
     [t.last.engine, <span className="num">{plan.engine_version ?? EMPTY}</span>],
