@@ -11,6 +11,9 @@
  * de toute liste triée par code ou par nom : un parcours d'un autre lot qui prend « la première station » (ou
  * le premier camion) ne tombe jamais sur une ligne de ce lot.
  * Les dépôts des autres lots reçoivent un stock nul pour le jour d'essai : le plan ne charge qu'aux dépôts du jeu.
+ * Hors de ses parcours, ce lot ne doit pas non plus fournir de ressources aux plans des autres : `releaseSeed()`
+ * (à appeler en fin de fichier de test) met ses camions en « réservé », ses chauffeurs en « repos » et désactive
+ * ses dépôts ; `seedPlan()` les remet en service.
  * Rejouable sur une base déjà remplie : les référentiels sont retrouvés par code / immatriculation / nom ; les
  * commandes et le plan sont créés à chaque appel, pour un jour encore vierge (`freshDay()` : ni commande ni
  * plan, pris dans une plage d'années réservée à ce lot).
@@ -104,24 +107,24 @@ export interface SeedResult {
 export const TAG = "ZL12-";
 export const NAME_TAG = "ZL12 ";
 /** Permis et habilitations des chauffeurs du jeu : valables sur toute la plage de jours du lot. */
-const DOCUMENTS_EXPIRY = "2039-12-31";
+const DOCUMENTS_EXPIRY = "2069-12-31";
 
 /**
- * Jour encore vierge (aucune commande, aucun plan), tiré au hasard entre 2030 et 2035 — plage que les autres
- * lots n'utilisent pas : chaque exécution a son plan, même sur une base déjà remplie par des passes précédentes.
+ * Jour encore vierge (aucune commande, aucun plan), tiré au hasard entre 2050 et 2055, à l'écart des jours des
+ * autres lots : chaque exécution a son plan, même sur une base déjà remplie par des passes précédentes.
  */
 export async function freshDay(): Promise<string> {
   const api = await sharedApi();
   for (let attempt = 0; attempt < 50; attempt += 1) {
     const offset = Math.floor(Math.random() * 2190);
-    const day = new Date(Date.UTC(2030, 0, 1) + offset * 86_400_000).toISOString().slice(0, 10);
+    const day = new Date(Date.UTC(2050, 0, 1) + offset * 86_400_000).toISOString().slice(0, 10);
     const [orders, plans] = await Promise.all([
       api.call<{ total: number }>("GET", `/orders?day=${day}&limit=1`),
       api.call<{ total: number }>("GET", `/plans?day=${day}&limit=1`),
     ]);
     if (orders.total === 0 && plans.total === 0) return day;
   }
-  throw new Error("Aucun jour vierge trouvé entre 2030 et 2035");
+  throw new Error("Aucun jour vierge trouvé entre 2050 et 2055");
 }
 
 /** Une seule connexion par processus de test (les connexions sont limitées par minute et par adresse). */
@@ -193,6 +196,43 @@ export class Api {
     }
     throw new Error("Calcul trop long (un worker Celery tourne-t-il ?)");
   }
+}
+
+/**
+ * Met en service (ou retire du service) tout ce que ce lot a créé comme ressources planifiables : camions,
+ * chauffeurs, dépôts. Retirées, elles n'entrent dans aucun calcul de plan lancé par un autre lot.
+ */
+async function setInService(api: Api, inService: boolean): Promise<void> {
+  const [trucks, drivers, depots] = await Promise.all([
+    api.all("/trucks"),
+    api.all("/drivers"),
+    api.all("/depots"),
+  ]);
+  for (const truck of trucks.filter((t) => String(t.plate).startsWith(TAG))) {
+    const status = inService ? "available" : "reserved";
+    if (truck.status !== status) await api.call("PUT", `/trucks/${truck.id}`, { status });
+  }
+  for (const driver of drivers.filter((d) => String(d.full_name).startsWith(NAME_TAG))) {
+    const status = inService ? "available" : "rest";
+    // Les documents sont remis à la date du lot : un chauffeur créé par une version antérieure du script reste affectable.
+    const upToDate = driver.license_expiry === DOCUMENTS_EXPIRY && driver.hazmat_expiry === DOCUMENTS_EXPIRY;
+    if (driver.status !== status || !upToDate) {
+      await api.call("PUT", `/drivers/${driver.id}`, {
+        status,
+        license_expiry: DOCUMENTS_EXPIRY,
+        hazmat_cert: true,
+        hazmat_expiry: DOCUMENTS_EXPIRY,
+      });
+    }
+  }
+  for (const depot of depots.filter((d) => String(d.code).startsWith(TAG))) {
+    if (depot.active !== inService) await api.call("PUT", `/depots/${depot.id}`, { active: inService });
+  }
+}
+
+/** À appeler en fin de fichier de test (`test.afterAll`) : les ressources du lot sortent du service. */
+export async function releaseSeed(): Promise<void> {
+  await setInService(await sharedApi(), false);
 }
 
 export async function seedPlan(options: SeedOptions): Promise<SeedResult> {
@@ -305,6 +345,8 @@ export async function seedPlan(options: SeedOptions): Promise<SeedResult> {
         })
       ).id;
   }
+
+  await setInService(api, true);
 
   // Disponibilité du jour : seules les ressources du jeu sont disponibles.
   const wantedTrucks = new Set(usedTrucks.map((t) => truckIds[t.id]));

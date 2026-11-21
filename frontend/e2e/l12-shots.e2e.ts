@@ -8,11 +8,14 @@
  */
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
-import { ADMIN, Api, freshDay, seedPlan } from "./l12-seed";
+import { ADMIN, Api, freshDay, releaseSeed, seedPlan } from "./l12-seed";
 
 test.skip(!process.env.L12_CAPTURES, "captures régénérées à la demande (L12_CAPTURES=1)");
 test.use({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 });
 test.setTimeout(300_000);
+test.afterAll(async () => {
+  if (process.env.L12_CAPTURES) await releaseSeed();
+});
 
 const OUT = "docs/captures";
 const shot = (page: Page, name: string) =>
