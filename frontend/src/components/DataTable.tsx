@@ -8,7 +8,7 @@
  *     caption="Stations"
  *     columns={columns}                      // ColumnDef<Station>[] ; `meta.edit` rend une colonne éditable
  *     data={data?.items ?? []}
- *     total={data?.total}                    // présent = tri / filtres / pagination côté serveur
+ *     total={data?.total}                    // présent = recherche / filtres / pagination côté serveur
  *     state={state} onStateChange={setState}
  *     loading={isLoading} fetching={isFetching} error={error} onRetry={refetch}
  *     getRowId={(row) => row.id}
@@ -17,7 +17,8 @@
  *     onRowActivate={openEditForm}           // Entrée ou double-clic
  *   />
  *
- * Sans `total`, le tableau trie, filtre et pagine lui-même les lignes reçues (petites listes).
+ * Sans `total`, le tableau trie, filtre et pagine lui-même les lignes reçues : c'est le mode à retenir pour
+ * tout tableau triable, l'API n'offrant pas de tri (charger les lignes avec `resource.useAll()`).
  *
  * Clavier : flèches (cellule), Début / Fin (ligne), Ctrl+Début / Ctrl+Fin (tableau), Page préc. / suiv.
  * (page), Entrée ou F2 (modifier la cellule, sinon ouvrir la ligne), saisie directe (remplace la valeur),
@@ -120,7 +121,7 @@ export function useDataTableState(initial: Partial<DataTableState> = {}) {
 }
 
 export interface DataTableFilter {
-  /** Nom du paramètre de requête (mode serveur) ou identifiant de colonne (mode local). */
+  /** Nom du paramètre de requête (mode serveur) ou de la propriété de la ligne comparée (mode local). */
   id: string;
   label: string;
   options: { value: string; label: string }[];
@@ -146,6 +147,14 @@ export interface DataTableProps<T> {
   onStateChange: (state: DataTableState) => void;
   /** Nombre total de lignes côté serveur. Absent = tri / filtres / pagination locaux. */
   total?: number;
+  /**
+   * Mode serveur seulement : rend les en-têtes triables et remonte le tri dans `state.sorting`.
+   * Désactivé par défaut, car l'API n'offre pas de tri : pour un tableau triable, charger toutes les
+   * lignes et omettre `total`.
+   */
+  serverSort?: boolean;
+  /** Lignes après recherche, filtres et tri, toutes pages confondues (ex. points à afficher sur la carte). */
+  onRowsChange?: (rows: T[]) => void;
   loading?: boolean;
   fetching?: boolean;
   error?: unknown;
@@ -379,6 +388,8 @@ export function DataTable<T>({
   state,
   onStateChange,
   total,
+  serverSort,
+  onRowsChange,
   loading,
   fetching,
   error,
@@ -436,16 +447,21 @@ export function DataTable<T>({
     return [select, ...columns];
   }, [columns, selectable]);
 
-  const columnIds = useMemo(
-    () =>
-      new Set(
-        columns.map((c) => c.id ?? (c as { accessorKey?: string }).accessorKey).filter(Boolean) as string[],
-      ),
-    [columns],
-  );
+  // Mode local : filtres exacts appliqués sur les propriétés des lignes (qu'elles aient ou non une colonne).
+  const filterSignature = JSON.stringify(state.filters);
+  const localData = useMemo(() => {
+    if (serverMode) return data;
+    const active = Object.entries(JSON.parse(filterSignature) as Record<string, string>).filter(
+      ([, value]) => value !== "",
+    );
+    if (active.length === 0) return data;
+    return data.filter((row) =>
+      active.every(([id, value]) => String((row as Record<string, unknown>)[id] ?? "") === value),
+    );
+  }, [data, serverMode, filterSignature]);
 
   const table = useReactTable<T>({
-    data,
+    data: localData,
     columns: allColumns,
     getRowId,
     state: {
@@ -453,14 +469,9 @@ export function DataTable<T>({
       pagination: { pageIndex: state.pageIndex, pageSize: state.pageSize },
       rowSelection,
       globalFilter: serverMode ? undefined : state.search,
-      columnFilters: serverMode
-        ? []
-        : Object.entries(state.filters)
-            .filter(([id, value]) => value !== "" && columnIds.has(id))
-            .map(([id, value]) => ({ id, value })),
     },
-    defaultColumn: { filterFn: (row, id, value) => String(row.getValue(id)) === String(value) },
     globalFilterFn: "includesString",
+    enableSorting: !serverMode || !!serverSort,
     manualPagination: serverMode,
     manualSorting: serverMode,
     manualFiltering: serverMode,
@@ -492,11 +503,18 @@ export function DataTable<T>({
   const hasActiveFilters = state.search !== "" || Object.values(state.filters).some((v) => v !== "");
 
   // La sélection ne survit pas à un changement de page ou de filtre : pas d'action en masse sur des lignes invisibles.
-  const filterSignature = JSON.stringify(state.filters);
   useEffect(() => {
     setRowSelection({});
     setEditing(null);
   }, [state.pageIndex, state.pageSize, state.search, filterSignature]);
+
+  const allRows = table.getPrePaginationRowModel().rows;
+  const rowsSignature = allRows.map((row) => row.id).join("|");
+  const latestRows = useRef({ allRows, onRowsChange });
+  latestRows.current = { allRows, onRowsChange };
+  useEffect(() => {
+    latestRows.current.onRowsChange?.(latestRows.current.allRows.map((row) => row.original));
+  }, [rowsSignature]);
 
   // Si la dernière page se vide (suppression), revenir à la dernière page existante.
   useEffect(() => {

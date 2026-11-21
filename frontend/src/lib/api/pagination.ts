@@ -7,7 +7,7 @@ import { api, type Query } from "./client";
 export interface ListState {
   pageIndex: number;
   pageSize: number;
-  /** Tri serveur : `{ id: "code", desc: false }`. */
+  /** Tri affiché par le tableau (local) : non transmis au serveur. */
   sorting?: { id: string; desc: boolean }[];
   /** Recherche plein texte (paramètre `q`). */
   search?: string;
@@ -18,15 +18,14 @@ export interface ListState {
 export const emptyPage = <T>(): Page<T> => ({ items: [], total: 0, limit: DEFAULT_PAGE_SIZE, offset: 0 });
 
 /**
- * État de tableau → paramètres de requête.
- * Convention supposée (CONTRATS §7 ne la fixe pas, question L9-Q2) : `sort=champ` ou `sort=-champ`,
- * `q=` pour la recherche, un paramètre par filtre.
+ * État de tableau → paramètres de requête : `limit`, `offset`, `q` (recherche), un paramètre par filtre exact.
+ * L'API ne propose pas de tri : chaque liste a un ordre fixe côté serveur (code, nom, date décroissante…).
+ * Un tableau qui doit être triable charge donc toutes ses lignes (`useAll`) et trie localement
+ * (`DataTable` sans `total`) ; `sorting` est ignoré ici.
  */
 export function toListQuery(state: Partial<ListState>): Query {
   const pageSize = state.pageSize ?? DEFAULT_PAGE_SIZE;
   const query: Query = { limit: pageSize, offset: (state.pageIndex ?? 0) * pageSize };
-  const sort = state.sorting?.[0];
-  if (sort) query.sort = `${sort.desc ? "-" : ""}${sort.id}`;
   if (state.search?.trim()) query.q = state.search.trim();
   for (const [key, value] of Object.entries(state.filters ?? {})) {
     if (value !== undefined && value !== null && value !== "") query[key] = value;

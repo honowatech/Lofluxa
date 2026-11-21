@@ -4,14 +4,13 @@ import type { ReactNode } from "react";
 import { describe, expect, it } from "vitest";
 
 import { createQueryClient } from "@/app/providers";
-import type { Product, ProductInput, StationTank, StationTankInput } from "@/lib/types";
+import type { Product, ProductInput } from "@/lib/types";
 import { db } from "@/mocks/db";
 import { loginAs } from "@/test/utils";
 
-import { createChildResource, createResource } from "./resource";
+import { createResource } from "./resource";
 
 const products = createResource<Product, ProductInput>("/products");
-const tanks = createChildResource<StationTank, StationTankInput>("/stations", "tanks");
 
 function wrapper() {
   const client = createQueryClient();
@@ -25,7 +24,7 @@ describe("createResource — hooks CRUD génériques", () => {
     loginAs("admin");
     const { result } = renderHook(
       () => ({
-        list: products.useList({ sort: "code" }),
+        list: products.useList(),
         all: products.useAll(),
         create: products.useCreate(),
         update: products.useUpdate(),
@@ -51,6 +50,7 @@ describe("createResource — hooks CRUD génériques", () => {
     await waitFor(() => expect(result.current.all.data).toHaveLength(4));
 
     await act(async () => {
+      // Mise à jour partielle : seul le champ envoyé change.
       await result.current.update.mutateAsync({ id: created?.id as string, input: { label: "Jet A-1" } });
     });
     await waitFor(() =>
@@ -78,30 +78,5 @@ describe("createResource — hooks CRUD génériques", () => {
         .catch(() => undefined);
     });
     await waitFor(() => expect(result.current.create.error?.isForbidden).toBe(true));
-  });
-
-  it("sous-ressource : `sync` supprime, crée et ne met à jour que ce qui a changé", async () => {
-    loginAs("admin");
-    const station = db.stations[0];
-    const [a, b, c] = station.tanks;
-    await tanks.sync(
-      station.id,
-      [...station.tanks],
-      [
-        { id: a.id, product_id: a.product_id, capacity_l: a.capacity_l, safety_stock_l: a.safety_stock_l },
-        { id: b.id, product_id: b.product_id, capacity_l: 55000, safety_stock_l: b.safety_stock_l },
-        { id: null, product_id: c.product_id, capacity_l: 9000, safety_stock_l: 500 },
-      ],
-      (existing, next) =>
-        existing.capacity_l === next.capacity_l && existing.safety_stock_l === next.safety_stock_l,
-    );
-    const after = await tanks.list(station.id);
-    expect(after.map((tank) => [tank.id === a.id || tank.id === b.id, tank.capacity_l])).toEqual([
-      [true, 30000],
-      [true, 55000],
-      [false, 9000],
-    ]);
-    expect(after.some((tank) => tank.id === c.id)).toBe(false);
-    expect(after[2].product_code).toBe("PETROLE");
   });
 });

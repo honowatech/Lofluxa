@@ -334,7 +334,7 @@ describe("DataTable — mode serveur", () => {
   it("le tri, la recherche et la pagination sont délégués (état remonté, lignes non retriées)", async () => {
     const user = userEvent.setup();
     const onState = vi.fn();
-    render(<Harness total={132} searchable onState={onState} />);
+    render(<Harness total={132} searchable serverSort onState={onState} />);
     expect(screen.getByText("1–50 sur 132")).toBeInTheDocument();
     expect(screen.getByText("Page 1 / 3")).toBeInTheDocument();
 
@@ -352,6 +352,28 @@ describe("DataTable — mode serveur", () => {
     await waitFor(() =>
       expect(onState).toHaveBeenLastCalledWith(expect.objectContaining({ search: "akwa", pageIndex: 0 })),
     );
+  });
+
+  it("sans `serverSort`, les en-têtes ne sont pas triables (l'API n'offre pas de tri)", () => {
+    render(<Harness total={132} />);
+    const header = screen.getByRole("columnheader", { name: /Code/ });
+    expect(within(header).queryByRole("button")).not.toBeInTheDocument();
+    expect(header).not.toHaveAttribute("aria-sort");
+  });
+
+  it("`onRowsChange` reçoit les lignes retenues par la recherche et les filtres, toutes pages confondues", async () => {
+    const user = userEvent.setup();
+    const onRowsChange = vi.fn();
+    render(
+      <Harness
+        initial={{ pageSize: 2 }}
+        onRowsChange={onRowsChange}
+        filters={[{ id: "status", label: "Statut", options: [{ value: "open", label: "Ouvert" }] }]}
+      />,
+    );
+    await waitFor(() => expect(onRowsChange).toHaveBeenLastCalledWith(ROWS));
+    await user.selectOptions(screen.getByRole("combobox", { name: "Statut" }), "open");
+    await waitFor(() => expect(onRowsChange).toHaveBeenLastCalledWith([ROWS[0], ROWS[2], ROWS[3]]));
   });
 
   it("états : chargement, erreur avec nouvel essai, vide", async () => {

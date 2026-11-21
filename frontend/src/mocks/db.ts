@@ -13,6 +13,7 @@ import type {
   OpeningHours,
   Product,
   Role,
+  SettingType,
   SettingValue,
   Station,
   Truck,
@@ -71,6 +72,36 @@ export const SETTINGS_DEFAULTS: Record<string, [SettingValue, string]> = {
   pdf_logo_url: [null, "Logo des documents PDF (URL ou chemin de fichier ; vide = nom en texte)"],
 };
 
+/** Type et bornes : miroir de backend/app/admin/settings_spec.py → SPECS. */
+export const SETTINGS_SPECS: Record<
+  string,
+  { type: SettingType; min?: number; max?: number; nullable?: boolean; maxLength?: number }
+> = {
+  default_avg_speed_kmh: { type: "float", min: 5, max: 120 },
+  max_service_hours: { type: "float", min: 1, max: 24 },
+  default_depot_wait_min: { type: "int", min: 0, max: 720 },
+  depot_loading_time_min: { type: "int", min: 0, max: 720 },
+  default_unload_time_min: { type: "int", min: 0, max: 720 },
+  default_max_loadings_per_truck_day: { type: "int", min: 1, max: 10 },
+  compartment_safety_margin_pct: { type: "float", min: 0, max: 50 },
+  loading_tolerance_pct: { type: "float", min: 0, max: 50 },
+  window_tolerance_min: { type: "int", min: 0, max: 720 },
+  partial_delivery_min_pct: { type: "float", min: 0, max: 100 },
+  day_start_time: { type: "time" },
+  timezone: { type: "timezone" },
+  objective_distance_weight: { type: "float", min: 0, max: 1000 },
+  objective_vehicle_fixed_cost_km: { type: "float", min: 0, max: 100000 },
+  objective_unserved_penalty_normal_km: { type: "float", min: 0, max: 10000000 },
+  objective_unserved_penalty_urgent_km: { type: "float", min: 0, max: 10000000 },
+  solver_time_limit_s: { type: "int", min: 1, max: 600 },
+  solver_no_improvement_s: { type: "int", min: 1, max: 600 },
+  solver_seed: { type: "int", min: 0, max: 2147483647 },
+  haversine_factor: { type: "float", min: 1, max: 3 },
+  ab_success_threshold_pct: { type: "float", min: 0, max: 100 },
+  company_name: { type: "str", maxLength: 120 },
+  pdf_logo_url: { type: "str", nullable: true, maxLength: 500 },
+};
+
 export interface MockUser extends User {
   password: string;
 }
@@ -85,7 +116,10 @@ export interface Db {
   users: MockUser[];
   settings: Record<string, { value: SettingValue; updated_at: string | null; updated_by: string | null }>;
   audit: AuditEntry[];
-  imports: (ImportBatch & { applied_rows?: Record<string, unknown>[] })[];
+  /** Lots prévisualisés, avec les enregistrements normalisés à appliquer. */
+  imports: (ImportBatch & { records: Record<string, unknown>[] })[];
+  /** Jetons de rafraîchissement déjà utilisés (rotation : un jeton ne sert qu'une fois). */
+  revokedTokens: Set<string>;
 }
 
 const STATION_SEED: [string, string, string, string, number, number][] = [
@@ -228,6 +262,7 @@ function seed(): Db {
       station_id: id,
       product_id: product.id,
       product_code: product.code,
+      product_label: product.label,
       capacity_l: [30000, 40000, 15000][t] + (index % 3) * 5000,
       safety_stock_l: [3000, 4000, 1500][t],
     }));
@@ -287,6 +322,7 @@ function seed(): Db {
       plate,
       carrier_id: carriers[carrierIndex].id,
       carrier_name: carriers[carrierIndex].name,
+      carrier_type: carriers[carrierIndex].type,
       size,
       total_capacity_l: compartments.reduce((sum, c) => sum + c, 0),
       avg_speed_kmh: index % 3 === 0 ? 38 : null,
@@ -300,6 +336,8 @@ function seed(): Db {
         capacity_l,
         allowed_product_ids:
           position === compartments.length - 1 && index % 4 === 0 ? [gasoil.id, petrole.id] : null,
+        allowed_product_codes:
+          position === compartments.length - 1 && index % 4 === 0 ? [gasoil.code, petrole.code] : null,
       })),
       ...stamp,
     };
@@ -355,6 +393,7 @@ function seed(): Db {
     password,
     last_login_at: index === 5 ? null : new Date(Date.now() - (index + 1) * 5.3 * 3600_000).toISOString(),
     created_at: created,
+    updated_at: created,
   }));
 
   const settings: Db["settings"] = Object.fromEntries(
@@ -385,6 +424,7 @@ function seed(): Db {
       after,
       actor_id: who?.id ?? null,
       actor_name: who?.full_name ?? null,
+      actor_email: who?.email ?? null,
       at: new Date(Date.now() - hoursAgo * 3600_000).toISOString(),
     });
   pushAudit(2, "settings", "window_tolerance_min", "update", { value: 30 }, { value: 20 }, users[0]);
@@ -447,7 +487,19 @@ function seed(): Db {
     );
   }
 
-  return { products, depots, stations, carriers, trucks, drivers, users, settings, audit, imports: [] };
+  return {
+    products,
+    depots,
+    stations,
+    carriers,
+    trucks,
+    drivers,
+    users,
+    settings,
+    audit,
+    imports: [],
+    revokedTokens: new Set(),
+  };
 }
 
 export let db: Db = seed();

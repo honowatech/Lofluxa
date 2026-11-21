@@ -11,7 +11,7 @@ import { Input, NativeSelect } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { fr } from "@/i18n/fr";
 import { toListQuery } from "@/lib/api/pagination";
-import { dayBoundsUtc, formatDateTime } from "@/lib/format";
+import { formatDateTime } from "@/lib/format";
 import type { AuditEntry } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -22,7 +22,8 @@ import { audit, AUDITED_TABLES, users } from "./resources";
 const NONE: never[] = [];
 
 const t = fr.administration.audit;
-const EMPTY_FILTERS = { table: "", row_id: "", actor_id: "", from: "", to: "" };
+const EMPTY_FILTERS = { table: "", row_id: "", actor_id: "", action: "", from: "", to: "" };
+const ACTIONS = ["insert", "update", "delete"] as const;
 
 export function AuditDiff({ entry }: { entry: AuditEntry }) {
   const [showUnchanged, setShowUnchanged] = useState(false);
@@ -45,6 +46,7 @@ export function AuditDiff({ entry }: { entry: AuditEntry }) {
         </p>
         <p className="text-xs text-muted-foreground">
           {formatDateTime(entry.at)} · {entry.actor_name ?? entry.actor_id ?? t.system}
+          {entry.actor_email && ` (${entry.actor_email})`}
         </p>
       </header>
       <div className="min-h-0 flex-1 overflow-auto">
@@ -122,13 +124,15 @@ export function AuditTab() {
   const actors = users.useAll().data ?? NONE;
   const periodInvalid = !!filters.from && !!filters.to && filters.to < filters.from;
 
+  // Jours locaux (Douala), bornes incluses : le serveur fait la conversion vers l'UTC. `row_id` : valeur exacte.
   const query = {
     ...toListQuery({ pageIndex: state.pageIndex, pageSize: state.pageSize }),
     table: filters.table,
     row_id: filters.row_id.trim(),
     actor_id: filters.actor_id,
-    from: filters.from ? dayBoundsUtc(filters.from).from : "",
-    to: filters.to ? dayBoundsUtc(filters.to).to : "",
+    action: filters.action,
+    date_from: filters.from,
+    date_to: filters.to,
   };
   const list = audit.useList(query, { enabled: !periodInvalid });
   const hasFilters = Object.values(filters).some((value) => value !== "");
@@ -155,7 +159,6 @@ export function AuditTab() {
         enableSorting: false,
         cell: ({ row }) =>
           row.original.actor_name ??
-          actors.find((user) => user.id === row.original.actor_id)?.full_name ??
           (row.original.actor_id ? (
             <span className="num">{row.original.actor_id}</span>
           ) : (
@@ -207,7 +210,7 @@ export function AuditTab() {
         },
       },
     ],
-    [actors],
+    [],
   );
 
   return (
@@ -256,6 +259,22 @@ export function AuditTab() {
             {actors.map((user) => (
               <option key={user.id} value={user.id}>
                 {user.full_name}
+              </option>
+            ))}
+          </NativeSelect>
+        </div>
+        <div className="flex flex-col gap-0.5">
+          <Label htmlFor="audit-action">{t.action}</Label>
+          <NativeSelect
+            id="audit-action"
+            value={filters.action}
+            onChange={(event) => patch({ action: event.target.value })}
+            className="h-7 w-32 text-xs"
+          >
+            <option value="">{t.allActions}</option>
+            {ACTIONS.map((action) => (
+              <option key={action} value={action}>
+                {fr.status.audit[action]}
               </option>
             ))}
           </NativeSelect>

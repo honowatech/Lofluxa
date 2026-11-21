@@ -12,7 +12,7 @@
  * - toute réponse en erreur lève une `ApiError` (code, message, details, rule_code).
  */
 import { fr } from "@/i18n/fr";
-import { getTokens, setTokens } from "@/lib/auth/tokens";
+import { getTokens, reloadTokens, setTokens } from "@/lib/auth/tokens";
 import { API_BASE } from "@/lib/config";
 import type { ApiErrorBody, TokenPair } from "@/lib/types";
 
@@ -53,28 +53,46 @@ export function onSessionExpired(handler: () => void): void {
 
 let refreshInFlight: Promise<boolean> | null = null;
 
-/** Rafraîchit les jetons ; requêtes concurrentes mutualisées. Renvoie `false` si la session est perdue. */
+/**
+ * Rafraîchit les jetons. Le serveur fait tourner le jeton de rafraîchissement (l'ancien est révoqué à
+ * chaque usage) : il ne faut donc JAMAIS deux rafraîchissements en parallèle.
+ *  - dans l'onglet : une seule promesse partagée par tous les appels en attente ;
+ *  - entre onglets : verrou `navigator.locks`, puis relecture du stockage — si un autre onglet a déjà
+ *    rafraîchi, on reprend ses jetons sans rappeler le serveur.
+ * Renvoie `false` si la session est perdue.
+ */
 export function refreshTokens(): Promise<boolean> {
   if (refreshInFlight) return refreshInFlight;
-  const tokens = getTokens();
-  if (!tokens) return Promise.resolve(false);
-  refreshInFlight = (async () => {
+  const before = getTokens();
+  if (!before) return Promise.resolve(false);
+
+  const run = async (): Promise<boolean> => {
+    const current = reloadTokens();
+    if (!current) return false;
+    if (current.refresh_token !== before.refresh_token) return true;
     try {
       const response = await fetch(buildUrl("/auth/refresh"), {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify({ refresh_token: tokens.refresh_token }),
+        body: JSON.stringify({ refresh_token: current.refresh_token }),
       });
-      if (!response.ok) return false;
+      if (!response.ok) {
+        // Sans verrou disponible, un autre onglet a pu gagner la course : ses jetons sont alors valides.
+        const latest = reloadTokens();
+        return !!latest && latest.refresh_token !== current.refresh_token;
+      }
       const pair = (await response.json()) as TokenPair;
       setTokens({ access_token: pair.access_token, refresh_token: pair.refresh_token });
       return true;
     } catch {
       return false;
-    } finally {
-      refreshInFlight = null;
     }
-  })();
+  };
+
+  const locks = typeof navigator !== "undefined" ? navigator.locks : undefined;
+  refreshInFlight = (locks ? locks.request("tourneo.auth.refresh", run) : run()).finally(() => {
+    refreshInFlight = null;
+  });
   return refreshInFlight;
 }
 
@@ -99,9 +117,16 @@ async function toApiError(response: Response): Promise<ApiError> {
           ? fr.errors.forbidden
           : response.status === 404
             ? fr.errors.notFound
-            : fr.errors.unknown;
+            : response.status === 429
+              ? fr.errors.rateLimited
+              : fr.errors.unknown;
   }
-  return new ApiError(response.status, body);
+  const retryAfter = Number(response.headers.get("retry-after"));
+  return new ApiError(
+    response.status,
+    body,
+    Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : null,
+  );
 }
 
 /** Requête brute authentifiée (avec rafraîchissement sur 401). Lève `ApiError` si la réponse est en erreur. */

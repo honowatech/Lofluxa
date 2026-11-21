@@ -2,14 +2,13 @@ import { screen, waitFor, within } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { describe, expect, it } from "vitest";
 
-import { normalizeSettings } from "@/lib/api/settings";
 import { db, SETTINGS_DEFAULTS } from "@/mocks/db";
 import { API } from "@/mocks/handlers/helpers";
 import { server } from "@/mocks/server";
 import { loginAs, renderApp } from "@/test/utils";
 
 import { changedFields, diffRecords, formatAuditValue } from "./diff";
-import { metaFor, SETTINGS_CATALOG, validateSetting } from "./settingsCatalog";
+import { metaFor, SETTINGS_PRESENTATION, validateSetting } from "./settingsCatalog";
 import { generatePassword } from "./UsersTab";
 
 const dataRows = (table: HTMLElement) => within(table).getAllByRole("row").slice(1);
@@ -43,7 +42,7 @@ describe("Administration — utilisateurs", () => {
     expect(within(dialog).getByText("Chargement réel, statuts chargé / livré.")).toBeInTheDocument();
     await user.type(within(dialog).getByLabelText(/^Mot de passe initial/), "court");
     await user.click(within(dialog).getByRole("button", { name: "Créer" }));
-    expect(await within(dialog).findByText("12 caractères minimum")).toBeInTheDocument();
+    expect(await within(dialog).findByText("8 caractères minimum")).toBeInTheDocument();
 
     await user.click(within(dialog).getByRole("button", { name: "Générer" }));
     const password = (within(dialog).getByLabelText(/^Mot de passe initial/) as HTMLInputElement).value;
@@ -53,7 +52,7 @@ describe("Administration — utilisateurs", () => {
       await within(dialog).findByText("Un compte existe déjà avec cette adresse e-mail."),
     ).toBeInTheDocument();
     expect(within(dialog).getByLabelText(/^Adresse e-mail/)).toHaveAccessibleDescription(
-      "Adresse déjà utilisée",
+      "Adresse e-mail déjà utilisée.",
     );
 
     await user.clear(within(dialog).getByLabelText(/^Adresse e-mail/));
@@ -115,6 +114,11 @@ describe("Administration — utilisateurs", () => {
       "aria-disabled",
       "true",
     );
+    // Son propre mot de passe se change par `PUT /me/password`, pas par la réinitialisation d'administrateur.
+    expect(screen.getByRole("menuitem", { name: "Réinitialiser le mot de passe" })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
     await user.click(screen.getByRole("menuitem", { name: "Modifier" }));
     const own = await screen.findByRole("dialog", { name: "Modifier l'utilisateur" });
     expect(within(own).getByLabelText(/^Rôle/)).toBeDisabled();
@@ -131,7 +135,7 @@ describe("Administration — paramètres", () => {
       row.getAttribute("data-setting"),
     );
     expect(keys.sort()).toEqual(Object.keys(SETTINGS_DEFAULTS).sort());
-    expect(Object.keys(SETTINGS_CATALOG).sort()).toEqual(Object.keys(SETTINGS_DEFAULTS).sort());
+    expect(Object.keys(SETTINGS_PRESENTATION).sort()).toEqual(Object.keys(SETTINGS_DEFAULTS).sort());
     expect(keys).toHaveLength(23);
 
     const tolerance = document.querySelector('[data-setting="window_tolerance_min"]') as HTMLElement;
@@ -201,7 +205,7 @@ describe("Administration — paramètres", () => {
 
     expect(await screen.findByText("2 paramètres enregistrés")).toBeInTheDocument();
     server.events.removeAllListeners();
-    expect(sent).toEqual({ max_service_hours: 10.5, window_tolerance_min: 30 });
+    expect(sent).toEqual({ values: { max_service_hours: 10.5, window_tolerance_min: 30 } });
     expect(db.settings.max_service_hours.value).toBe(10.5);
     expect(db.audit[0]).toMatchObject({
       table_name: "settings",
@@ -243,33 +247,30 @@ describe("Administration — paramètres", () => {
     expect(screen.getByLabelText(/Graine du solveur/)).toHaveValue("7");
   });
 
-  it("catalogue : validation par type ; formes de réponse tolérées", () => {
-    expect(validateSetting(SETTINGS_CATALOG.pdf_logo_url, null)).toBeNull();
-    expect(validateSetting(SETTINGS_CATALOG.company_name, "")).toBe("Valeur obligatoire");
-    expect(validateSetting(SETTINGS_CATALOG.haversine_factor, 0.5)).toBe("Minimum 1");
-    expect(validateSetting(SETTINGS_CATALOG.haversine_factor, Number.NaN)).toBe("Nombre invalide");
-    expect(validateSetting(SETTINGS_CATALOG.timezone, "Europe/Paris")).toBeNull();
-    expect(metaFor("cle_future", 3)).toMatchObject({ group: "other", type: "number" });
-
-    const expected = [
-      { key: "a", value: 1 },
-      { key: "b", value: "x" },
-    ];
-    expect(normalizeSettings({ a: 1, b: "x" })).toEqual(expected);
-    expect(normalizeSettings([{ key: "a", value: 1, default: 2, description: "d" }])[0]).toMatchObject({
-      key: "a",
-      value: 1,
-      default_value: 2,
-      description: "d",
+  it("contrôle à la saisie d'après le type et les bornes annoncés par le serveur ; clé inconnue acceptée", () => {
+    const meta = (type: string, extra: object = {}) => metaFor({ key: "k", type, ...extra } as never);
+    expect(validateSetting(meta("str", { nullable: true }), null)).toBeNull();
+    expect(validateSetting(meta("str"), "")).toBe("Valeur obligatoire");
+    expect(validateSetting(meta("float", { min: 1, max: 3 }), 0.5)).toBe("Minimum 1");
+    expect(validateSetting(meta("float", { min: 1, max: 3 }), 3.5)).toBe("Maximum 3");
+    expect(validateSetting(meta("float"), Number.NaN)).toBe("Nombre invalide");
+    expect(validateSetting(meta("int"), 2.5)).toBe("Nombre entier attendu");
+    expect(validateSetting(meta("time"), "6h")).toBe("Heure invalide (HH:mm)");
+    expect(validateSetting(meta("timezone"), "Europe/Paris")).toBeNull();
+    expect(validateSetting(meta("json"), "libre")).toBeNull();
+    // Une clé ajoutée côté serveur s'affiche d'elle-même dans le groupe « Autres », avec ses bornes.
+    expect(metaFor({ key: "cle_future", type: "int", min: 0, max: 9, nullable: false })).toEqual({
+      group: "other",
+      unit: undefined,
+      type: "int",
+      min: 0,
+      max: 9,
+      nullable: false,
     });
-    expect(
-      normalizeSettings({
-        items: [{ key: "a", value: 1, default_value: 0 }],
-        total: 1,
-        limit: 50,
-        offset: 0,
-      })[0],
-    ).toMatchObject({ key: "a", default_value: 0 });
+    expect(metaFor({ key: "max_service_hours", type: "float" })).toMatchObject({
+      group: "durations",
+      unit: "h",
+    });
   });
 });
 
@@ -326,9 +327,14 @@ describe("Administration — journal d'audit", () => {
 
     await user.selectOptions(screen.getByLabelText("Acteur"), "");
     await user.selectOptions(screen.getByLabelText("Table"), "");
-    await user.type(screen.getByLabelText("Identifiant de ligne"), "window_tolerance");
+    await user.type(screen.getByLabelText("Identifiant de ligne"), "window_tolerance_min");
     await waitFor(() => expect(screen.getByText("1–1 sur 1")).toBeInTheDocument());
     await user.click(screen.getByRole("button", { name: "Effacer les filtres" }));
+    await waitFor(() => expect(screen.getByText("1–48 sur 48")).toBeInTheDocument());
+
+    await user.selectOptions(screen.getByLabelText("Action"), "delete");
+    await waitFor(() => expect(screen.getByText("1–1 sur 1")).toBeInTheDocument());
+    await user.selectOptions(screen.getByLabelText("Action"), "");
     await waitFor(() => expect(screen.getByText("1–48 sur 48")).toBeInTheDocument());
 
     await user.type(screen.getByLabelText("Du"), "2027-01-12");
@@ -338,11 +344,12 @@ describe("Administration — journal d'audit", () => {
     );
     server.events.removeAllListeners();
     const last = queries[queries.length - 1];
-    // Bornes en UTC du jour local de Douala (UTC+1), fin exclue.
-    expect(last.get("from")).toBe("2027-01-11T23:00:00.000Z");
-    expect(last.get("to")).toBe("2027-01-13T23:00:00.000Z");
+    // Jours locaux transmis tels quels (bornes incluses) : la conversion en UTC est faite par le serveur.
+    expect(last.get("date_from")).toBe("2027-01-12");
+    expect(last.get("date_to")).toBe("2027-01-13");
     expect(queries.some((q) => q.get("table") === "stocks" && q.get("actor_id"))).toBe(true);
-    expect(queries.some((q) => q.get("row_id") === "window_tolerance")).toBe(true);
+    expect(queries.some((q) => q.get("row_id") === "window_tolerance_min")).toBe(true);
+    expect(queries.some((q) => q.get("action") === "delete")).toBe(true);
 
     await user.clear(screen.getByLabelText("Au"));
     await user.type(screen.getByLabelText("Au"), "2027-01-01");

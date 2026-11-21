@@ -18,6 +18,7 @@ import {
   zOpeningHours,
   zOptionalNumber,
   zOptionalText,
+  zCode,
   zText,
 } from "@/components/forms";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -34,15 +35,15 @@ const t = fr.referentials.depots;
 const s = fr.referentials.stations.sections;
 
 const schema = z.object({
-  code: zText(32),
+  code: zCode(32),
   name: zText(160),
   operator: z.enum(DEPOT_OPERATORS),
   lat: zLat,
   lon: zLon,
   address: zOptionalText(500),
   opening_hours: zOpeningHours,
-  avg_wait_min: zOptionalNumber({ min: 0, max: 600, integer: true }),
-  max_loadings_per_truck_day: zOptionalNumber({ min: 1, max: 10, integer: true }),
+  avg_wait_min: zOptionalNumber({ min: 0, max: 1440, integer: true }),
+  max_loadings_per_truck_day: zOptionalNumber({ min: 1, max: 50, integer: true }),
   active: z.boolean(),
 });
 
