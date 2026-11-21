@@ -23,6 +23,9 @@ export function TrucksTab({ day, canWrite }: { day: string; canWrite: boolean })
   const save = useSaveTrucks(day);
   const [state, setState] = useDataTableState({ pageSize: 100, sorting: [{ id: "plate", desc: false }] });
   const [marking, setMarking] = useState<TruckDay[] | null>(null);
+  // Le tableau garde sa sélection quand une action en masse passe par la boîte de motif : on le remonte ensuite.
+  const [fromSelection, setFromSelection] = useState(false);
+  const [tableKey, setTableKey] = useState(0);
   const rows = list.data ?? NONE;
 
   const setAvailability = async (trucks: TruckDay[], available: boolean, reason: string | null = null) => {
@@ -94,16 +97,17 @@ export function TrucksTab({ day, canWrite }: { day: string; canWrite: boolean })
         cell: ({ row }) => <StatusBadge kind="truck" value={row.original.status} />,
       },
       {
-        accessorKey: "size",
-        header: t.size,
-        meta: { className: "w-20" },
-        cell: ({ row }) => fr.status.size[row.original.size],
-      },
-      {
         accessorKey: "total_capacity_l",
-        header: t.capacity,
-        meta: { align: "right", className: "w-28" },
-        cell: ({ row }) => <span className="num">{formatLiters(row.original.total_capacity_l)}</span>,
+        header: t.sizeCapacity,
+        meta: { className: "w-40" },
+        cell: ({ row }) => (
+          <span className="flex items-baseline gap-1.5">
+            {fr.status.size[row.original.size]}
+            <span className="num text-xs text-muted-foreground">
+              {formatLiters(row.original.total_capacity_l)}
+            </span>
+          </span>
+        ),
       },
       {
         accessorKey: "carrier_name",
@@ -122,8 +126,22 @@ export function TrucksTab({ day, canWrite }: { day: string; canWrite: boolean })
                   label={r.rowLabel(row.original.plate)}
                   items={[
                     row.original.available_today
-                      ? { label: r.mark, icon: <CalendarX />, onSelect: () => setMarking([row.original]) }
-                      : { label: r.editReason, icon: <Pencil />, onSelect: () => setMarking([row.original]) },
+                      ? {
+                          label: r.mark,
+                          icon: <CalendarX />,
+                          onSelect: () => {
+                            setFromSelection(false);
+                            setMarking([row.original]);
+                          },
+                        }
+                      : {
+                          label: r.editReason,
+                          icon: <Pencil />,
+                          onSelect: () => {
+                            setFromSelection(false);
+                            setMarking([row.original]);
+                          },
+                        },
                     ...(row.original.available_today
                       ? []
                       : [
@@ -160,6 +178,7 @@ export function TrucksTab({ day, canWrite }: { day: string; canWrite: boolean })
         </Notice>
       )}
       <DataTable<TruckDay>
+        key={tableKey}
         caption={t.caption}
         columns={columns}
         data={rows}
@@ -188,6 +207,7 @@ export function TrucksTab({ day, canWrite }: { day: string; canWrite: boolean })
                   icon: <CalendarX />,
                   // La boîte de motif prend le relais ; la sélection est conservée jusqu'à l'enregistrement.
                   onClick: (selection) => {
+                    setFromSelection(true);
                     setMarking(selection);
                     throw new Error("motif demandé");
                   },
@@ -220,7 +240,10 @@ export function TrucksTab({ day, canWrite }: { day: string; canWrite: boolean })
             : null
         }
         onClose={() => setMarking(null)}
-        onSubmit={(reason) => setAvailability(marking ?? [], false, reason)}
+        onSubmit={async (reason) => {
+          await setAvailability(marking ?? [], false, reason);
+          if (fromSelection) setTableKey((key) => key + 1);
+        }}
       />
     </div>
   );

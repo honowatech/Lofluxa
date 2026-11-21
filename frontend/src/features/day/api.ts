@@ -46,12 +46,13 @@ export function useDashboard(day: string) {
 
 /* ------------------------------------------------------------ suivi du calcul */
 
-/** Intervalle d'interrogation de `GET /tasks/{id}` pendant un calcul. */
-export const TASK_POLL_MS = 1000;
-/** Au-delà, un calcul toujours « en attente » est signalé (exécutant arrêté ?) — simple aide visuelle. */
-export const TASK_STALE_MS = 120_000;
+/**
+ * Rythme du suivi : intervalle d'interrogation de `GET /tasks/{id}`, et délai au-delà duquel un calcul toujours
+ * « en attente » est signalé (exécutant arrêté ?). Simple aide visuelle ; modifiable par les tests.
+ */
+export const computeTiming = { pollMs: 1000, staleMs: 120_000 };
 
-const STORAGE_KEY = "tourneo.day.compute";
+export const COMPUTE_STORAGE_KEY = "tourneo.day.compute";
 
 export interface TrackedTask {
   taskId: string;
@@ -60,7 +61,7 @@ export interface TrackedTask {
 
 function readAll(): Record<string, TrackedTask> {
   try {
-    const parsed: unknown = JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? "{}");
+    const parsed: unknown = JSON.parse(window.localStorage.getItem(COMPUTE_STORAGE_KEY) ?? "{}");
     return parsed && typeof parsed === "object" ? (parsed as Record<string, TrackedTask>) : {};
   } catch {
     return {};
@@ -77,7 +78,7 @@ function writeTracked(day: string, entry: TrackedTask | null): void {
   if (entry) all[day] = entry;
   else delete all[day];
   try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
+    window.localStorage.setItem(COMPUTE_STORAGE_KEY, JSON.stringify(all));
   } catch {
     // Stockage indisponible : le suivi fonctionne quand même tant que la page reste ouverte.
   }
@@ -104,7 +105,7 @@ export function useComputePlan(day: string) {
     queryKey: dayKeys.task(tracked?.taskId ?? ""),
     queryFn: ({ signal }) => api<Task>(`/tasks/${tracked?.taskId}`, { signal }),
     enabled: !!tracked,
-    refetchInterval: (query) => (isFinal(query.state.data) ? false : TASK_POLL_MS),
+    refetchInterval: (query) => (isFinal(query.state.data) ? false : computeTiming.pollMs),
     staleTime: Infinity,
     gcTime: 0,
   });

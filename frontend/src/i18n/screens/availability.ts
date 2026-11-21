@@ -78,8 +78,7 @@ export const availabilityTexts = {
   trucks: {
     caption: "Camions du jour",
     plate: "Immatriculation",
-    size: "Gabarit",
-    capacity: "Capacité",
+    sizeCapacity: "Gabarit · capacité",
     carrier: "Transporteur",
     status: "Statut",
     driver: "Chauffeur du jour",

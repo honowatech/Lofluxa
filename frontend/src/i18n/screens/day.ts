@@ -105,6 +105,8 @@ export const dayTexts = {
     status: "Statut",
     computedAt: "Calculé à",
     trips: "Tournées",
+    distance: "Distance",
+    fill: "Remplissage",
     served: "Commandes servies",
     servedValue: (served: number, requested: number) => `${served} / ${requested}`,
     violations: "Violations",
@@ -114,7 +116,7 @@ export const dayTexts = {
     author: "Auteur",
     open: "Ouvrir",
     openLabel: (label: string) => `Ouvrir le plan ${label}`,
-    publishable: "Publiable",
+    publishable: "Aucune — publiable",
   },
 
   alerts: {

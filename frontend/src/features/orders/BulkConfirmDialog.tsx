@@ -25,7 +25,12 @@ export interface BulkReport {
   ignored: number;
 }
 
+/** Refus d'abord, puis confirmations avec avertissement, puis le reste : ce qui demande une action est en tête. */
+const rank = (item: BulkConfirmResult["results"][number]) =>
+  !item.ok ? 0 : item.warnings.length > 0 ? 1 : 2;
+
 export function BulkConfirmDialog({ report, onClose }: { report: BulkReport | null; onClose: () => void }) {
+  const results = [...(report?.result.results ?? [])].sort((a, b) => rank(a) - rank(b));
   return (
     <Dialog open={report !== null} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="max-w-3xl" data-testid="bulk-confirm-report">
@@ -52,12 +57,12 @@ export function BulkConfirmDialog({ report, onClose }: { report: BulkReport | nu
               </tr>
             </thead>
             <tbody>
-              {(report?.result.results ?? []).map((item) => {
+              {results.map((item) => {
                 const warned = item.ok && item.warnings.length > 0;
                 const Icon = !item.ok ? CircleAlert : warned ? TriangleAlert : CircleCheck;
                 return (
                   <tr key={item.order_id} data-ok={item.ok} className="align-top">
-                    <td className="border-b px-3 py-1.5">
+                    <td className="whitespace-nowrap border-b px-3 py-1.5">
                       {report?.labels[item.order_id] ?? t.unknownOrder}
                     </td>
                     <td className="whitespace-nowrap border-b px-3 py-1.5">

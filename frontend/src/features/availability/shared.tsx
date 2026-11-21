@@ -61,7 +61,7 @@ export function DayBadge({ available, reason }: { available: boolean; reason?: s
       <Badge tone="warning" className="shrink-0">
         {t.unavailableShort}
       </Badge>
-      {reason && <span className="truncate text-xs">{reason}</span>}
+      {reason && <span className="max-w-40 truncate text-xs">{reason}</span>}
     </span>
   );
 }
@@ -100,7 +100,7 @@ export function AssignabilityCell({
       </Badge>
       <span
         className={
-          blocking ? "max-w-52 truncate text-xs font-medium text-blocking" : "max-w-52 truncate text-xs"
+          blocking ? "max-w-48 truncate text-xs font-medium text-blocking" : "max-w-48 truncate text-xs"
         }
       >
         {reason ?? t.notAssignable}

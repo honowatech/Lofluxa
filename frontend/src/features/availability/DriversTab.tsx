@@ -13,7 +13,6 @@ import { Notice } from "@/components/PageHeader";
 import { ExpiryBadge, StatusBadge } from "@/components/StatusBadge";
 import { fr } from "@/i18n/fr";
 import { isApiError } from "@/lib/api/errors";
-import { EMPTY } from "@/lib/format";
 import { DRIVER_STATUSES } from "@/lib/types";
 
 import { useDriverDays, useSaveDrivers, useTruckDays, type DriverDay } from "./api";
@@ -30,6 +29,9 @@ export function DriversTab({ day, canWrite }: { day: string; canWrite: boolean }
   const confirm = useConfirm();
   const [state, setState] = useDataTableState({ pageSize: 100, sorting: [{ id: "full_name", desc: false }] });
   const [marking, setMarking] = useState<DriverDay[] | null>(null);
+  // Le tableau garde sa sélection quand une action en masse passe par la boîte de motif : on le remonte ensuite.
+  const [fromSelection, setFromSelection] = useState(false);
+  const [tableKey, setTableKey] = useState(0);
   const rows = list.data ?? NONE;
 
   const setAvailability = async (drivers: DriverDay[], available: boolean, reason: string | null = null) => {
@@ -90,9 +92,15 @@ export function DriversTab({ day, canWrite }: { day: string; canWrite: boolean }
   const columns = useMemo<ColumnDef<DriverDay, unknown>[]>(
     () => [
       {
-        accessorKey: "full_name",
+        id: "full_name",
         header: t.name,
-        cell: ({ row }) => <span className="font-medium">{row.original.full_name}</span>,
+        // Le transporteur n'a pas de colonne (écran dense) : il reste lisible au survol et dans la recherche.
+        accessorFn: (driver) => `${driver.full_name} · ${driver.carrier_name ?? ""}`,
+        cell: ({ row }) => (
+          <span className="font-medium" title={row.original.carrier_name ?? undefined}>
+            {row.original.full_name}
+          </span>
+        ),
       },
       {
         id: "assignable",
@@ -177,11 +185,6 @@ export function DriversTab({ day, canWrite }: { day: string; canWrite: boolean }
             <span className="text-xs text-muted-foreground">{t.noHazmat}</span>
           ),
       },
-      {
-        accessorKey: "carrier_name",
-        header: t.carrier,
-        cell: ({ row }) => row.original.carrier_name ?? EMPTY,
-      },
       ...(canWrite
         ? [
             {
@@ -194,8 +197,22 @@ export function DriversTab({ day, canWrite }: { day: string; canWrite: boolean }
                   label={r.rowLabel(row.original.full_name)}
                   items={[
                     row.original.available_today
-                      ? { label: r.mark, icon: <CalendarX />, onSelect: () => setMarking([row.original]) }
-                      : { label: r.editReason, icon: <Pencil />, onSelect: () => setMarking([row.original]) },
+                      ? {
+                          label: r.mark,
+                          icon: <CalendarX />,
+                          onSelect: () => {
+                            setFromSelection(false);
+                            setMarking([row.original]);
+                          },
+                        }
+                      : {
+                          label: r.editReason,
+                          icon: <Pencil />,
+                          onSelect: () => {
+                            setFromSelection(false);
+                            setMarking([row.original]);
+                          },
+                        },
                     ...(row.original.available_today
                       ? []
                       : [
@@ -241,6 +258,7 @@ export function DriversTab({ day, canWrite }: { day: string; canWrite: boolean }
         </Notice>
       )}
       <DataTable<DriverDay>
+        key={tableKey}
         caption={t.caption}
         columns={columns}
         data={rows}
@@ -268,6 +286,7 @@ export function DriversTab({ day, canWrite }: { day: string; canWrite: boolean }
                   label: r.markSelection,
                   icon: <CalendarX />,
                   onClick: (selection) => {
+                    setFromSelection(true);
                     setMarking(selection);
                     throw new Error("motif demandé");
                   },
@@ -301,7 +320,10 @@ export function DriversTab({ day, canWrite }: { day: string; canWrite: boolean }
             : null
         }
         onClose={() => setMarking(null)}
-        onSubmit={(reason) => setAvailability(marking ?? [], false, reason)}
+        onSubmit={async (reason) => {
+          await setAvailability(marking ?? [], false, reason);
+          if (fromSelection) setTableKey((key) => key + 1);
+        }}
       />
     </div>
   );

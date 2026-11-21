@@ -12,7 +12,7 @@ import { fr } from "@/i18n/fr";
 import { EMPTY, formatDateTime, formatNumber } from "@/lib/format";
 import { withDay } from "@/lib/useDay";
 
-import { TASK_STALE_MS, useComputePlan, type PlanSummary } from "./api";
+import { computeTiming, useComputePlan, type PlanSummary } from "./api";
 import { Card } from "./SummaryCards";
 
 const t = fr.screens.day.compute;
@@ -51,7 +51,7 @@ function useStale(startedAt: number | undefined, pending: boolean): boolean {
     const timer = window.setInterval(() => tick((n) => n + 1), 5000);
     return () => window.clearInterval(timer);
   }, [pending]);
-  return pending && startedAt !== undefined && Date.now() - startedAt > TASK_STALE_MS;
+  return pending && startedAt !== undefined && Date.now() - startedAt > computeTiming.staleMs;
 }
 
 function LastCompute({ plan }: { plan: PlanSummary | undefined }) {
@@ -69,10 +69,12 @@ function LastCompute({ plan }: { plan: PlanSummary | undefined }) {
       t.last.distances,
       plan.approximate ? (
         <Tip label={t.last.approximateHint}>
-          <Badge tone="warning" tabIndex={0} data-testid="approximate-flag">
-            <TriangleAlert className="size-3" aria-hidden />
-            {t.last.approximate}
-          </Badge>
+          <span tabIndex={0} className="inline-flex rounded-sm focus-ring" data-testid="approximate-flag">
+            <Badge tone="warning">
+              <TriangleAlert className="size-3" aria-hidden />
+              {t.last.approximate}
+            </Badge>
+          </span>
         </Tip>
       ) : (
         <Badge tone="success">{t.last.exact}</Badge>
