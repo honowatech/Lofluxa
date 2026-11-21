@@ -112,6 +112,15 @@ async def load_bundle(session: AsyncSession, plan_id: uuid.UUID) -> PlanBundle:
 # --------------------------------------------------------------------------- métriques
 
 
+def truck_capacity_l(truck: Truck | None) -> float:
+    """Capacité d'un camion pour le taux de remplissage : somme de ses compartiments (comme le
+    service de plans), à défaut sa capacité totale déclarée."""
+    if truck is None:
+        return 0.0
+    compartments = sum(float(c.capacity_l) for c in truck.compartments)
+    return compartments or float(truck.total_capacity_l or 0)
+
+
 def to_plan_m(bundle: PlanBundle) -> m.PlanM:
     """Vue pure du plan pour `metrics.compute_metrics`."""
     trips = []
@@ -124,7 +133,7 @@ def to_plan_m(bundle: PlanBundle) -> m.PlanM:
             m.TripM(
                 truck_id=str(trip.truck_id),
                 driver_id=str(trip.driver_id) if trip.driver_id else None,
-                truck_capacity_l=float(truck.total_capacity_l) if truck else 0.0,
+                truck_capacity_l=truck_capacity_l(truck),
                 distance_m=trip.distance_m or 0,
                 duration_s=trip.duration_s or 0,
                 actual_distance_m=trip.actual_distance_m,
@@ -253,7 +262,7 @@ def plan_routes(bundle: PlanBundle) -> list[dict[str, Any]]:
         if depot_point:
             points.append(dict(depot_point))
         volume = sum(d["planned_l"] for s in stops for d in s["deliveries"])
-        capacity = float(truck.total_capacity_l) if truck else 0.0
+        capacity = truck_capacity_l(truck)
         routes.append(
             {
                 "trip_id": trip.id,

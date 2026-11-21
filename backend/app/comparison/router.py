@@ -21,8 +21,8 @@ from app.comparison import service as comparison_service
 from app.comparison.schemas import ComparisonOut, DashboardOut, ReferenceDayImportOut, ReplayOut
 from app.core.deps import CurrentUser, SessionDep, get_current_user, require_roles
 from app.core.enums import ImportStatus, Role
-from app.core.errors import envelope
-from app.core.settings_store import load_settings
+from app.core.errors import ValidationAppError, envelope
+from app.core.settings_store import get_setting, load_settings
 
 router = APIRouter(tags=["comparaison"])
 
@@ -53,9 +53,15 @@ async def import_reference_day(
     dry_run: Annotated[bool, Form(description="Contrôler le fichier sans rien créer")] = False,
     replace: Annotated[bool, Form(description="Remplacer la journée de référence existante")] = False,
 ) -> Response | ReferenceDayImportOut:
+    content = await file.read()
+    max_mb = float(await get_setting(session, "import_max_file_mb"))
+    if len(content) > max_mb * 1024 * 1024:
+        raise ValidationAppError(
+            f"Fichier trop volumineux : {max_mb:g} Mo au plus.", code="file_too_large", status_code=413
+        )
     outcome = await reference_day_service.import_reference_day(
         session,
-        content=await file.read(),
+        content=content,
         filename=file.filename or "reference_day.xlsx",
         day=day,
         prep_time_min=prep_time_min,
