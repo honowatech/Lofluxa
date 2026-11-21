@@ -48,7 +48,7 @@ function Figure({ label, value, strong }: { label: string; value: number; strong
   return (
     <div className="flex flex-col">
       <dt className="text-[0.6875rem] uppercase tracking-wide text-muted-foreground">{label}</dt>
-      <dd className={strong ? "num text-sm font-semibold text-warning" : "num text-sm"}>
+      <dd className={strong ? "text-sm font-semibold tabular-nums text-warning" : "text-sm tabular-nums"}>
         {formatLiters(value)}
       </dd>
     </div>
@@ -103,10 +103,9 @@ function TripCard({
         <StatusBadge kind="trip" value={trip.status} />
         {trip.driver_name && <span className="text-xs text-muted-foreground">{trip.driver_name}</span>}
         <span className="ml-auto text-xs">
-          {t.planned} <span className="num">{formatLiters(trip.planned_l)}</span> · {t.covered}{" "}
-          <span className="num">{formatLiters(trip.covered_l)}</span> ·{" "}
+          {t.planned} {formatLiters(trip.planned_l)} · {t.covered} {formatLiters(trip.covered_l)} ·{" "}
           <span className="font-medium text-warning">
-            {t.shortfall} <span className="num">{formatLiters(trip.shortfall_l)}</span>
+            {t.shortfall} {formatLiters(trip.shortfall_l)}
           </span>
         </span>
       </div>

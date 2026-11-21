@@ -252,10 +252,12 @@ describe("Journal des événements — assistant de réaffectation", () => {
     await waitFor(() => expect(screen.getAllByTestId("event-row")).toHaveLength(9));
   });
 
-  it("chauffeur obligatoire quand `driver_required` ; chauffeur et motif transmis", async () => {
+  it("chauffeur obligatoire quand `driver_required` ; chauffeur, heure et motif transmis", async () => {
     loginAs("dispatcher");
     const { user } = renderApp(ROUTE);
     const { dialog, next } = await openAssistant(user);
+    // Heure de l'incident : saisie tolérante (« 910 » → 09:10, heure de Douala).
+    await user.type(within(dialog).getByRole("textbox", { name: /Heure de l'incident/ }), "910");
     await next();
     await user.click(await within(dialog).findByRole("radio", { name: /Tournée n° 2/ }));
     await next();
@@ -278,6 +280,7 @@ describe("Journal des événements — assistant de réaffectation", () => {
         trip_id: SAMPLE_TRIP_IDS[1],
         replacement_truck_id: SAMPLE_TRUCK_IDS.driverRequired,
         replacement_driver_id: SAMPLE_DRIVER_IDS.jean,
+        occurred_at: "2027-01-12T08:10:00.000Z",
         reason: "Crevaison à Ndokoti",
       },
     });

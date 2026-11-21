@@ -24,21 +24,20 @@ Zones d'ombre rencontrées, valeur par défaut adoptée en attendant la réponse
 | L13-11 | Kilomètres réels à la clôture. | Saisis en kilomètres (une décimale possible), envoyés en mètres ; facultatifs comme côté API. Confirmation avant clôture car elle n'est pas réversible (L6-12). |
 | L13-12 | Source des données : aucune route ne liste les arrêts d'une tournée hors du plan complet. | `GET /loadings?day=` pour les tournées, `GET /plans/{plan_id}` (un appel par plan publié du jour) pour les arrêts. |
 
-## Écran 6 — Journal des événements (routes du lot L10 non livrées à la date du rendu)
+## Écran 6 — Journal des événements (aligné sur les routes réelles du lot L10)
 
-Toutes les formes supposées sont isolées dans `frontend/src/features/events/api.ts` (fonctions `normalize*` tolérantes).
+Les types viennent de `api.gen.ts` (`EventOut`, `EventResultOut`, `ReplacementOptionsOut`, `ShortageOut`, `ResolveOut`) ;
+tous les appels sont dans `frontend/src/features/events/api.ts`.
 
 | # | Question | Choix fait |
 |---|---|---|
-| L13-13 | Forme de `GET /events?day=`. | `Page` (ou liste) d'événements : colonnes du modèle (`id, day, plan_id, trip_id, type, payload, occurred_at, actor_id`) plus libellés supposés `actor_name`, `trip_seq`, `truck_plate` (acceptés aussi dans `payload`). Sans eux : « Système », « Tournée ». |
-| L13-14 | Route des options de remplacement (non décrite par la spec §9). | Supposée `GET /events/replacement-options?trip_id=&kind=truck\|driver` → `{trucks: [{id, plate, size, total_capacity_l, carrier_name, suitable, reason}], drivers: [{id, full_name, phone, suitable, reason}]}`. |
-| L13-15 | Réponse des `POST /events/truck-breakdown` et `/driver-unavailable`. | Supposée `{event, plan: {id, version}, transferred_stop_count}` ; un `PlanOut` direct ou `{plan_id, plan_version}` sont aussi compris. L'écran propose alors d'ouvrir la nouvelle version du plan. |
-| L13-16 | Réponse de `POST /events/product-shortage`. | Supposée `{event, available_l, impacted_trips: [{trip_id, plan_id, trip_seq, truck_plate, driver_name, planned_l, shortfall_l}]}`. |
-| L13-17 | F6.3 « le dispatcher choisit : réduire, reporter, changer de dépôt » : la spec §9 ne prévoit aucune route de résolution. | Pas de route inventée : pour chaque tournée impactée, trois liens — « Réduire » et « Changer de dépôt » vers le plan (`/plan?plan=&trip=`), « Reporter » vers les commandes. Lever l'alerte = redéclarer un stock suffisant par la même route. |
-| L13-18 | F6.3 attribue la mise à jour du stock à Supply, mais `supply` ne voit pas l'écran Journal et `events.write` est réservé au dispatcher. | Déclaration ouverte au dispatcher (et admin) seulement. À trancher : ouvrir l'écran (ou cette action) à Supply, ou s'appuyer sur `PUT /availability/depot-stocks`. |
-| L13-19 | Panne de camion : chauffeur de remplacement. | Facultatif ; le chauffeur actuel est conservé par défaut (`replacement_driver_id` omis). |
-| L13-20 | Tournées proposées dans l'assistant. | Celles des plans publiés du jour ayant au moins un arrêt `pending` (RM-19) ; le serveur reste juge du reste. |
-| L13-21 | Liens du journal vers les autres écrans. | `/suivi?trip=<id>`, `/chargement?trip=<id>` (lus par les écrans 7 et 8 de ce lot) et `/plan?plan=<id>` (à confirmer avec le lot Plan). |
+| L13-13 | F6.3 attribue la déclaration d'une pénurie à Supply (`POST /events/product-shortage` : `supply`, `admin`), mais `supply` ne voit pas l'écran Journal (`SCREEN_ROLES.events` du socle). | Le bouton « Déclarer une pénurie » n'apparaît que pour `supply` et `admin` ; tant que `roles.ts` n'ouvre pas l'écran à Supply, seule l'administration peut déclarer par l'écran. À trancher : ouvrir le Journal à Supply, ou placer la déclaration dans l'écran Disponibilité. |
+| L13-14 | Pénurie : `day` est facultatif côté API (défaut : aujourd'hui). | L'écran envoie toujours le jour J affiché. `new_available_l` est présenté comme le stock **total** du jour. |
+| L13-15 | Traitement d'une pénurie : « réduire » et « reporter » acceptent un détail par commande. | L'écran s'en tient aux valeurs par défaut du serveur (réduction proportionnelle, report de toutes les commandes du produit) ; « changer de dépôt » propose les `alternative_depots` en signalant s'ils suffisent. Faut-il une saisie par commande ? |
+| L13-16 | Champs facultatifs des réaffectations (`occurred_at`, `reason`, `publish`). | Motif et heure de l'incident proposés (les remplaçants sont évalués à cette heure) ; `publish` jamais envoyé (comportement par défaut du serveur : publication si aucune violation bloquante). |
+| L13-17 | Panne de camion : chauffeur de remplacement. | Chauffeur proposé par le serveur retenu par défaut ; obligatoire si `driver_required`. Les chauffeurs sont réévalués pour le camion choisi (`replacement_truck_id`). |
+| L13-18 | Nouvelle version restée en brouillon (violations bloquantes) après une réaffectation. | Signalée dans l'assistant avec ses violations et un lien vers le plan ; le lien « Ouvrir son chargement » de la tournée de remplacement n'est proposé qu'une fois la version publiée (un brouillon n'apparaît pas dans `GET /loadings`). |
+| L13-19 | Liens du journal vers les autres écrans. | `/suivi?trip=<id>`, `/chargement?trip=<id>` (lus par les écrans 7 et 8 de ce lot) et `/plan?plan=<id>` (à confirmer avec le lot Plan). |
 
 ## Constats sur l'API et le socle (non modifiés)
 
@@ -56,3 +55,11 @@ Toutes les formes supposées sont isolées dans `frontend/src/features/events/ap
   connexion. Attendu : n'effacer les jetons que sur un refus d'authentification, pas sur une erreur réseau.
 - **`GET /stops/{id}`** : pas de lecture unitaire d'un arrêt ; `StopOut` du plan ne porte pas `contact_email`
   (l'écran 7 lit `/stations` pour proposer les destinataires).
+- **`POST /events/{id}/resolve`, action `reduce` sans `deliveries`** : stock de 30 000 L dont 8 000 L déjà chargés ;
+  `GET /events/{id}/impact` annonce pour la tournée 3 `covered_l: 3000` avec `reduce` dans ses `options` (tournée 4 :
+  `covered_l: 0`). Attendu : réduction à 3 000 L. Constaté : 422 `nothing_left_to_load` (le calcul retranche le volume
+  de toutes les autres tournées impactées, y compris non couvertes). L'écran envoie donc les reports et changements de
+  dépôt avant les réductions ; réduire une seule tournée sans traiter les autres reste refusé.
+- **Horodatage du journal** : chargements, livraisons, publications et pénuries portent l'heure réelle du serveur,
+  alors qu'une panne porte l'`occurred_at` saisi ; sur un jour J autre qu'aujourd'hui, le fil mélange les deux.
+  `POST /events/product-shortage` n'accepte pas d'`occurred_at`.

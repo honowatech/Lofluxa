@@ -22,7 +22,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { TimeInput } from "@/components/forms";
+import { normalizeTime, TimeInput } from "@/components/forms";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { fr } from "@/i18n/fr";
@@ -98,7 +98,7 @@ function StopList({ title, stops }: { title: string; stops: PlanStopOut[] }) {
             <span className="num w-4 text-right text-muted-foreground">{stop.seq}</span>
             <span className="min-w-0 flex-1 truncate">{stop.station_name ?? stop.station_code ?? EMPTY}</span>
             <span className="num text-muted-foreground">{formatLocalTime(stop.planned_arrival_at)}</span>
-            <span className="num w-16 text-right">{formatLiters(stop.planned_l)}</span>
+            <span className="w-20 text-right tabular-nums">{formatLiters(stop.planned_l)}</span>
             <StatusBadge kind="stop" value={stop.status} />
           </li>
         ))}
@@ -206,10 +206,11 @@ export function ReassignDialog({
   const [reason, setReason] = useState("");
   /** Heure locale de l'incident (`HH:mm`) ; vide : maintenant. */
   const [time, setTime] = useState("");
-  const timeValid = time === "" || /^([01]\d|2[0-3]):[0-5]\d$/.test(time);
+  const localTime = normalizeTime(time);
+  const timeValid = localTime === "" || /^([01]\d|2[0-3]):[0-5]\d$/.test(localTime);
   const occurredAt =
-    time !== "" && timeValid
-      ? new Date(Date.parse(dayBoundsUtc(day).from) + hmToSeconds(time) * 1000).toISOString()
+    localTime !== "" && timeValid
+      ? new Date(Date.parse(dayBoundsUtc(day).from) + hmToSeconds(localTime) * 1000).toISOString()
       : null;
   const [done, setDone] = useState<EventResultOut | null>(null);
 
