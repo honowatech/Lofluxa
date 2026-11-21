@@ -213,7 +213,7 @@ test("pénurie produit : déclarée par l'écran (admin), traitée par le dispat
   const admin = await open(browser, ADMIN, `/journal?day=${day}`);
   await admin.page.getByRole("button", { name: "Déclarer une pénurie" }).click();
   const form = admin.page.getByRole("dialog", { name: "Déclarer une pénurie produit" });
-  await form.getByRole("combobox", { name: "Dépôt" }).selectOption({ label: "SCDP-DLA — SCDP Douala" });
+  await form.getByRole("combobox", { name: "Dépôt" }).selectOption(broken.depot_id);
   await form.getByRole("combobox", { name: "Produit" }).selectOption({ label: "Gasoil" });
   const field = form.getByRole("textbox", { name: "Nouveau stock disponible" });
 
@@ -226,18 +226,18 @@ test("pénurie produit : déclarée par l'écran (admin), traitée par le dispat
   await field.fill(String(stock));
   await form.getByRole("button", { name: "Déclarer" }).click();
   const overview = form.getByTestId("shortage-overview");
-  await expect(overview).toContainText("GASOIL au dépôt SCDP-DLA");
+  await expect(overview).toContainText("GASOIL au dépôt");
   await expect(overview).toContainText("À traiter");
   await form.getByRole("button", { name: "Fermer" }).last().click();
   await expect(
-    admin.page.getByTestId("event-row").filter({ hasText: "Stock de GASOIL au dépôt SCDP-DLA" }),
+    admin.page.getByTestId("event-row").filter({ hasText: "Stock de GASOIL au dépôt" }),
   ).toContainText("À traiter");
   await admin.context.close();
 
   // Le dispatcher traite l'alerte depuis le journal.
   const { page } = dispatcher;
   await page.goto(`/journal?day=${day}`);
-  const alertRow = page.getByTestId("event-row").filter({ hasText: "Stock de GASOIL au dépôt SCDP-DLA" });
+  const alertRow = page.getByTestId("event-row").filter({ hasText: "Stock de GASOIL au dépôt" });
   await expect(alertRow).toContainText("À traiter");
   await shot(page, "l13-08-journal-evenements");
   await alertRow.getByRole("button", { name: "Traiter la pénurie" }).click();
@@ -269,7 +269,7 @@ test("pénurie produit : déclarée par l'écran (admin), traitée par le dispat
   await expect(
     page
       .getByTestId("event-row")
-      .filter({ hasText: /^.*Pénurie de GASOIL au dépôt SCDP-DLA/ })
+      .filter({ hasText: /Pénurie de GASOIL au dépôt/ })
       .first(),
   ).toBeVisible();
 });

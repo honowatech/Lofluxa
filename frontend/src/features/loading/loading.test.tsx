@@ -6,7 +6,7 @@ import { server } from "@/mocks/server";
 import { loginAs, renderApp } from "@/test/utils";
 
 import type { LoadingInput } from "./api";
-import { computeGap, localTimeToUtc, roundCenti, volumeAt15 } from "./conversion";
+import { computeGap, decomposeGap, localTimeToUtc, roundCenti, volumeAt15 } from "./conversion";
 import { createLoadingMocks } from "./mocks";
 
 const DAY = "2027-01-12";
@@ -44,6 +44,17 @@ describe("Chargement — calcul (RM-12, RM-13)", () => {
     expect(computeGap(10201, 10000, 2).outOfTolerance).toBe(true);
     expect(computeGap(500, 0, 2)).toMatchObject({ gapPct: null, outOfTolerance: true });
     expect(computeGap(9000, 10000, null).outOfTolerance).toBeNull();
+  });
+
+  it("test_RM_13_decomposition_de_l_ecart : écart = température (15 °C − observé) + volume (observé − planifié)", () => {
+    const parts = decomposeGap(11800, 11594.68, 12000);
+    expect(parts).toEqual({
+      temperatureL: -205.32,
+      temperaturePct: -1.71,
+      observedL: -200,
+      observedPct: -1.67,
+    });
+    expect(parts.temperatureL + parts.observedL).toBeCloseTo(computeGap(11594.68, 12000, 2).gapL, 2);
   });
 
   it("heure locale de Douala → UTC (RM-20)", () => {
@@ -104,10 +115,16 @@ describe("Chargement — écran", () => {
     expect(screen.getByText(/compartiment 2 : −216\s?L \(−2,40\s%\)/)).toBeInTheDocument();
     // Compartiment 3 planifié mais non saisi : compte pour 0 L.
     expect(screen.getByText(/compartiment 3 : non chargé/)).toBeInTheDocument();
+    // Décomposition : ici tout l'écart vient de la température (volume observé = planifié).
+    expect(within(row(2)).getByTestId("gap-parts")).toHaveTextContent("T° −216 · vol. 0");
 
     await user.keyboard("8000{Enter}15{Enter}");
     expect(within(row(3)).getByTestId("at15")).toHaveTextContent("8 000,00");
     expect(screen.getByTestId("loading-total")).toHaveTextContent("28 568,00");
+    // Écart total −432 L = température −432 L + volume chargé 0 L.
+    expect(screen.getByTestId("rm13-parts")).toHaveTextContent(
+      /correction de température −432 L \(−1,49 %\) \+ volume chargé 0 L \(0,00 %\)/,
+    );
 
     await user.keyboard("{Control>}{Enter}{/Control}");
     await waitFor(() => expect(mocks.loadings.size).toBe(1));
@@ -123,6 +140,8 @@ describe("Chargement — écran", () => {
     expect(sent.lines[1].observed_density).toBeNull();
     // Après enregistrement : valeurs du serveur, avertissement conservé, fiche disponible.
     expect(await screen.findByRole("button", { name: "Mettre à jour le chargement" })).toBeInTheDocument();
+    // Explication fournie par le serveur avec l'avertissement.
+    expect(screen.getByText(/Écart dû en partie à la correction de température/)).toBeInTheDocument();
     expect(screen.getByTestId("rm13-warning")).toBeInTheDocument();
     expect(screen.getByText("Saisi par", { exact: false })).toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole("button", { name: "Fiche de chargement" })).toBeEnabled());

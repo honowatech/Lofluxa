@@ -25,6 +25,7 @@ import { formatLiters } from "@/lib/format";
 import type { IsoDate } from "@/lib/types";
 
 import { ApiErrorNotice } from "./ApiErrorNotice";
+import { EventTimeField, parseEventTime } from "./EventTime";
 import {
   useResolveShortage,
   useShortageImpact,
@@ -193,11 +194,14 @@ export function ImpactDialog({
   const resolve = useResolveShortage(eventId);
   const [decisions, setDecisions] = useState<Record<string, Decision>>({});
   const [showErrors, setShowErrors] = useState(false);
+  const [time, setTime] = useState("");
+  const eventTime = parseEventTime(day, time);
   const [done, setDone] = useState<ResolveOut | null>(null);
 
   const restart = () => {
     setDecisions({});
     setShowErrors(false);
+    setTime("");
     setDone(null);
     resolve.reset();
   };
@@ -212,21 +216,22 @@ export function ImpactDialog({
   const incomplete = chosen.some(([, decision]) => decision.action === "change_depot" && !decision.depotId);
 
   const submit = async () => {
-    if (chosen.length === 0 || incomplete) {
+    if (chosen.length === 0 || incomplete || !eventTime.valid) {
       setShowErrors(true);
       return;
     }
-    // Les reports et changements de dépôt d'abord, les réductions ensuite : le serveur applique les décisions
-    // dans l'ordre reçu et calcule une réduction par défaut d'après le volume encore planifié des autres tournées.
-    const resolutions = chosen
-      .map(([trip_id, decision]): ShortageResolutionIn => ({
-        trip_id,
-        action: decision.action as ShortageAction,
-        ...(decision.action === "change_depot" ? { depot_id: decision.depotId } : {}),
-      }))
-      .sort((a, b) => Number(a.action === "reduce") - Number(b.action === "reduce"));
+    const resolutions = chosen.map(([trip_id, decision]): ShortageResolutionIn => ({
+      trip_id,
+      action: decision.action as ShortageAction,
+      ...(decision.action === "change_depot" ? { depot_id: decision.depotId } : {}),
+    }));
     try {
-      setDone(await resolve.mutateAsync({ resolutions }));
+      setDone(
+        await resolve.mutateAsync({
+          resolutions,
+          ...(eventTime.occurredAt ? { occurred_at: eventTime.occurredAt } : {}),
+        }),
+      );
       notify.success(t.done.toast);
     } catch {
       // L'erreur reste affichée dans la boîte (état de la mutation).
@@ -305,6 +310,14 @@ export function ImpactDialog({
                     ))}
                   </ul>
                 </section>
+              )}
+              {editable && shortage.impacted_trips.length > 0 && (
+                <EventTimeField
+                  label={fr.screens.events.eventTime.resolve}
+                  value={time}
+                  onChange={setTime}
+                  invalid={!eventTime.valid}
+                />
               )}
               {!canResolve && shortage.status === "open" && <Notice tone="neutral">{t.readOnly}</Notice>}
               {showErrors && chosen.length === 0 && (

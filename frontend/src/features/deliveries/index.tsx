@@ -52,6 +52,8 @@ export default function DeliveriesPage() {
     [trips, statusFilter],
   );
   const selected = trips.find((trip) => trip.id === selectedId) ?? null;
+  // Plusieurs plans publiés le même jour (plan initial + reliquats) : chaque tournée rappelle le sien.
+  const severalPlans = planIds.length > 1;
   const selectedPlanTrip = selected ? plans.trips.get(selected.id) : undefined;
 
   // Sans sélection : la première tournée en cours, à défaut la première de la liste.
@@ -100,6 +102,7 @@ export default function DeliveriesPage() {
                   <TripCard
                     trip={trip}
                     planTrip={plans.trips.get(trip.id)}
+                    showPlan={severalPlans}
                     selected={trip.id === selected?.id}
                     onSelect={() => setParam("trip", trip.id)}
                   />
@@ -129,11 +132,13 @@ function TripCard({
   trip,
   planTrip,
   selected,
+  showPlan,
   onSelect,
 }: {
   trip: TripSummary;
   planTrip: PlanTrip | undefined;
   selected: boolean;
+  showPlan: boolean;
   onSelect: () => void;
 }) {
   // L'avancement vient du plan quand il est chargé (à jour après chaque saisie), sinon du résumé.
@@ -156,7 +161,8 @@ function TripCard({
         <StatusBadge kind="trip" value={trip.status} className="ml-auto" />
       </span>
       <span className="truncate text-xs text-muted-foreground">
-        {trip.driver_name ?? t.list.noDriver} · {trip.depot_code} ·{" "}
+        {trip.driver_name ?? t.list.noDriver} · {trip.depot_code}
+        {showPlan && ` · ${t.list.plan(trip.plan_version, trip.plan_label ?? null)}`} ·{" "}
         <span className="num">
           {formatLocalTime(trip.planned_depart_at)} → {formatLocalTime(trip.planned_return_at)}
         </span>

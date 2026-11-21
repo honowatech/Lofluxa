@@ -22,11 +22,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { normalizeTime, TimeInput } from "@/components/forms";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { fr } from "@/i18n/fr";
-import { dayBoundsUtc, EMPTY, formatLiters, formatLocalTime, hmToSeconds } from "@/lib/format";
+import { EMPTY, formatLiters, formatLocalTime } from "@/lib/format";
 import type { IsoDate } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -42,6 +41,7 @@ import {
   type PublishedTrip,
   type ReasonOut,
 } from "./api";
+import { EventTimeField, parseEventTime } from "./EventTime";
 import { PlanResult } from "./PlanResult";
 import { loadingLink } from "./summary";
 
@@ -206,12 +206,7 @@ export function ReassignDialog({
   const [reason, setReason] = useState("");
   /** Heure locale de l'incident (`HH:mm`) ; vide : maintenant. */
   const [time, setTime] = useState("");
-  const localTime = normalizeTime(time);
-  const timeValid = localTime === "" || /^([01]\d|2[0-3]):[0-5]\d$/.test(localTime);
-  const occurredAt =
-    localTime !== "" && timeValid
-      ? new Date(Date.parse(dayBoundsUtc(day).from) + hmToSeconds(localTime) * 1000).toISOString()
-      : null;
+  const { valid: timeValid, occurredAt } = parseEventTime(day, time);
   const [done, setDone] = useState<EventResultOut | null>(null);
 
   const trips = usePublishedTrips(day, open);
@@ -417,21 +412,14 @@ export function ReassignDialog({
                     </span>
                     <span className="block text-xs text-muted-foreground">{t.kinds.driverHint}</span>
                   </Choice>
-                  <div className="mt-2 flex flex-col gap-1">
-                    <Label htmlFor={`${ids}-time`}>
-                      {t.time}
-                      <span className="ml-1 font-normal text-muted-foreground">({fr.common.optional})</span>
-                    </Label>
-                    <TimeInput
-                      id={`${ids}-time`}
+                  <div className="mt-2">
+                    <EventTimeField
+                      label={t.time}
+                      hint={t.timeHint}
                       value={time}
                       onChange={setTime}
-                      aria-invalid={!timeValid}
-                      aria-describedby={`${ids}-time-hint`}
+                      invalid={!timeValid}
                     />
-                    <p id={`${ids}-time-hint`} className="text-xs text-muted-foreground">
-                      {t.timeHint}
-                    </p>
                   </div>
                 </fieldset>
               )}

@@ -424,6 +424,7 @@ describe("Journal des événements — pénurie produit", () => {
 
     await user.clear(stock);
     await user.type(stock, "30000");
+    await user.type(within(dialog).getByRole("textbox", { name: /Heure du constat/ }), "845");
     await user.click(within(dialog).getByRole("button", { name: "Déclarer" }));
     const overview = await within(dialog).findByTestId("shortage-overview");
     expect(scenario.received.at(-1)).toEqual({
@@ -433,6 +434,7 @@ describe("Journal des événements — pénurie produit", () => {
         product_id: scenario.refs.products.GASOIL,
         new_available_l: 30000,
         day: DAY,
+        occurred_at: "2027-01-12T07:45:00.000Z",
       },
     });
     expect(overview).toHaveTextContent("GASOIL au dépôt SCDP-DLA");
@@ -529,7 +531,7 @@ describe("Journal des événements — pénurie produit", () => {
     );
   });
 
-  it("résolution « réduire » : seuls `trip_id` et `action` sont envoyés (volumes par défaut du serveur)", async () => {
+  it("résolution « réduire » : `trip_id`, `action` et heure de la décision (volumes par défaut du serveur)", async () => {
     loginAs("dispatcher");
     const { user } = renderApp(ROUTE);
     await rows();
@@ -540,10 +542,12 @@ describe("Journal des événements — pénurie produit", () => {
       "reduce",
     );
     expect(within(dialog).getByText(/Réduction proportionnelle/)).toBeInTheDocument();
+    await user.type(within(dialog).getByRole("textbox", { name: /Heure de la décision/ }), "9h05");
     await user.click(within(dialog).getByRole("button", { name: "Appliquer les décisions" }));
     await within(dialog).findByText("Décisions appliquées");
     expect(scenario.received[0].body).toEqual({
       resolutions: [{ trip_id: SAMPLE_TRIP_IDS[1], action: "reduce" }],
+      occurred_at: "2027-01-12T08:05:00.000Z",
     });
   });
 });

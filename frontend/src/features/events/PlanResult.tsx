@@ -31,7 +31,7 @@ export function PlanResult({
   return (
     <div className="flex flex-col gap-2" data-testid="plan-result">
       <Notice
-        tone={result.published ? "info" : "warning"}
+        tone={result.published ? "success" : "warning"}
         icon={
           result.published ? (
             <CheckCircle2 className="size-4" aria-hidden />

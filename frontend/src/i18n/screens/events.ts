@@ -74,6 +74,13 @@ export const eventsTexts = {
     trip_not_impacted: "Le stock couvre déjà cette tournée : il n'y a rien à réduire.",
   },
 
+  eventTime: {
+    hint: "Heure de Douala, le jour J. Vide : maintenant.",
+    invalid: "Heure invalide : saisir HH:mm (ex. 09:10).",
+    shortage: "Heure du constat",
+    resolve: "Heure de la décision",
+  },
+
   /** Phrases communes aux écrans de fin (réaffectation, résolution). */
   planResult: {
     published: (version: number) => `Version ${version} du plan publiée.`,

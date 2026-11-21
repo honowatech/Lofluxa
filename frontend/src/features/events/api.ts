@@ -190,6 +190,7 @@ export type ShortageResolutionIn = Pick<S["ShortageResolutionIn"], "trip_id" | "
 };
 export interface ResolveIn {
   resolutions: ShortageResolutionIn[];
+  occurred_at?: string;
 }
 
 export function useProductShortage() {
