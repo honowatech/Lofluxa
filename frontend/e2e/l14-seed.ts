@@ -142,7 +142,8 @@ export function buildXlsx(sheets: Sheet[]): Buffer {
 
 /* ------------------------------------------------------------------ jeu fictif : Douala */
 
-const DEPOT = "SCDP-DLA";
+/** Tout ce que crée ce script porte le préfixe L14 : aucun autre lot ne peut créer un homonyme. */
+const DEPOT = "L14-DEPOT";
 
 /** code, nom, lat, lon, gabarit max, produits des cuves */
 const STATIONS: [string, string, number, number, string, string[]][] = [
@@ -164,21 +165,21 @@ const STATIONS: [string, string, number, number, string, string[]][] = [
 
 /** immatriculation, transporteur, type, gabarit, capacités des compartiments */
 const TRUCKS: [string, string, string, string, number[]][] = [
-  ["LT 201 DA", "Transcam", "tiers", "grand", [11000, 11000, 11000]],
-  ["LT 202 DA", "Transcam", "tiers", "grand", [11000, 11000, 11000]],
-  ["LT 305 DB", "OLA Flotte", "propre", "moyen", [8000, 8000, 8000]],
-  ["LT 306 DB", "OLA Flotte", "propre", "moyen", [8000, 8000, 8000]],
-  ["LT 410 DC", "OLA Flotte", "propre", "petit", [6000, 6000]],
+  ["L14-201-DA", "L14 Transcam", "tiers", "grand", [11000, 11000, 11000]],
+  ["L14-202-DA", "L14 Transcam", "tiers", "grand", [11000, 11000, 11000]],
+  ["L14-305-DB", "L14 OLA Flotte", "propre", "moyen", [8000, 8000, 8000]],
+  ["L14-306-DB", "L14 OLA Flotte", "propre", "moyen", [8000, 8000, 8000]],
+  ["L14-410-DC", "L14 OLA Flotte", "propre", "petit", [6000, 6000]],
 ];
 
 /** permis, nom, transporteur */
 const DRIVERS: [string, string, string][] = [
-  ["CM-L14-0001", "Jean Mbarga", "Transcam"],
-  ["CM-L14-0002", "Paul Etoa", "Transcam"],
-  ["CM-L14-0003", "Samuel Njoya", "OLA Flotte"],
-  ["CM-L14-0004", "Martin Fotso", "OLA Flotte"],
-  ["CM-L14-0005", "Alain Biyong", "OLA Flotte"],
-  ["CM-L14-0006", "Hervé Kamga", "OLA Flotte"],
+  ["CM-L14-0001", "Jean Mbarga (L14)", "L14 Transcam"],
+  ["CM-L14-0002", "Paul Etoa (L14)", "L14 Transcam"],
+  ["CM-L14-0003", "Samuel Njoya (L14)", "L14 OLA Flotte"],
+  ["CM-L14-0004", "Martin Fotso (L14)", "L14 OLA Flotte"],
+  ["CM-L14-0005", "Alain Biyong (L14)", "L14 OLA Flotte"],
+  ["CM-L14-0006", "Hervé Kamga (L14)", "L14 OLA Flotte"],
 ];
 
 export function referentialWorkbooks(): Record<"depots" | "stations" | "trucks" | "drivers", Buffer> {
@@ -268,7 +269,7 @@ export function referentialWorkbooks(): Record<"depots" | "stations" | "trucks" 
           ],
           [
             DEPOT,
-            "SCDP Douala",
+            "L14 Dépôt de Douala",
             "SCDP",
             4.0435,
             9.7043,
@@ -382,6 +383,7 @@ const ORDERS: [string, string, number, string, string | null, string | null, str
 
 interface ManualTrip {
   truck: string;
+  /** Numéro de permis : sans ambiguïté, même si un autre lot crée un chauffeur du même nom. */
   driver: string;
   km: number;
   depart: string;
@@ -393,8 +395,8 @@ interface ManualTrip {
 /** Tournées telles que le dispatcher les a faites : par habitude de chauffeur, sans regroupement par zone. */
 const MANUAL_TRIPS: ManualTrip[] = [
   {
-    truck: "LT 201 DA",
-    driver: "Jean Mbarga",
+    truck: "L14-201-DA",
+    driver: "CM-L14-0001",
     km: 41,
     depart: "06:30",
     back: "10:55",
@@ -405,8 +407,8 @@ const MANUAL_TRIPS: ManualTrip[] = [
     ],
   },
   {
-    truck: "LT 202 DA",
-    driver: "Paul Etoa",
+    truck: "L14-202-DA",
+    driver: "CM-L14-0002",
     km: 46,
     depart: "06:40",
     back: "10:20",
@@ -416,8 +418,8 @@ const MANUAL_TRIPS: ManualTrip[] = [
     ],
   },
   {
-    truck: "LT 305 DB",
-    driver: "Samuel Njoya",
+    truck: "L14-305-DB",
+    driver: "CM-L14-0003",
     km: 52,
     depart: "06:45",
     back: "11:30",
@@ -428,8 +430,8 @@ const MANUAL_TRIPS: ManualTrip[] = [
     ],
   },
   {
-    truck: "LT 306 DB",
-    driver: "Martin Fotso",
+    truck: "L14-306-DB",
+    driver: "CM-L14-0004",
     km: 29,
     depart: "07:00",
     back: "10:05",
@@ -439,8 +441,8 @@ const MANUAL_TRIPS: ManualTrip[] = [
     ],
   },
   {
-    truck: "LT 410 DC",
-    driver: "Alain Biyong",
+    truck: "L14-410-DC",
+    driver: "CM-L14-0005",
     km: 22,
     depart: "07:10",
     back: "09:50",
@@ -450,8 +452,8 @@ const MANUAL_TRIPS: ManualTrip[] = [
     ],
   },
   {
-    truck: "LT 201 DA",
-    driver: "Jean Mbarga",
+    truck: "L14-201-DA",
+    driver: "CM-L14-0001",
     km: 44,
     depart: "11:40",
     back: "15:10",
@@ -502,7 +504,7 @@ export function referenceDayWorkbook(day: string, options: { broken?: boolean } 
   );
   if (options.broken) {
     tripRows[1][5] = "L14-INCONNUE";
-    tripRows[3][1] = "LT 999 ZZ";
+    tripRows[3][1] = "L14-999-ZZ";
   }
   return buildXlsx([
     { name: "Journée", rows: [["Date", day]] },

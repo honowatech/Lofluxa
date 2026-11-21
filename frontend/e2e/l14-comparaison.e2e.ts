@@ -65,7 +65,7 @@ test("dispatcher : import de la journée A → rejeu → verdict → PDF", async
   await expect(report.getByRole("row").filter({ hasText: "Station inconnue : L14-INCONNUE." })).toContainText(
     "Tournées",
   );
-  await expect(report.getByRole("row").filter({ hasText: "Camion inconnu : LT 999 ZZ." })).toContainText(
+  await expect(report.getByRole("row").filter({ hasText: "Camion inconnu : L14-999-ZZ." })).toContainText(
     "Camion",
   );
   await expect(dialog.getByRole("button", { name: "Importer la journée" })).toHaveCount(0);
@@ -92,9 +92,9 @@ test("dispatcher : import de la journée A → rejeu → verdict → PDF", async
 
   // 3. La journée importée est le plan A ; il manque B : rejeu par le moteur, progression affichée.
   await expect(page.getByText("Il manque le plan B")).toBeVisible();
-  await expect(page.getByRole("combobox", { name: "Plan A" }).locator("option:checked")).toContainText(
-    "Journée de référence · v1 · Brouillon — Journée A — parcours e2e",
-  );
+  await expect(
+    page.getByRole("combobox", { name: "Plan A", exact: true }).locator("option:checked"),
+  ).toContainText("Journée de référence · v1 · Brouillon — Journée A — parcours e2e");
   await page.getByRole("button", { name: "Rejouer avec le moteur" }).first().click();
   await expect(page.getByTestId("replay-progress")).toBeVisible();
 
@@ -212,7 +212,7 @@ test("direction : après une panne, le suivi et la présélection portent sur la
 
   // Présélection du plan B : la version publiée la plus récente (l'ancienne est archivée, toujours listée).
   await page.getByRole("tab", { name: "Comparaison", exact: true }).click();
-  const planB = page.getByRole("combobox", { name: "Plan B" });
+  const planB = page.getByRole("combobox", { name: "Plan B", exact: true });
   await expect(planB).toHaveValue(planId);
   await expect(planB.locator("option:checked")).toContainText(`Plan calculé · v${version} · Publié`);
   await expect(planB.locator("option", { hasText: `v${version - 1} · Archivé` })).toHaveCount(1);
