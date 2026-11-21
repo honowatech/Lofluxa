@@ -25,7 +25,7 @@ import type { ApiError } from "./errors";
 import { fetchAll } from "./pagination";
 
 export interface ResourceOptions {
-  /** Verbe de mise à jour. `PUT` par défaut (question L9-Q1) ; un seul endroit à changer. */
+  /** Verbe de mise à jour. L'API traite `PUT` et `PATCH` de la même façon : mise à jour partielle. */
   updateMethod?: "PUT" | "PATCH";
   /** Clés de requête supplémentaires à invalider après une écriture. */
   invalidates?: QueryKey[];
@@ -132,44 +132,3 @@ export function createResource<T extends { id: UUID }, TInput = Partial<T>>(
 export type Resource<T extends { id: UUID }, TInput = Partial<T>> = ReturnType<
   typeof createResource<T, TInput>
 >;
-
-/**
- * Sous-ressource CRUD (`/stations/{id}/tanks`, `/trucks/{id}/compartments`).
- * `sync` rapproche la liste avant / après d'un formulaire : crée, met à jour et supprime ce qu'il faut.
- */
-export function createChildResource<C extends { id: UUID }, CInput>(
-  parentPath: string,
-  childName: string,
-  options: Pick<ResourceOptions, "updateMethod"> = {},
-) {
-  const updateMethod = options.updateMethod ?? "PUT";
-  const base = (parentId: UUID) => `${parentPath}/${parentId}/${childName}`;
-  const child = {
-    list: (parentId: UUID) => fetchAll<C>(base(parentId)),
-    create: (parentId: UUID, input: CInput) => api<C>(base(parentId), { method: "POST", body: input }),
-    update: (parentId: UUID, id: UUID, input: CInput) =>
-      api<C>(`${base(parentId)}/${id}`, { method: updateMethod, body: input }),
-    remove: (parentId: UUID, id: UUID) => api<void>(`${base(parentId)}/${id}`, { method: "DELETE" }),
-
-    async sync(
-      parentId: UUID,
-      before: C[],
-      after: (CInput & { id?: UUID | null })[],
-      isSame: (existing: C, next: CInput) => boolean,
-    ): Promise<void> {
-      const keptIds = new Set(after.map((row) => row.id).filter(Boolean));
-      // Suppressions d'abord : libère les contraintes d'unicité (position, produit).
-      for (const existing of before) {
-        if (!keptIds.has(existing.id)) await child.remove(parentId, existing.id);
-      }
-      for (const row of after) {
-        const { id, ...input } = row;
-        const existing = id ? before.find((b) => b.id === id) : undefined;
-        if (!existing) await child.create(parentId, input as CInput);
-        else if (!isSame(existing, input as CInput))
-          await child.update(parentId, existing.id, input as CInput);
-      }
-    },
-  };
-  return child;
-}

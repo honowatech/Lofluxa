@@ -40,8 +40,9 @@ export interface StationTank {
   id: UUID;
   station_id: UUID;
   product_id: UUID;
-  /** Libellé d'affichage renvoyé en lecture (CONTRATS §7, dernier point). */
-  product_code?: string;
+  /** Libellés d'affichage renvoyés en lecture. */
+  product_code: string;
+  product_label: string;
   capacity_l: number;
   safety_stock_l: number;
 }
@@ -65,7 +66,8 @@ export interface Station extends Timestamps {
   active: boolean;
   tanks: StationTank[];
 }
-export type StationInput = Omit<Station, "id" | "tanks" | keyof Timestamps>;
+/** `tanks` fourni = remplacement de la liste (rapprochée par produit) ; absent = inchangée. */
+export type StationInput = Omit<Station, "id" | "tanks" | keyof Timestamps> & { tanks?: StationTankInput[] };
 
 export interface Carrier extends Timestamps {
   id: UUID;
@@ -82,6 +84,7 @@ export interface TruckCompartment {
   capacity_l: number;
   /** `null` = tous produits (RM-07) */
   allowed_product_ids: UUID[] | null;
+  allowed_product_codes: string[] | null;
 }
 export type TruckCompartmentInput = Pick<TruckCompartment, "position" | "capacity_l" | "allowed_product_ids">;
 
@@ -89,7 +92,8 @@ export interface Truck extends Timestamps {
   id: UUID;
   plate: string;
   carrier_id: UUID | null;
-  carrier_name?: string | null;
+  carrier_name: string | null;
+  carrier_type: CarrierType | null;
   size: TruckSize;
   total_capacity_l: number;
   /** `null` → paramètre `default_avg_speed_kmh` */
@@ -100,7 +104,13 @@ export interface Truck extends Timestamps {
   notes: string | null;
   compartments: TruckCompartment[];
 }
-export type TruckInput = Omit<Truck, "id" | "compartments" | "carrier_name" | keyof Timestamps>;
+/** `compartments` fourni = remplacement de la liste (rapprochée par position) ; absent = inchangée. */
+export type TruckInput = Omit<
+  Truck,
+  "id" | "compartments" | "carrier_name" | "carrier_type" | keyof Timestamps
+> & {
+  compartments?: TruckCompartmentInput[];
+};
 
 export interface Driver extends Timestamps {
   id: UUID;
@@ -111,9 +121,9 @@ export interface Driver extends Timestamps {
   hazmat_cert: boolean;
   hazmat_expiry: IsoDate | null;
   carrier_id: UUID | null;
-  carrier_name?: string | null;
+  carrier_name: string | null;
   status: DriverStatus;
   default_truck_id: UUID | null;
-  default_truck_plate?: string | null;
+  default_truck_plate: string | null;
 }
 export type DriverInput = Omit<Driver, "id" | "carrier_name" | "default_truck_plate" | keyof Timestamps>;

@@ -1,4 +1,5 @@
 import { act, screen, within } from "@testing-library/react";
+import { http, HttpResponse } from "msw";
 import { describe, expect, it } from "vitest";
 
 import { can, canSee, CAPABILITIES, SCREEN_IDS, type Capability } from "@/lib/auth/roles";
@@ -6,7 +7,8 @@ import { useSession } from "@/lib/auth/session";
 import { getTokens, setTokens } from "@/lib/auth/tokens";
 import { addDays, todayLocal } from "@/lib/format";
 import { ROLES } from "@/lib/types";
-import { makeToken } from "@/mocks/handlers/helpers";
+import { API, makeToken } from "@/mocks/handlers/helpers";
+import { server } from "@/mocks/server";
 import { loginAs, mockUser, renderApp } from "@/test/utils";
 
 import { SCREENS } from "./screens";
@@ -41,6 +43,29 @@ describe("connexion", () => {
     expect(router.state.location.pathname + router.state.location.search).toBe("/plan?day=2027-01-12");
     expect(getTokens()?.access_token).toMatch(/^mock\.access\./);
     expect(screen.getByTestId("user-name")).toHaveTextContent("Administrateur Honowa");
+  });
+
+  it("trop de tentatives (429) : message du serveur et délai avant un nouvel essai", async () => {
+    server.use(
+      http.post(`${API}/auth/login`, () =>
+        HttpResponse.json(
+          {
+            code: "rate_limited",
+            message: "Trop de tentatives. Réessayez dans quelques instants.",
+            details: [],
+          },
+          { status: 429, headers: { "Retry-After": "37" } },
+        ),
+      ),
+    );
+    const { user } = renderApp("/connexion");
+    await user.type(await screen.findByLabelText("Adresse e-mail"), "admin@honowa.tech");
+    await user.type(screen.getByLabelText("Mot de passe"), "admin-dev-only");
+    await user.click(screen.getByRole("button", { name: "Se connecter" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Trop de tentatives. Réessayez dans quelques instants. Nouvel essai possible dans 37 s.",
+    );
+    expect(screen.getByRole("button", { name: "Se connecter" })).toBeEnabled();
   });
 
   it("afficher / masquer le mot de passe", async () => {

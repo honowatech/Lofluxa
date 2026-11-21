@@ -1,4 +1,3 @@
-import { useQueryClient } from "@tanstack/react-query";
 import type { ColumnDef } from "@tanstack/react-table";
 import { Plus, X } from "lucide-react";
 import { useState, useMemo } from "react";
@@ -25,6 +24,7 @@ import {
   zOptionalEmail,
   zOptionalNumber,
   zOptionalText,
+  zCode,
   zText,
 } from "@/components/forms";
 import type { MapPoint } from "@/components/map";
@@ -36,7 +36,7 @@ import { EMPTY, formatLiters } from "@/lib/format";
 import { TRUCK_SIZES, type Product, type Station } from "@/lib/types";
 
 import { CrudTab } from "./CrudTab";
-import { products, stations, stationTanks } from "./resources";
+import { products, stations } from "./resources";
 import { Mono, Muted, options, TableWithMap } from "./shared";
 
 /** Liste vide stable (évite de recréer les colonnes tant que les données chargent). */
@@ -57,7 +57,7 @@ const tankSchema = z
   });
 
 const schema = z.object({
-  code: zText(32),
+  code: zCode(32),
   name: zText(160),
   region: zOptionalText(80),
   city: zOptionalText(80),
@@ -65,7 +65,7 @@ const schema = z.object({
   lon: zLon,
   opening_hours: zOpeningHours,
   max_truck_size: z.enum(TRUCK_SIZES),
-  unload_time_min: zOptionalNumber({ min: 0, max: 600, integer: true }),
+  unload_time_min: zOptionalNumber({ min: 0, max: 1440, integer: true }),
   contact_name: zOptionalText(160),
   contact_phone: zOptionalText(40),
   contact_email: zOptionalEmail,
@@ -161,7 +161,6 @@ export function StationsTab({ canWrite }: { canWrite: boolean }) {
   const productList = products.useAll().data ?? NONE;
   const create = stations.useCreate();
   const update = stations.useUpdate();
-  const queryClient = useQueryClient();
   const colorOf = (id: string) => productList.find((product) => product.id === id)?.color;
 
   // Colonnes mémorisées : une nouvelle définition à chaque rendu remonterait toutes les cellules (menus, édition).
@@ -252,19 +251,11 @@ export function StationsTab({ canWrite }: { canWrite: boolean }) {
     [productList],
   );
 
+  // Les cuves partent avec la station : le serveur les rapproche par produit (création, mise à jour, retrait).
   const save = async (values: z.output<typeof schema>, row: Station | null) => {
-    const { tanks, ...input } = values;
-    const saved = row ? await update.mutateAsync({ id: row.id, input }) : await create.mutateAsync(input);
-    await stationTanks.sync(
-      saved.id,
-      row?.tanks ?? [],
-      tanks.map(({ uid, ...tank }) => ({ ...tank, id: uid })),
-      (existing, next) =>
-        existing.product_id === next.product_id &&
-        existing.capacity_l === next.capacity_l &&
-        existing.safety_stock_l === next.safety_stock_l,
-    );
-    await queryClient.invalidateQueries({ queryKey: stations.keys.all });
+    const input = { ...values, tanks: values.tanks.map(({ uid: _uid, ...tank }) => tank) };
+    if (row) await update.mutateAsync({ id: row.id, input });
+    else await create.mutateAsync(input);
   };
 
   const toPoint = (row: Station): MapPoint => ({
