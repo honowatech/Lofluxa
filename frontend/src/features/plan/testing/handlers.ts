@@ -1,7 +1,8 @@
 /**
  * Doublures MSW de l'API des plans pour les tests de l'écran (à brancher par `server.use(...planApi(state))`).
- * Le « serveur » applique la modification demandée, recalcule de façon reconnaissable (distance = 99,9 km)
- * et, si le plan visé est publié, renvoie une nouvelle version brouillon aux identifiants neufs (RM-18).
+ * Le « serveur » applique la modification demandée, recalcule de façon reconnaissable (distance = 99,9 km),
+ * joint `last_edit` (résumé journalisé) et, si le plan visé est publié, renvoie une nouvelle version brouillon
+ * aux identifiants neufs (RM-18).
  */
 import { http, HttpResponse, type HttpHandler } from "msw";
 
@@ -68,6 +69,30 @@ function toOp(action: string, tripId: string, body: Record<string, unknown>): Ed
     }
     default:
       return null;
+  }
+}
+
+/** Résumé journalisé par le serveur (`last_edit.summary`), à la manière de l'API réelle. */
+function summaryOfOp(plan: Plan, op: EditOp): string {
+  const seq = plan.trips.find((trip) => trip.id === op.tripId)?.seq;
+  switch (op.type) {
+    case "move": {
+      const code = plan.trips
+        .flatMap((trip) => trip.stops)
+        .find((stop) => stop.id === op.stopId)?.station_code;
+      const target = plan.trips.find((trip) => trip.id === op.toTripId);
+      const emptied = plan.trips.find((trip) => trip.id === op.tripId)?.stops.length === 1;
+      return (
+        `Arrêt ${code} déplacé de la tournée ${seq} vers la tournée ${target?.seq} (position ${op.toSeq}).` +
+        (emptied ? ` La tournée ${seq}, vide, a été supprimée.` : "")
+      );
+    }
+    case "reorder":
+      return `Arrêts de la tournée ${seq} réordonnés.`;
+    case "assign":
+      return `Tournée ${seq} : affectation modifiée.`;
+    case "lock":
+      return `Tournée ${seq} ${op.locked ? "verrouillée" : "déverrouillée"}.`;
   }
 }
 
@@ -138,7 +163,8 @@ export function planApi(state: PlanApiState): HttpHandler[] {
         ),
       };
       if (plan.status === "published") next = asNewVersion(next, `${plan.id}-draft`);
-      return HttpResponse.json(save(next));
+      save({ ...next, last_edit: null });
+      return HttpResponse.json({ ...next, last_edit: { action: op.type, summary: summaryOfOp(plan, op) } });
     }),
     http.post(`${API}/plans/:id/publish`, async ({ request, params }) => {
       await record(request);
@@ -186,13 +212,17 @@ export function planApi(state: PlanApiState): HttpHandler[] {
       await record(request);
       const failed = failure();
       if (failed) return failed;
-      // Comme l'API réelle : la commande passe `postponed`, les violations enregistrées ne sont pas recalculées.
-      state.plans = state.plans.map((plan) => ({
-        ...plan,
-        unserved: plan.unserved.map((order) =>
+      // Comme l'API réelle : la commande passe `postponed` et les brouillons qui la portent sont recontrôlés
+      // (plus de RM-15 pour une urgente reportée ; `blocking_count` et `publishable` à jour).
+      state.plans = state.plans.map((plan) => {
+        const unserved = plan.unserved.map((order) =>
           order.order_id === params.id ? { ...order, order_status: "postponed" as const } : order,
-        ),
-      }));
+        );
+        const openUrgent = unserved.some((o) => o.priority === "urgent" && o.order_status !== "postponed");
+        const violations = plan.violations.filter((v) => v.rule_code !== "RM-15" || openUrgent);
+        const blocking = violations.filter((v) => v.severity === "blocking").length;
+        return { ...plan, unserved, violations, blocking_count: blocking, publishable: blocking === 0 };
+      });
       return HttpResponse.json({ id: params.id, status: "postponed" });
     }),
     http.get(`${API}/availability/trucks`, () => HttpResponse.json(page(TRUCK_DAYS))),

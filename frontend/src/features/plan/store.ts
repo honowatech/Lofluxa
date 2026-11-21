@@ -8,7 +8,7 @@
  */
 import { create } from "zustand";
 
-import { applyOp, findStop, findTrip, reconcileUrgentViolations, remapSelection } from "./edits";
+import { applyOp, findStop, findTrip, remapSelection } from "./edits";
 import type { EditOp, Plan, PlanView } from "./types";
 
 export type StopZone = "detail" | "table";
@@ -54,8 +54,7 @@ export const usePlanStore = create<PlanEditState>((set, get) => ({
   ...INITIAL,
   view: "map",
 
-  load: (received) => {
-    const plan = reconcileUrgentViolations(received);
+  load: (plan) => {
     const state = get();
     // Une réponse de lecture ne doit pas écraser une modification optimiste en attente.
     if (state.pendingOp) return;
@@ -86,8 +85,7 @@ export const usePlanStore = create<PlanEditState>((set, get) => ({
     return true;
   },
 
-  commit: (received) => {
-    const plan = reconcileUrgentViolations(received);
+  commit: (plan) => {
     const state = get();
     const selection = remapSelection(state.plan, plan, {
       tripId: state.selectedTripId,

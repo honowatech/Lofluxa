@@ -66,6 +66,13 @@ export const planTexts = {
       `Version ${draft} — brouillon. La version ${published} publiée reste la référence du terrain tant que ce brouillon n'est pas publié.`,
     openPublished: "Voir la version publiée",
     replay: "Rejeu de comparaison : modifiable, mais non publiable.",
+    superseded: (current: number) =>
+      `Cette version a été remplacée : la version ${current} est en vigueur (publiée). Celle-ci est archivée, en lecture seule.`,
+    supersededNow: (shown: number, current: number) =>
+      `La version ${shown} affichée vient d'être archivée : la version ${current} est maintenant en vigueur.`,
+    supersededTitle: "Le plan a changé de version",
+    openCurrent: "Afficher la version en vigueur",
+    toEvents: "Journal des événements",
   },
 
   trips: {
@@ -120,7 +127,13 @@ export const planTexts = {
       planned: string,
       capacity: string,
     ) => `Compartiment ${position ?? "?"} : ${product}, ${planned} sur ${capacity}`,
-    unusedCapacity: (liters: string) => `Compartiments non utilisés : ${liters}`,
+    emptyCompartment: "vide",
+    emptyCompartmentLabel: (position: number | null | undefined, capacity: string) =>
+      `Compartiment ${position ?? "?"} : vide, ${capacity}`,
+    toLoading: "Chargement",
+    toDeliveries: "Suivi",
+    toLoadingLabel: (seq: number) => `Ouvrir le chargement de la tournée ${seq}`,
+    toDeliveriesLabel: (seq: number) => `Ouvrir le suivi des livraisons de la tournée ${seq}`,
     sizes: { small: "Petit gabarit", medium: "Gabarit moyen", large: "Grand gabarit" },
   },
 
@@ -206,14 +219,7 @@ export const planTexts = {
   edit: {
     failed: "Modification refusée",
     conflictReload: "Le plan a changé entre-temps : il a été rechargé.",
-    moved: (station: string, trip: number, seq: number) =>
-      `Arrêt ${station} déplacé vers la tournée ${trip}, position ${seq}.`,
-    reordered: (station: string, seq: number) => `Arrêt ${station} déplacé en position ${seq}.`,
-    reorderedTrip: (trip: number) => `Arrêts de la tournée ${trip} réordonnés.`,
-    assigned: (trip: number) => `Affectation de la tournée ${trip} modifiée.`,
-    locked: (trip: number) => `Tournée ${trip} verrouillée.`,
-    unlocked: (trip: number) => `Tournée ${trip} déverrouillée.`,
-    tripRemoved: (trip: number) => `La tournée ${trip}, vide, a été supprimée.`,
+    done: "Plan mis à jour.",
     newVersionTitle: (version: number) => `Nouvelle version brouillon (version ${version})`,
     newVersionBody: (published: number) =>
       `Le plan publié (version ${published}) n'a pas été modifié : vos changements sont dans ce brouillon, à publier pour qu'ils prennent effet.`,

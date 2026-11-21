@@ -1,3 +1,4 @@
+import { focusManager } from "@tanstack/react-query";
 import { screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
 
@@ -10,6 +11,12 @@ import { planApi, SERVER_DISTANCE_M, type PlanApiState } from "./testing/handler
 import type { Plan } from "./types";
 
 const URL = `/plan?day=${DAY}`;
+
+/** Relecture des données affichées sans attendre le rythme normal (60 s) : comme au retour sur l'onglet. */
+function refetchNow() {
+  focusManager.setFocused(false);
+  focusManager.setFocused(true);
+}
 
 function setup(plans: Plan[] = [makePlan()], extra: Partial<PlanApiState> = {}): PlanApiState {
   const state: PlanApiState = { plans, calls: [], ...extra };
@@ -236,8 +243,9 @@ describe("Plan de tournées — édition au clavier", () => {
       expect(stopNames(detail())).toEqual(["Arrêt 1 : OLA Deido", "Arrêt 2 : OLA Ndokoti"]),
     );
     expect(within(detail()).getByRole("heading", { name: "Tournée 2" })).toBeInTheDocument();
+    // Annonce = résumé renvoyé par le serveur (`last_edit.summary`), tel quel.
     expect(screen.getByTestId("plan-announcement")).toHaveTextContent(
-      "Arrêt OLA Deido déplacé vers la tournée 2, position 1.",
+      "Arrêt DLA04 déplacé de la tournée 1 vers la tournée 2 (position 1).",
     );
   });
 
@@ -447,6 +455,19 @@ describe("Plan de tournées — publication", () => {
     );
   });
 
+  it("plan publié : liens du détail d'une tournée vers Chargement et Suivi (jour et tournée transmis)", async () => {
+    loginAs("dispatcher");
+    setup([makePlan({ status: "published", publishable: false })]);
+    const { user } = renderApp(URL);
+    await openTrip(user, 2);
+    expect(
+      within(detail()).getByRole("link", { name: "Ouvrir le chargement de la tournée 2" }),
+    ).toHaveAttribute("href", `/chargement?day=${DAY}&trip=trip-2`);
+    expect(
+      within(detail()).getByRole("link", { name: "Ouvrir le suivi des livraisons de la tournée 2" }),
+    ).toHaveAttribute("href", `/suivi?day=${DAY}&trip=trip-2`);
+  });
+
   it("409 rule_violation : liste les règles en cause (rule_code) et mène à l'élément concerné", async () => {
     loginAs("dispatcher");
     setup([makePlan()], {
@@ -619,6 +640,55 @@ describe("Plan de tournées — recalcul et versions", () => {
     expect(within(dialog).getByText(/07:05/)).toBeInTheDocument();
     // Lecture seule : pas de restauration.
     expect(within(dialog).queryByRole("button", { name: /Restaurer/ })).not.toBeInTheDocument();
+  });
+});
+
+describe("Plan de tournées — version archivée par un événement", () => {
+  it("version affichée remplacée (panne, pénurie) : annonce, lecture seule, bascule proposée vers la version en vigueur", async () => {
+    loginAs("dispatcher");
+    const published = makePlan({ status: "published", publishable: false });
+    const state = setup([published]);
+    const { user, router } = renderApp(`${URL}&plan=plan-1`);
+    await loaded();
+    expect(within(tripList()).getByRole("button", { name: "Verrouiller la tournée 1" })).toBeInTheDocument();
+
+    // Le back-end publie une version 2 à la suite d'un événement : la version 1 est archivée.
+    const current = { ...asNewVersion(published), status: "published" as const, publishable: false };
+    state.plans = [{ ...published, status: "archived" }, current];
+    refetchNow();
+
+    expect(
+      (
+        await screen.findAllByText(
+          "La version 1 affichée vient d'être archivée : la version 2 est maintenant en vigueur.",
+        )
+      ).length,
+    ).toBeGreaterThan(0);
+    expect(
+      await screen.findByText(/Cette version a été remplacée : la version 2 est en vigueur/),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Verrouiller la tournée 1" })).not.toBeInTheDocument();
+    // Lien vers le Journal depuis l'annonce (en plus de celui de la navigation).
+    expect(
+      within(screen.getByTestId("screen-plan")).getByRole("link", { name: "Journal des événements" }),
+    ).toHaveAttribute("href", `/journal?day=${DAY}`);
+    expect(screen.getByRole("combobox", { name: "Plan et version affichés" })).toHaveValue("plan-1");
+
+    await user.click(screen.getByRole("button", { name: "Afficher la version en vigueur" }));
+    await waitFor(() => expect(router.state.location.search).toContain("plan=plan-2"));
+    await waitFor(() => expect(screen.getByTestId("screen-plan")).toHaveAttribute("data-plan-id", "plan-2"));
+    expect(screen.queryByText(/Cette version a été remplacée/)).not.toBeInTheDocument();
+  });
+
+  it("version archivée ouverte par un lien : la version en vigueur est proposée", async () => {
+    loginAs("manager");
+    const archived = makePlan({ status: "archived", publishable: false });
+    setup([archived, { ...asNewVersion(archived), status: "published", publishable: false }]);
+    renderApp(`${URL}&plan=plan-1`);
+    expect(
+      await screen.findByText(/Cette version a été remplacée : la version 2 est en vigueur/),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Afficher la version en vigueur" })).toBeInTheDocument();
   });
 });
 

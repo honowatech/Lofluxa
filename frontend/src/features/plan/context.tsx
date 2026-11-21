@@ -14,6 +14,8 @@ export interface PlanUi {
   edit: (op: EditOp, options?: { focusStopId?: string; zone?: StopZone }) => Promise<boolean>;
   /** Les PDF des feuilles de route sont proposés (plan publié ou archivé, F5.4). */
   showRouteSheets: boolean;
+  /** Plan publié : ses tournées s'exécutent — liens vers Chargement et Suivi des livraisons. */
+  published: boolean;
 }
 
 export const PlanUiContext = createContext<PlanUi>({
@@ -21,6 +23,7 @@ export const PlanUiContext = createContext<PlanUi>({
   busy: false,
   edit: async () => false,
   showRouteSheets: false,
+  published: false,
 });
 
 export const usePlanUi = (): PlanUi => useContext(PlanUiContext);

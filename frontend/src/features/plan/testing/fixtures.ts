@@ -132,6 +132,28 @@ function trip(
     warning_count: 0,
     stops,
     loads,
+    compartments: [
+      ...loads.map((l) => ({
+        compartment_id: l.compartment_id,
+        compartment_position: l.compartment_position ?? 0,
+        capacity_l: l.capacity_l ?? 0,
+        product_id: l.product_id,
+        product_code: l.product_code,
+        product_label: l.product_label,
+        product_color: l.product_color,
+        planned_l: l.planned_l,
+      })),
+      {
+        compartment_id: `comp-${id}-vide`,
+        compartment_position: loads.length + 1,
+        capacity_l: 4000,
+        product_id: null,
+        product_code: null,
+        product_label: null,
+        product_color: null,
+        planned_l: 0,
+      },
+    ],
   };
 }
 
