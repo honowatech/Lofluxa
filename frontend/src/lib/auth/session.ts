@@ -64,8 +64,10 @@ export const useSession = create<SessionState>((set, get) => ({
 
   async logout() {
     try {
-      // Révocation côté serveur (lot L8) ; l'échec n'empêche pas la déconnexion locale.
-      if (getTokens()) await api("/auth/logout", { method: "POST" });
+      // Révocation côté serveur des deux jetons ; l'échec n'empêche pas la déconnexion locale.
+      const tokens = getTokens();
+      if (tokens)
+        await api("/auth/logout", { method: "POST", body: { refresh_token: tokens.refresh_token } });
     } catch {
       // jeton déjà expiré ou réseau coupé : on ferme quand même la session locale
     }

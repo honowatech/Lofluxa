@@ -1,9 +1,11 @@
 /**
- * Onglet CRUD générique de l'écran Référentiels : tableau paginé côté serveur, formulaire de création /
- * modification, suppression confirmée (ligne ou sélection), import facultatif.
+ * Onglet CRUD générique de l'écran Référentiels : tableau (toutes les lignes chargées, tri / recherche /
+ * filtres locaux — l'API n'offre pas de tri), formulaire de création / modification, suppression confirmée
+ * (ligne ou sélection), import facultatif.
  */
 import type { ColumnDef } from "@tanstack/react-table";
 import { Eye, FileUp, Pencil, Plus, Trash2 } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState, type ReactNode } from "react";
 import type { DefaultValues, UseFormReturn } from "react-hook-form";
 import type { z } from "zod";
@@ -22,11 +24,11 @@ import { ImportDialog } from "@/components/ImportDialog";
 import { notify } from "@/components/notify";
 import { Button } from "@/components/ui/button";
 import { fr } from "@/i18n/fr";
-import { toListQuery } from "@/lib/api/pagination";
 import type { Resource } from "@/lib/api/resource";
 import type { ImportKind, UUID } from "@/lib/types";
 
 const t = fr.referentials;
+const NONE: never[] = [];
 
 export interface CrudTabProps<T extends { id: UUID }, TInput, S extends z.ZodTypeAny> {
   resource: Resource<T, TInput>;
@@ -49,7 +51,7 @@ export interface CrudTabProps<T extends { id: UUID }, TInput, S extends z.ZodTyp
   extraBulkActions?: BulkAction<T>[];
   highlightedRowId?: string | null;
   onRowFocus?: (row: T | null) => void;
-  /** Rendu autour du tableau (carte à droite, bandeau au-dessus) : reçoit les lignes de la page affichée. */
+  /** Rendu autour du tableau (carte à droite, bandeau au-dessus) : reçoit les lignes retenues par la recherche et les filtres. */
   layout?: (table: ReactNode, rows: T[]) => ReactNode;
 }
 
@@ -74,7 +76,9 @@ export function CrudTab<T extends { id: UUID }, TInput, S extends z.ZodTypeAny>(
   layout,
 }: CrudTabProps<T, TInput, S>) {
   const [state, setState] = useDataTableState(initialState);
-  const list = resource.useList(toListQuery(state));
+  const list = resource.useAll({}, { staleTime: 0 });
+  const queryClient = useQueryClient();
+  const [visibleRows, setVisibleRows] = useState<T[]>(NONE);
   const create = resource.useCreate();
   const update = resource.useUpdate();
   const remove = resource.useRemove();
@@ -173,13 +177,12 @@ export function CrudTab<T extends { id: UUID }, TInput, S extends z.ZodTypeAny>(
     notify.success(row ? t.updated(label) : t.created(label));
   };
 
-  const rows = list.data?.items ?? [];
   const table = (
     <DataTable<T>
       caption={caption}
       columns={allColumns}
-      data={rows}
-      total={list.data?.total}
+      data={list.data ?? NONE}
+      onRowsChange={setVisibleRows}
       state={state}
       onStateChange={setState}
       loading={list.isLoading}
@@ -224,7 +227,7 @@ export function CrudTab<T extends { id: UUID }, TInput, S extends z.ZodTypeAny>(
 
   return (
     <>
-      {layout ? layout(table, rows) : table}
+      {layout ? layout(table, visibleRows) : table}
       <EntityFormDialog
         open={editing !== null}
         onOpenChange={(open) => !open && setEditing(null)}
@@ -243,7 +246,7 @@ export function CrudTab<T extends { id: UUID }, TInput, S extends z.ZodTypeAny>(
           kind={importKind}
           open={importOpen}
           onOpenChange={setImportOpen}
-          onApplied={() => void list.refetch()}
+          onApplied={() => void queryClient.invalidateQueries({ queryKey: resource.keys.all })}
         />
       )}
     </>

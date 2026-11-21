@@ -1,24 +1,37 @@
-/** Miroir de backend/app/core/enums.py. */
+/**
+ * Énumérations de l'API. Les types viennent des schémas générés ; les listes (nécessaires à l'exécution :
+ * listes déroulantes, filtres) sont contrôlées par `satisfies` : une valeur ajoutée ou retirée côté serveur
+ * se voit à la compilation après régénération des types.
+ */
+import type { Schema } from "./schemas";
 
-export const DEPOT_OPERATORS = ["scdp", "internal", "third_party"] as const;
-export type DepotOperator = (typeof DEPOT_OPERATORS)[number];
+/** Vérifie qu'une liste contient TOUTES les valeurs de l'énumération (et seulement elles). */
+type Exhaustive<T extends string, L extends readonly T[]> = [T] extends [L[number]] ? L : never;
+const all =
+  <T extends string>() =>
+  <const L extends readonly T[]>(list: Exhaustive<T, L>) =>
+    list;
 
-export const CARRIER_TYPES = ["own", "third_party"] as const;
-export type CarrierType = (typeof CARRIER_TYPES)[number];
+export type DepotOperator = Schema<"DepotOperator">;
+export const DEPOT_OPERATORS = all<DepotOperator>()(["scdp", "internal", "third_party"]);
 
-export const TRUCK_SIZES = ["small", "medium", "large"] as const;
-export type TruckSize = (typeof TRUCK_SIZES)[number];
+export type CarrierType = Schema<"CarrierType">;
+export const CARRIER_TYPES = all<CarrierType>()(["own", "third_party"]);
 
-export const TRUCK_STATUSES = ["available", "maintenance", "broken", "reserved"] as const;
-export type TruckStatus = (typeof TRUCK_STATUSES)[number];
+export type TruckSize = Schema<"TruckSize">;
+export const TRUCK_SIZES = all<TruckSize>()(["small", "medium", "large"]);
 
-export const DRIVER_STATUSES = ["available", "rest", "leave", "sick"] as const;
-export type DriverStatus = (typeof DRIVER_STATUSES)[number];
+export type TruckStatus = Schema<"TruckStatus">;
+export const TRUCK_STATUSES = all<TruckStatus>()(["available", "maintenance", "broken", "reserved"]);
 
-export const ORDER_PRIORITIES = ["normal", "urgent"] as const;
-export type OrderPriority = (typeof ORDER_PRIORITIES)[number];
+export type DriverStatus = Schema<"DriverStatus">;
+export const DRIVER_STATUSES = all<DriverStatus>()(["available", "rest", "leave", "sick"]);
 
-export const ORDER_STATUSES = [
+export type OrderPriority = Schema<"OrderPriority">;
+export const ORDER_PRIORITIES = all<OrderPriority>()(["normal", "urgent"]);
+
+export type OrderStatus = Schema<"OrderStatus">;
+export const ORDER_STATUSES = all<OrderStatus>()([
   "draft",
   "confirmed",
   "planned",
@@ -26,20 +39,34 @@ export const ORDER_STATUSES = [
   "delivered",
   "cancelled",
   "postponed",
-] as const;
-export type OrderStatus = (typeof ORDER_STATUSES)[number];
+]);
 
-export const PLAN_KINDS = ["computed", "manual_reference", "replay"] as const;
-export type PlanKind = (typeof PLAN_KINDS)[number];
+export type PlanKind = Schema<"PlanKind">;
+export const PLAN_KINDS = all<PlanKind>()(["computed", "manual_reference", "replay"]);
 
-export const PLAN_STATUSES = ["draft", "published", "archived"] as const;
-export type PlanStatus = (typeof PLAN_STATUSES)[number];
+export type PlanStatus = Schema<"PlanStatus">;
+export const PLAN_STATUSES = all<PlanStatus>()(["draft", "published", "archived"]);
 
-export const TRIP_STATUSES = ["planned", "at_depot", "loaded", "in_progress", "completed"] as const;
-export type TripStatus = (typeof TRIP_STATUSES)[number];
+export type TripStatus = Schema<"TripStatus">;
+export const TRIP_STATUSES = all<TripStatus>()(["planned", "at_depot", "loaded", "in_progress", "completed"]);
 
-export const STOP_STATUSES = ["pending", "delivered", "skipped"] as const;
-export type StopStatus = (typeof STOP_STATUSES)[number];
+export type StopStatus = Schema<"StopStatus">;
+export const STOP_STATUSES = all<StopStatus>()(["pending", "delivered", "skipped"]);
+
+export type ImportKind = Schema<"ImportKind">;
+export const IMPORT_KINDS = all<ImportKind>()([
+  "stations",
+  "trucks",
+  "drivers",
+  "depots",
+  "orders",
+  "reference_day",
+]);
+
+export type ImportStatus = Schema<"ImportStatus">;
+export const IMPORT_STATUSES = all<ImportStatus>()(["previewed", "applied", "rejected"]);
+
+/* Énumérations du back-end qui n'apparaissent pas (encore) comme schémas nommés dans l'OpenAPI. */
 
 export const UNSERVED_REASONS = [
   "no_truck",
@@ -64,9 +91,3 @@ export const EVENT_TYPES = [
   "delivery_recorded",
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
-
-export const IMPORT_KINDS = ["stations", "trucks", "drivers", "depots", "orders", "reference_day"] as const;
-export type ImportKind = (typeof IMPORT_KINDS)[number];
-
-export const IMPORT_STATUSES = ["previewed", "applied", "rejected"] as const;
-export type ImportStatus = (typeof IMPORT_STATUSES)[number];

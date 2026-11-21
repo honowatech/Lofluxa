@@ -16,27 +16,30 @@ pnpm dev            # http://localhost:5173 — proxy /api → http://localhost:
 L'API : `./scripts/dev_setup.sh` puis `cd backend && uv run uvicorn app.main:app_instance --port 8000`
 (compte du seed : `admin@honowa.tech` / `admin-dev-only`).
 
-| Commande        | Rôle                                                                                                 |
-| --------------- | ---------------------------------------------------------------------------------------------------- |
-| `pnpm dev`      | serveur de développement                                                                             |
-| `pnpm build`    | contrôle des types + site statique dans `dist/` (servi par Caddy)                                    |
-| `pnpm lint`     | ESLint (zéro avertissement) + Prettier                                                               |
-| `pnpm test`     | Vitest + Testing Library + MSW                                                                       |
-| `pnpm e2e`      | Playwright, **contre la vraie API** : connexion → coquille → rafraîchissement du jeton → déconnexion |
-| `pnpm captures` | régénère `docs/captures/*.png` (doublures complètes, aucun back-end requis)                          |
+| Commande        | Rôle                                                                                                                                                                                                                                                                                                           |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm dev`      | serveur de développement                                                                                                                                                                                                                                                                                       |
+| `pnpm build`    | contrôle des types + site statique dans `dist/` (servi par Caddy)                                                                                                                                                                                                                                              |
+| `pnpm lint`     | ESLint (zéro avertissement) + Prettier                                                                                                                                                                                                                                                                         |
+| `pnpm test`     | Vitest + Testing Library + MSW                                                                                                                                                                                                                                                                                 |
+| `pnpm e2e`      | Playwright, **contre la vraie API, sans doublure** : connexion → coquille → rafraîchissement du jeton → déconnexion ; créer un dépôt et une station → carte ; importer `data/templates/stations.xlsx` → prévisualiser → appliquer ; paramètre modifié → audit. Rejouable (les données créées sont supprimées). |
+| `pnpm captures` | régénère `docs/captures/*.png` (doublures complètes, aucun back-end requis)                                                                                                                                                                                                                                    |
 
 ### Variables d'environnement (`.env.example`)
 
-| Variable                 | Effet                                                                                                                                                                                                                                                                                                                                                           |
-| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `VITE_MOCKS`             | `off` : aucune doublure (production). `partial` (défaut de `pnpm dev`) : tout est simulé sauf `/auth/*` et `/me`, servis par la vraie API. `full` : tout est simulé, connexion comprise (démo sans back-end ; comptes `…@ola.example` / `demo-dev-only` pour chaque rôle, voir `src/mocks/db.ts`). Un badge orange dans l'en-tête signale les données simulées. |
-| `VITE_TILES_URL`         | Gabarit des tuiles raster du fond de carte (`https://…/{z}/{x}/{y}.png`). Vide : carte sans fond, positions à l'échelle.                                                                                                                                                                                                                                        |
-| `VITE_TILES_ATTRIBUTION` | Mention de source affichée sur la carte.                                                                                                                                                                                                                                                                                                                        |
-| `VITE_API_PROXY`         | Cible du proxy de développement (défaut `http://localhost:8000`).                                                                                                                                                                                                                                                                                               |
+| Variable                 | Effet                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `VITE_MOCKS`             | `off` (défaut) : vraie API. `partial` : seules les routes non encore livrées sont simulées (liste `undelivered` de `src/mocks/handlers/index.ts`, vide aujourd'hui). `full` : tout est simulé, connexion comprise (démo et captures sans back-end ; comptes `…@ola.example` / `demo-dev-only` pour chaque rôle, voir `src/mocks/db.ts`). Un badge orange dans l'en-tête signale les données simulées. |
+| `VITE_API_BASE_URL`      | Préfixe de l'API vu du navigateur (défaut `/api/v1`, fixé par l'image Docker `infra/frontend`).                                                                                                                                                                                                                                                                                                       |
+| `VITE_TILES_URL`         | Gabarit des tuiles raster du fond de carte (`https://…/{z}/{x}/{y}.png`). Vide : carte sans fond, positions à l'échelle.                                                                                                                                                                                                                                                                              |
+| `VITE_TILES_ATTRIBUTION` | Mention de source affichée sur la carte.                                                                                                                                                                                                                                                                                                                                                              |
+| `VITE_API_PROXY`         | Cible du proxy de développement (défaut `http://localhost:8000`).                                                                                                                                                                                                                                                                                                                                     |
 
-**Quand un lot back-end livre ses routes** : retirer ses doublures de la liste `undelivered` dans
-`src/mocks/handlers/index.ts` (ou passer `VITE_MOCKS=off`). Les formes supposées sont rapprochées dans
-`docs/questions/l9-frontend.md`. Les doublures ne sont pas incluses dans le build quand `VITE_MOCKS` est absent ou `off`.
+Les routes d'authentification, de référentiels, d'imports et d'administration sont **livrées** (lots L3 et
+L8) : les écrans Référentiels et Administration parlent à la vraie API, et leurs doublures — alignées sur
+l'OpenAPI réelle — ne servent plus qu'aux tests Vitest et au mode `full`. Un écran de vague 2 dont les routes
+n'existent pas encore ajoute ses doublures à `undelivered`, puis les en retire. Les doublures ne sont pas
+incluses dans le build quand `VITE_MOCKS` est absent ou `off`.
 
 ## Organisation
 
@@ -61,6 +64,29 @@ Règles (vérifiées par ESLint quand c'est possible) :
   les types générés depuis l'OpenAPI) ;
 - aucun texte en dur dans un composant ; aucune mise en forme de litres / km / durées / heures hors de `lib/format.ts` ;
 - pas de `fetch` direct : `api()` ou une ressource.
+
+## Types de l'API
+
+`src/lib/types/api.gen.ts` est **généré** depuis l'OpenAPI réelle du back-end ; ne pas le modifier à la main.
+Après toute évolution des schémas de l'API, depuis la racine du dépôt :
+
+```bash
+./scripts/gen_api_types.sh        # openapi-typescript → frontend/src/lib/types/api.gen.ts
+cd frontend && pnpm build         # une incompatibilité avec le code apparaît à la compilation
+```
+
+`@/lib/types` expose des **alias** de ces schémas (`Station`, `Truck`, `User`, `ImportBatch`, `Setting`…),
+précisés là où l'OpenAPI est trop vague (horaires d'ouverture, valeur et type d'un paramètre, action d'audit).
+Les listes d'énumérations (`TRUCK_STATUSES`, `ROLES`…) sont contrôlées contre les types générés : une valeur
+ajoutée ou retirée côté serveur fait échouer la compilation. Pour un schéma sans alias :
+
+```ts
+import type { Schema } from "@/lib/types";
+type Order = Schema<"OrderOut">;
+```
+
+Les textes des écrans de vague 2 vivent dans `src/i18n/screens/<écran>.ts` (un fichier par écran, exposé sous
+`fr.screens.<écran>`) ; les textes du socle restent dans `src/i18n/fr.ts`.
 
 ## Ajouter (ou remplir) un écran
 
@@ -88,8 +114,8 @@ const orders = createResource<Order, OrderInput>("/orders");
 export default function OrdersPage() {
   const { day } = useDay(); // jour J global (?day=YYYY-MM-DD)
   const canWrite = useCan("orders.write");
-  const [state, setState] = useDataTableState({ sorting: [{ id: "station_code", desc: false }] });
-  const list = orders.useList({ ...toListQuery(state), day });
+  const [state, setState] = useDataTableState();
+  const list = orders.useList({ ...toListQuery(state), day }); // ou orders.useAll({ day }) + tri local
   return (
     <div className="flex h-full flex-col gap-3 p-4">
       <PageHeader title={fr.nav.screens.orders} />
@@ -123,19 +149,26 @@ puis des requêtes Testing Library ; les doublures de l'écran vont dans `src/mo
 ### Client API — `@/lib/api`
 
 ```ts
-const page = await api<Page<Station>>("/stations", { query: { limit: 50, offset: 0, sort: "code" } });
+const page = await api<Page<Station>>("/stations", {
+  query: { limit: 50, offset: 0, q: "akwa", active: true },
+});
 await api("/plans/compute", { method: "POST", body: { day } });
 ```
 
-- préfixe `/api/v1`, jeton joint ; **401 → rafraîchissement transparent** (une seule requête de rafraîchissement
-  pour des appels simultanés) puis nouvel essai ; échec → session fermée, retour à la connexion ;
+- préfixe `/api/v1`, jeton joint ; **401 → rafraîchissement transparent** puis nouvel essai ; échec → session
+  fermée, retour à la connexion. Le serveur fait tourner le jeton de rafraîchissement (l'ancien est révoqué) :
+  les rafraîchissements sont **sérialisés**, dans l'onglet (une promesse partagée) et entre onglets
+  (`navigator.locks` + relecture du stockage) ;
 - toute erreur est une `ApiError` : `status`, `code`, `message` (français, affichable), `details`,
-  `rule_code` / `ruleCodes` (RM-xx), `violations` (prêtes pour `ViolationsPanel`), `fieldErrors` (422 → champs) ;
+  `rule_code` / `ruleCodes` (RM-xx), `violations` (prêtes pour `ViolationsPanel`), `fieldErrors` (422 et 409
+  `duplicate` → champs), `retryAfter` (429 `rate_limited`, secondes) ;
 - `createResource<T, TInput>(path)` → `useList(query)`, `useAll()`, `useOne(id)`, `useCreate()`, `useUpdate()`,
-  `useRemove()`, `useRemoveMany()` (les écritures invalident les listes) ; `createChildResource` pour les sous-ressources ;
-- `toListQuery(state)` (état de tableau → `limit/offset/sort/q/filtres`), `fetchAll`, `pageBounds`, `pageCount` ;
+  `useRemove()`, `useRemoveMany()` (les écritures invalident les listes). `PUT` = mise à jour **partielle** ;
+  les sous-listes (cuves, compartiments) partent avec leur parent ;
+- `toListQuery(state)` (état de tableau → `limit/offset/q/filtres`), `fetchAll`, `pageBounds`, `pageCount`.
+  **L'API n'a pas de tri** : un tableau triable charge tout (`useAll`) et trie localement ;
 - `downloadFile(path)`, `openFile(path)`, `apiDownload`, `apiUpload(path, file, { fields })` ;
-- `previewImport`, `applyImport`, `downloadImportTemplate` ; `useSettings`, `useUpdateSettings`.
+- `previewImport`, `applyImport`, `downloadImportTemplate`, `importReportRows` ; `useSettings`, `useUpdateSettings`.
 
 ### Authentification — `@/lib/auth`
 
@@ -175,8 +208,10 @@ confirmation, violations toujours sous la même forme, heures en `HH:mm` de Doua
 
 ### `DataTable` (+ `useDataTableState`, `RowActions`)
 
-Tri, recherche, filtres, pagination (serveur si `total` est fourni, locale sinon), sélection multiple,
-actions en masse, édition en ligne.
+Tri, recherche, filtres, pagination, sélection multiple, actions en masse, édition en ligne. Deux modes :
+**local** (sans `total` : le tableau trie, filtre et pagine les lignes reçues — à retenir dès qu'il faut un
+tri, l'API n'en offrant pas) ou **serveur** (`total` fourni : recherche, filtres et pagination délégués ;
+en-têtes triables seulement avec `serverSort`). `onRowsChange` donne les lignes retenues (ex. pour la carte).
 
 ```tsx
 const columns = useMemo<ColumnDef<Truck>[]>(
@@ -196,7 +231,7 @@ const columns = useMemo<ColumnDef<Truck>[]>(
         edit: {
           type: "select",
           options,
-          onCommit: (row, value) => update.mutateAsync({ id: row.id, input: { ...row, status: value } }),
+          onCommit: (row, value) => update.mutateAsync({ id: row.id, input: { status: value } }),
         },
       },
     },
@@ -212,8 +247,7 @@ const columns = useMemo<ColumnDef<Truck>[]>(
 <DataTable
   caption="Camions"
   columns={columns}
-  data={page.items}
-  total={page.total}
+  data={trucks.useAll().data ?? []} // toutes les lignes : tri, recherche et filtres locaux
   state={state}
   onStateChange={setState}
   getRowId={(r) => r.id}
@@ -280,8 +314,9 @@ Action destructive : bouton rouge, focus initial sur « Annuler » (Entrée ne c
 />
 ```
 
-Fichier (.xlsx / .csv, glisser-déposer) → prévisualisation → rapport ligne par ligne → appliquer. Rien n'est
-écrit avant « Appliquer » ; un lot contenant des erreurs ne peut pas l'être. Téléchargement du fichier modèle.
+Fichier (.xlsx / .csv, glisser-déposer) → prévisualisation → rapport ligne par ligne (création, mise à jour
+avec les champs « avant → après », inchangée, anomalies avec colonne et valeur fautive) → appliquer. Rien
+n'est écrit avant « Appliquer » ; `can_apply` du serveur fait foi. Téléchargement du fichier modèle.
 
 ### Formulaires — `EntityFormDialog`, champs, briques zod
 
@@ -320,7 +355,7 @@ const schema = z.object({
   `OpeningHoursField` (continu, ou plages par jour), `CoordinatesField` (latitude / longitude + mini-carte,
   clic pour placer, collage de « lat, lon ») ; saisies nues : `NumberInput`, `TimeInput`, `ChipsInput`,
   `OpeningHoursInput` ;
-- zod : `zText`, `zOptionalText`, `zNumber`, `zOptionalNumber`, `zLiters`, `zTimeHM`, `zOptionalDay`, `zLat`,
+- zod : `zText`, `zCode`, `zOptionalText`, `zNumber`, `zOptionalNumber`, `zLiters`, `zTimeHM`, `zOptionalDay`, `zLat`,
   `zLon`, `zColor`, `zOptionalEmail`, `zOpeningHours` ; vide → `null` pour tout champ facultatif ;
 - `EntityFormDialog` gère la validation, l'attente, les erreurs 422 / 409 reportées sur les champs
   (`applyApiErrors`) et la confirmation avant d'abandonner une saisie ; `useZodForm` pour un formulaire hors boîte.

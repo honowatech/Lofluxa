@@ -17,6 +17,9 @@ export const zText = (max = 160) =>
     .min(1, fr.common.required)
     .max(max, fr.fields.max(max));
 
+/** Code d'un référentiel (produit, dépôt, station) : lettres, chiffres, `_`, `.`, `-` — règle du serveur. */
+export const zCode = (max = 32) => zText(max).regex(/^[A-Za-z0-9_.-]+$/, fr.fields.codeInvalid);
+
 /** Texte facultatif : chaîne vide → `null`. */
 export const zOptionalText = (max = 255) =>
   z
