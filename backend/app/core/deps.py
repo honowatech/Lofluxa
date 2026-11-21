@@ -27,7 +27,10 @@ from app.core.errors import ForbiddenError, UnauthorizedError
 from app.core.security import ACCESS, decode_token
 from app.users.models import User
 
-SessionDep = Annotated[AsyncSession, Depends(get_session)]
+# `scope="function"` : la transaction est validée dès la fin de la fonction de route, AVANT l'envoi de
+# la réponse. Sans cela, le client pouvait recevoir la réponse d'une écriture et relire aussitôt
+# sans voir la donnée (validation faite après l'envoi).
+SessionDep = Annotated[AsyncSession, Depends(get_session, scope="function")]
 
 _bearer = HTTPBearer(auto_error=False)
 

@@ -176,3 +176,41 @@ async def test_tableau_de_bord_sans_plan_publie(client, db, world, auth_headers)
 
     assert (await client.get("/dashboard", params={"day": "2027-01-12"})).status_code == 401
     assert (await client.get("/dashboard", headers=await auth_headers("supply"))).status_code == 422
+
+
+async def test_penurie_resolue_plus_en_alerte_et_resume_de_l_evenement_affiche(
+    client, db, world, auth_headers
+):
+    """Une pénurie résolue ou sans impact n'est plus une alerte active ; le résumé rédigé par le
+    module des événements remplace le libellé générique."""
+    summary = "Gasoil au dépôt SCDP-DLA : 8 000 L disponibles, 2 tournées impactées."
+    db.add_all(
+        [
+            Event(
+                day=DAY,
+                type=EventType.PRODUCT_SHORTAGE,
+                occurred_at=at("06:10"),
+                payload={"status": "resolved", "summary": "Pénurie réglée."},
+            ),
+            Event(
+                day=DAY,
+                type=EventType.PRODUCT_SHORTAGE,
+                occurred_at=at("06:20"),
+                payload={"status": "no_impact", "summary": "Aucune tournée impactée."},
+            ),
+            Event(
+                day=DAY,
+                type=EventType.PRODUCT_SHORTAGE,
+                occurred_at=at("06:30"),
+                payload={"status": "open", "summary": summary},
+            ),
+        ]
+    )
+    await db.commit()
+
+    response = await client.get(
+        "/dashboard", params={"day": "2027-01-12"}, headers=await auth_headers("fleet")
+    )
+    assert response.status_code == 200, response.text
+    alerts = response.json()["alerts"]
+    assert [(a["code"], a["message"]) for a in alerts] == [("product_shortage", summary)]

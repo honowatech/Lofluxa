@@ -35,3 +35,13 @@ def test_fenetres_d_ouverture():
     assert opening_windows(hours, date(2027, 1, 17)) == ()  # dimanche : fermé
     assert opening_windows(None, date(2027, 1, 12)) == ((0, 86400),)  # non renseigné : ouvert
     assert seconds_to_hm(50400) == "14:00"
+
+
+def test_transaction_validee_avant_l_envoi_de_la_reponse():
+    """La session d'une requête est validée avant l'envoi de la réponse (portée « function ») :
+    un client qui relit aussitôt après une écriture voit la donnée."""
+    from typing import get_args
+
+    from app.core.deps import SessionDep
+
+    assert get_args(SessionDep)[1].scope == "function"
