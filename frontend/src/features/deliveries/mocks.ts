@@ -114,6 +114,8 @@ export function createDeliveryMocks(day: IsoDate): DeliveryMocks {
   const summary = (item: PlanTrip): TripSummary => ({
     id: item.id,
     plan_id: planId,
+    plan_version: 1,
+    plan_label: null,
     day,
     seq: item.seq,
     status: item.status,
