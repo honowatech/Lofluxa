@@ -7,7 +7,7 @@
  */
 import { expect, test, type Page } from "@playwright/test";
 
-import { DISPATCHER, ensureAccounts, ensureTemplates, MANAGER, SUPPLY } from "./l11-seed";
+import { DISPATCHER, ensureAccounts, ensureTemplates, MANAGER, openAs, SUPPLY } from "./l11-seed";
 
 /** Jour ouvré de 2027 antérieur aux expirations des fichiers modèles (habilitations au 31/12/2027). */
 function randomDay(): string {
@@ -17,21 +17,6 @@ function randomDay(): string {
   }
 }
 const DAY = randomDay();
-
-async function signIn(page: Page, account: { email: string; password: string }, target: string) {
-  await page.goto(target);
-  await expect(page).toHaveURL(/\/connexion$/);
-  await page.getByLabel("Adresse e-mail").fill(account.email);
-  await page.getByLabel("Mot de passe", { exact: true }).fill(account.password);
-  await page.getByRole("button", { name: "Se connecter" }).click();
-  await expect(page.getByTestId("user-menu")).toBeVisible();
-}
-
-async function signOut(page: Page) {
-  await page.getByTestId("user-menu").click();
-  await page.getByRole("menuitem", { name: "Se déconnecter" }).click();
-  await expect(page).toHaveURL(/\/connexion$/);
-}
 
 async function createOrder(
   page: Page,
@@ -53,11 +38,11 @@ test.beforeAll(async ({ request }) => {
   await ensureTemplates(request, admin);
 });
 
-test("stocks (supply) → commandes (dispatcher) → calcul du plan", async ({ page }) => {
+test("stocks (supply) → commandes (dispatcher) → calcul du plan", async ({ page, request }) => {
   test.setTimeout(240_000);
 
   /* ------------------------------------------------------------ Supply : stocks du jour */
-  await signIn(page, SUPPLY, `/disponibilite?day=${DAY}`);
+  await openAs(page, request, SUPPLY, `/disponibilite?day=${DAY}`);
   const grid = page.getByTestId("stocks-grid");
   const cells = grid.getByRole("textbox");
   await expect(cells.first()).toBeVisible();
@@ -85,10 +70,9 @@ test("stocks (supply) → commandes (dispatcher) → calcul du plan", async ({ p
   await page.getByRole("tab", { name: "Camions" }).click();
   await expect(page.getByText(/Lecture seule/)).toBeVisible();
   await expect(page.getByRole("grid", { name: "Camions du jour" })).toBeVisible();
-  await signOut(page);
 
   /* ------------------------------------------------------- Dispatcher : commandes du jour */
-  await signIn(page, DISPATCHER, `/commandes?day=${DAY}`);
+  await openAs(page, request, DISPATCHER, `/commandes?day=${DAY}`);
   const orders = page.getByRole("grid", { name: "Commandes du jour" });
   await createOrder(page, { product: "Gasoil", volume: "8000", windowStart: "730" });
   await createOrder(page, { product: "Super", volume: "6000", priority: "Urgente" });
@@ -171,10 +155,9 @@ test("stocks (supply) → commandes (dispatcher) → calcul du plan", async ({ p
     new RegExp(`/plan\\?plan=[0-9a-f-]+&day=${DAY}`),
   );
   await expect(page.getByTestId("summary-orders")).toContainText("2 commandes");
-  await signOut(page);
 
   /* ------------------------------------------------------------ Direction : lecture seule */
-  await signIn(page, MANAGER, `/journee?day=${DAY}`);
+  await openAs(page, request, MANAGER, `/journee?day=${DAY}`);
   await expect(page.getByText(/Lecture seule/)).toBeVisible();
   await expect(page.getByRole("button", { name: /Calculer le plan|Recalculer/ })).toHaveCount(0);
   await expect(plans.getByRole("row").filter({ hasText: "Plan calculé" })).toHaveCount(1);
