@@ -23,11 +23,11 @@ Zones d'ombre rencontrées, valeur par défaut adoptée en attendant la réponse
 |---|---|---|
 | L6-11 | Enregistrer le chargement fait-il passer automatiquement la tournée à `loaded` ? | Non : le statut ne change que par `PUT /trips/{id}/status`. Le chargement se saisit ou se corrige tant que la tournée est `planned`, `at_depot` ou `loaded` ; il est figé ensuite (409). |
 | L6-12 | Peut-on revenir en arrière ou sauter un statut de tournée ? | Non : un seul pas en avant ; tout le reste → 409. Pas de correction possible des heures / km réels une fois `completed` (à prévoir si OLA le demande). |
-| L6-13 | Dans quel état de tournée saisit-on une livraison ? | Uniquement `in_progress` (sinon 409). Une saisie peut être corrigée tant que la tournée est en cours. |
+| L6-13 | Dans quel état de tournée saisit-on une livraison ? Peut-on corriger une saisie ? | Uniquement `in_progress` (sinon 409). Les volumes et heures d'un arrêt livré restent corrigeables tant que la tournée est en cours ; en revanche livré ↔ sauté n'est plus réversible (409 `invalid_order_transition`), car une commande `delivered` est définitive dans la machine à états des commandes (lot L4). |
 | L6-14 | Arrêt livré : faut-il un volume pour chaque commande de l'arrêt ? Les heures sont-elles obligatoires ? | Oui, un volume (≥ 0) pour chaque commande de l'arrêt, ni plus ni moins. Heure d'arrivée obligatoire, heure de départ facultative. |
 | L6-15 | Un volume livré peut-il dépasser le volume planifié ou demandé (RM-16) ? | Pas de contrôle à la saisie des réalisations (RM-16 est une règle de planification) : le volume réel est enregistré tel quel. |
-| L6-16 | Que devient une commande dont le volume livré est 0, ou dont l'arrêt est sauté ? | Elle reste `loaded` (le produit est dans le camion) ; `actual_l` = 0 (livré à 0) ou vide (arrêt sauté). La remise en `confirmed` / le report est une décision du dispatcher, hors de ce lot. |
-| L6-17 | Répercussion sur les commandes : lesquelles passent à `loaded` ? | Celles de la tournée qui sont `planned` (une commande annulée ou reportée entre-temps n'est pas touchée). `delivered` dès qu'un volume > 0 est saisi. |
+| L6-16 | Que devient une commande dont le volume livré est 0, ou dont l'arrêt est sauté ? | Elle repart à replanifier : `confirmed` (`orders.service.release_to_confirmed`, convention du lot L4) ; `actual_l` = 0 (livré à 0) ou vide (arrêt sauté). À confirmer pour le cas « livré à 0 », assimilé ici à un arrêt non livré. |
+| L6-17 | Répercussion sur les commandes : lesquelles passent à `loaded` ? | Celles de la tournée qui sont `planned` (une commande annulée ou reportée entre-temps n'est pas touchée). `delivered` dès qu'un volume > 0 est saisi. Toutes les transitions passent par `app/orders/service.py` (lot L4). |
 | L6-18 | Heures réelles non saisies au changement de statut ? | `actual_depart_at` (passage à `in_progress`) et `actual_return_at` (passage à `completed`) prennent l'heure courante à défaut ; `actual_distance_m` reste vide. |
 | L6-19 | Les changements de statut doivent-ils figurer au journal des événements ? | Non : §5 ne prévoit pas de type d'événement pour cela ; ils sont tracés par le journal d'audit (`trips`). Seuls `loading_recorded` et `delivery_recorded` sont journalisés. |
 
@@ -50,5 +50,3 @@ Zones d'ombre rencontrées, valeur par défaut adoptée en attendant la réponse
 
 - `app/core/pdf.py` annonce le raccourci de gabarit `"<module>/x.html"` (ex. `render_pdf("loading/loading_sheet.html")`),
   mais le chargeur Jinja2 ne le résout pas : il faut `"loading/templates/loading_sheet.html"`. Non modifié (hors périmètre).
-- `tests/conftest.py` : une réponse en erreur annule toute la transaction du test (données de préparation comprises).
-  Pour enchaîner une requête en erreur puis d'autres, faire `await db.commit()` avant (voir les tests du lot).

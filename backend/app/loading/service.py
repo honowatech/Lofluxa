@@ -35,6 +35,7 @@ from app.loading.schemas import (
     TripLoadingOut,
     TripStatusIn,
 )
+from app.orders import service as orders_service
 from app.orders.models import Order
 from app.planning.models import ConstraintViolation, Plan, Stop, Trip
 from app.referentials.models import Depot, Driver, Product, Station, Truck, TruckCompartment
@@ -50,6 +51,10 @@ TRIP_FLOW: tuple[TripStatus, ...] = (
 )
 # Le chargement se saisit (ou se corrige) tant que le camion n'a pas quitté le dépôt.
 LOADING_EDITABLE = (TripStatus.PLANNED, TripStatus.AT_DEPOT, TripStatus.LOADED)
+
+# Commandes encore portées par la tournée (une commande annulée ou reportée n'est plus suivie ici).
+_IN_TRIP = (OrderStatus.PLANNED, OrderStatus.LOADED, OrderStatus.DELIVERED)
+_FOLLOWED = (*_IN_TRIP, OrderStatus.CONFIRMED)
 
 TRIP_STATUS_LABELS = {
     TripStatus.PLANNED: "planifiée",
@@ -526,9 +531,11 @@ async def change_trip_status(
                 code="loading_missing",
             )
         order_ids = {d.order_id for stop in trip.stops for d in stop.deliveries}
-        for order in (await _orders_by_id(session, order_ids)).values():
-            if order.status == OrderStatus.PLANNED:
-                order.status = OrderStatus.LOADED
+        orders = await _orders_by_id(session, order_ids)
+        # Une commande annulée ou reportée entre-temps n'est pas touchée.
+        await orders_service.mark_loaded(
+            session, [oid for oid, order in orders.items() if order.status == OrderStatus.PLANNED]
+        )
     elif target == TripStatus.IN_PROGRESS:
         trip.actual_depart_at = payload.actual_depart_at or utcnow()
     elif target == TripStatus.COMPLETED:
@@ -578,9 +585,11 @@ async def record_delivery(
         stop.actual_departure_at = payload.actual_departure_at
         for delivery in stop.deliveries:
             delivery.actual_l = None
-            order = orders.get(delivery.order_id)
-            if order is not None and order.status == OrderStatus.DELIVERED:
-                order.status = OrderStatus.LOADED  # correction d'une saisie précédente
+        # Arrêt sauté : les commandes repartent à replanifier (`confirmed`). Une commande déjà
+        # `delivered` est définitive : la machine à états des commandes refuse (409).
+        await orders_service.release_to_confirmed(
+            session, [oid for oid, order in orders.items() if order.status in _IN_TRIP]
+        )
     else:
         if payload.actual_arrival_at is None:
             raise ValidationAppError("L'heure réelle d'arrivée est obligatoire pour un arrêt livré.")
@@ -612,14 +621,13 @@ async def record_delivery(
             # Une ligne par commande et par arrêt ; en cas de doublon, le volume va sur la première.
             delivery.actual_l = given[delivery.order_id] if delivery.order_id not in assigned else Decimal(0)
             assigned.add(delivery.order_id)
-        for order_id, actual in given.items():
-            order = orders.get(order_id)
-            if order is None:
-                continue
-            if actual > 0 and order.status in (OrderStatus.PLANNED, OrderStatus.LOADED):
-                order.status = OrderStatus.DELIVERED
-            elif actual == 0 and order.status == OrderStatus.DELIVERED:
-                order.status = OrderStatus.LOADED  # correction : rien n'a finalement été livré
+        # Répercussion par la machine à états des commandes (lot L4) : `loaded → delivered` ;
+        # volume livré nul → commande à replanifier (`confirmed`). Transition interdite → 409.
+        concerned = {oid: order for oid, order in orders.items() if order.status in _FOLLOWED}
+        await orders_service.mark_delivered(session, [oid for oid in concerned if given[oid] > 0])
+        await orders_service.release_to_confirmed(
+            session, [oid for oid, order in concerned.items() if given[oid] == 0 and order.status in _IN_TRIP]
+        )
 
     station = ctx.stations.get(stop.station_id)
     session.add(

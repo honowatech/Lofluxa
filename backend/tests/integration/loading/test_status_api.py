@@ -250,9 +250,9 @@ async def test_arret_livre_volumes_et_commandes(client, db, auth_headers, scenar
     assert by_order[str(scenario.orders[0].id)]["actual_l"] == 9950.5
     assert by_order[str(scenario.orders[0].id)]["order_status"] == "delivered"
     assert by_order[str(scenario.orders[0].id)]["product_code"] == "SUPER"
-    # Volume livré nul : la commande reste `loaded`.
+    # Volume livré nul : la commande repart à replanifier.
     assert by_order[str(scenario.orders[1].id)]["actual_l"] == 0
-    assert by_order[str(scenario.orders[1].id)]["order_status"] == "loaded"
+    assert by_order[str(scenario.orders[1].id)]["order_status"] == "confirmed"
     assert stop.status == StopStatus.DELIVERED
     assert scenario.orders[2].status == OrderStatus.LOADED  # arrêt 2 pas encore traité
 
@@ -279,24 +279,56 @@ async def test_arret_saute_avec_motif(client, db, auth_headers, scenario):
     assert body["status"] == "skipped"
     assert body["skip_reason"] == "Cuve pleine"
     assert body["deliveries"][0]["actual_l"] is None
-    assert scenario.orders[2].status == OrderStatus.LOADED
+    assert body["deliveries"][0]["order_status"] == "confirmed"  # à replanifier
+    assert scenario.orders[2].status == OrderStatus.CONFIRMED
     event = (await db.execute(select(Event).where(Event.type == EventType.DELIVERY_RECORDED))).scalar_one()
     assert event.payload["skip_reason"] == "Cuve pleine"
 
 
-async def test_correction_livre_puis_saute_remet_la_commande_a_loaded(client, auth_headers, scenario):
+async def test_correction_des_volumes_d_un_arret_livre(client, auth_headers, scenario):
     headers = await auth_headers("fleet")
     await _to_in_progress(client, headers, scenario)
     url = f"/stops/{scenario.stops[1].id}/delivery"
     await client.put(url, json=_deliver(scenario, 1), headers=headers)
+    corrected = _deliver(scenario, 1)
+    corrected["deliveries"][0]["actual_l"] = 9900
+
+    response = await client.put(url, json=corrected, headers=headers)
+
+    assert response.status_code == 200, response.text
+    assert response.json()["deliveries"][0]["actual_l"] == 9900
     assert scenario.orders[2].status == OrderStatus.DELIVERED
 
-    body = (await client.put(url, json={"skip_reason": "Erreur de saisie"}, headers=headers)).json()
 
-    assert body["status"] == "skipped"
-    assert body["actual_arrival_at"] is None
-    assert scenario.orders[2].status == OrderStatus.LOADED
-    assert scenario.stops[1].deliveries[0].actual_l is None
+async def test_arret_livre_ne_peut_plus_etre_saute(client, db, auth_headers, scenario):
+    # Une commande `delivered` est définitive dans la machine à états des commandes (lot L4).
+    headers = await auth_headers("fleet")
+    await _to_in_progress(client, headers, scenario)
+    url = f"/stops/{scenario.stops[1].id}/delivery"
+    await client.put(url, json=_deliver(scenario, 1), headers=headers)
+
+    response = await client.put(url, json={"skip_reason": "Erreur de saisie"}, headers=headers)
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "invalid_order_transition"
+    await db.refresh(scenario.stops[1])
+    await db.refresh(scenario.orders[2])
+    assert scenario.stops[1].status == StopStatus.DELIVERED  # rien n'a été modifié
+    assert scenario.orders[2].status == OrderStatus.DELIVERED
+
+
+async def test_arret_saute_ne_peut_plus_etre_livre(client, db, auth_headers, scenario):
+    headers = await auth_headers("fleet")
+    await _to_in_progress(client, headers, scenario)
+    url = f"/stops/{scenario.stops[1].id}/delivery"
+    await client.put(url, json={"skip_reason": "Station fermée"}, headers=headers)
+
+    response = await client.put(url, json=_deliver(scenario, 1), headers=headers)
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "invalid_order_transition"
+    await db.refresh(scenario.stops[1])
+    assert scenario.stops[1].status == StopStatus.SKIPPED  # rien n'a été modifié
 
 
 @pytest.mark.parametrize(
