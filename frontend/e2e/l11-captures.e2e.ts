@@ -17,6 +17,7 @@ import {
   ensureTemplates,
   login,
   MANAGER,
+  openAs,
   SUPPLY,
 } from "./l11-seed";
 
@@ -32,20 +33,6 @@ const shot = async (page: Page, name: string) => {
   await page.waitForTimeout(300);
   await page.screenshot({ path: `${OUT}/${name}.png`, animations: "disabled" });
 };
-
-async function signIn(page: Page, account: { email: string; password: string }, target: string) {
-  await page.goto(target);
-  await page.getByLabel("Adresse e-mail").fill(account.email);
-  await page.getByLabel("Mot de passe", { exact: true }).fill(account.password);
-  await page.getByRole("button", { name: "Se connecter" }).click();
-  await expect(page.getByTestId("user-menu")).toBeVisible();
-}
-
-async function signOut(page: Page) {
-  await page.getByTestId("user-menu").click();
-  await page.getByRole("menuitem", { name: "Se déconnecter" }).click();
-  await expect(page).toHaveURL(/\/connexion$/);
-}
 
 test("captures des écrans Journée, Commandes du jour et Disponibilité du jour", async ({ page, request }) => {
   test.setTimeout(300_000);
@@ -91,7 +78,7 @@ test("captures des écrans Journée, Commandes du jour et Disponibilité du jour
   });
 
   /* ------------------------------------------------------------ Supply : stocks dépôt */
-  await signIn(page, SUPPLY, `/disponibilite?day=${DAY}`);
+  await openAs(page, request, SUPPLY, `/disponibilite?day=${DAY}`);
   const cells = page.getByTestId("stocks-grid").getByRole("textbox");
   await expect(cells.first()).toBeVisible();
   const volumes = ["64000", "9000", "71000", "180000", "24000", "150000"];
@@ -112,10 +99,9 @@ test("captures des écrans Journée, Commandes du jour et Disponibilité du jour
   await expect(page.getByTestId("stock-history").getByText("Valeur courante").first()).toBeVisible();
   await shot(page, "l11-08-disponibilite-stocks-historique");
   await page.getByTestId("stock-history").getByRole("button", { name: "Fermer" }).first().click();
-  await signOut(page);
 
   /* ------------------------------------------------------- Dispatcher : commandes du jour */
-  await signIn(page, DISPATCHER, `/commandes?day=${DAY}`);
+  await openAs(page, request, DISPATCHER, `/commandes?day=${DAY}`);
   const orders = page.getByRole("grid", { name: "Commandes du jour" });
   await expect(orders.getByRole("row")).toHaveCount(23);
 
@@ -206,10 +192,9 @@ test("captures des écrans Journée, Commandes du jour et Disponibilité du jour
     page.getByRole("grid", { name: "Plans du jour" }).getByRole("row").filter({ hasText: "Plan calculé" }),
   ).toHaveCount(1);
   await shot(page, "l11-03-journee-plan-calcule");
-  await signOut(page);
 
   /* ------------------------------------------------------------ Direction : lecture seule */
-  await signIn(page, MANAGER, `/commandes?day=${DAY}`);
+  await openAs(page, request, MANAGER, `/commandes?day=${DAY}`);
   await expect(page.getByText(/Lecture seule/)).toBeVisible();
   await expect(orders.getByRole("row").nth(1)).toBeVisible();
   await shot(page, "l11-12-commandes-lecture-seule");
