@@ -60,6 +60,11 @@ Jeux de données : `data/fixtures/<nom>/problem.json` (sérialisation de `Planni
 (signatures et docstrings dans le fichier). Les lots événements et comparaison passent par ces fonctions et
 n'appellent jamais le moteur directement.
 
+Ajouts du lot L5 (mêmes conventions) : `run_compute` / `run_recompute` (logique des tâches, avec session),
+`launch_recompute`, `publish_plan`, `new_version_with_ids` (nouvelle version + correspondance ancien → nouvel
+identifiant de tournée et d'arrêt, pour F6.1/F6.2), `order_remainders` (reliquat RM-16) ; `checking.load_plan`
+et `checking.log_event` ; `views.plan_out` (plan complet de l'API). Modèle de versions : `planning/versions.py`.
+
 ## 6. Imports — `backend/app/imports/` (lot L3)
 
 `ImportSource` (protocole de la spec §8.3) et `ExcelImportSource`, seule implémentation du MVP. Tout lot qui a
