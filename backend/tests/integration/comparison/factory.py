@@ -1,6 +1,6 @@
 """Fabrique de données du lot L7 : référentiels, commandes et plans créés par l'ORM.
 
-Les codes du monde de test sont ceux de l'exemple du fichier modèle `reference_day.xlsx`.
+Les codes du monde de test sont ceux de la journée d'essai `EXAMPLE_ORDERS` / `EXAMPLE_TRIPS`.
 """
 
 from __future__ import annotations
@@ -23,6 +23,7 @@ from app.core.enums import (
 )
 from app.core.geo import haversine_m, point
 from app.core.time import seconds_to_utc
+from app.imports.reference_day import build_workbook
 from app.orders.models import Order
 from app.planning.models import ConstraintViolation, Plan, Stop, StopDelivery, Trip, UnservedOrder
 from app.referentials.models import Carrier, Depot, Driver, Product, Station, Truck, TruckCompartment
@@ -37,6 +38,36 @@ STATIONS = {
     "ST-DLA-003": (4.0900, 9.7400),
     "ST-DLA-004": (4.0100, 9.6900),
 }
+
+
+# Journée d'essai des tests (2 camions, 3 stations livrées, 1 commande non livrée), au format du
+# fichier « journée de référence ». Distincte de l'exemple du fichier modèle, qui suit les référentiels
+# d'exemple du lot L3.
+EXAMPLE_ORDERS = [
+    ("ST-DLA-001", "SUPER", 12000, "normal", None, None, None),
+    ("ST-DLA-001", "GASOIL", 8000, "normal", None, None, None),
+    ("ST-DLA-002", "GASOIL", 15000, "urgent", "08:00", "12:00", "Rupture annoncée"),
+    ("ST-DLA-003", "SUPER", 10000, "normal", None, None, None),
+    ("ST-DLA-004", "PETROLE", 5000, "normal", None, None, "Non livrée ce jour-là"),
+]
+_T1 = ("LT-123-AA", "Jean Mbarga", "SCDP-DLA")
+_T2 = ("LT-456-BB", "Paul Etoa", "SCDP-DLA")
+EXAMPLE_TRIPS = [
+    (1, *_T1, 1, "ST-DLA-001", "SUPER", 12000, 86, "07:30", "13:10", "08:15", "09:00"),
+    (1, None, None, None, 1, "ST-DLA-001", "GASOIL", 8000, None, None, None, None, None),
+    (1, None, None, None, 2, "ST-DLA-003", "SUPER", 10000, None, None, None, "10:05", "10:50"),
+    (2, *_T2, 1, "ST-DLA-002", "GASOIL", 15000, 54, "07:45", "11:20", "08:40", "09:30"),
+]
+
+
+def example_workbook() -> bytes:
+    return build_workbook(
+        day="2027-01-12",
+        prep_time_min=120,
+        label="Journée A — exemple",
+        orders=EXAMPLE_ORDERS,
+        trips=EXAMPLE_TRIPS,
+    )
 
 
 @dataclass

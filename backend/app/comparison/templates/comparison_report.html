@@ -16,12 +16,13 @@
   .maps { display: flex; gap: 12px; }
   .maps > div { flex: 1; }
   .maps svg { width: 100%; height: auto; }
-  .legend { font-size: 8pt; margin-top: 4px; }
-  .legend span.swatch { display: inline-block; width: 9px; height: 9px; margin-right: 3px; vertical-align: middle; }
-  .legend span.item { margin-right: 10px; white-space: nowrap; }
+  .legend { font-size: 7.5pt; margin-top: 4px; }
+  .legend { columns: 3; column-gap: 10px; }
+  .legend span.item { display: block; white-space: nowrap; }
+  .legend svg { width: 22px; height: 8px; vertical-align: middle; }
   .trip { page-break-inside: avoid; margin-bottom: 8px; }
   .trip h3 { font-size: 9.5pt; margin: 8px 0 2px; }
-  .trip .swatch { display: inline-block; width: 9px; height: 9px; margin-right: 4px; }
+  .trip h3 svg { width: 22px; height: 8px; vertical-align: middle; }
 {% endblock %}
 {% block doc_title %}Rapport comparatif A / B{% endblock %}
 {% block doc_sub %}Journée du {{ plan_a.day | date_fr }}{% if plan_b.day != plan_a.day %} et du {{ plan_b.day | date_fr }}{% endif %}{% endblock %}
@@ -76,22 +77,24 @@ sur la même matrice de distances.</p>
     <strong>Plan {{ p.letter }}</strong> — {{ p.summary.title }}
     {{ map_a if p.letter == "A" else map_b }}
     <div class="legend">
-      {% for route in p.routes %}
-      <span class="item"><span class="swatch" style="background: {{ route.color }}"></span>T{{ route.seq }} {{ route.truck_plate or "—" }} ({{ route.distance_m | km }})</span>
+      {% for item in p.legend %}
+      <span class="item">{{ item.swatch }} T{{ item.seq }} {{ item.truck_plate or "—" }} ({{ item.distance_m | km }})</span>
       {% endfor %}
     </div>
   </div>
   {% endfor %}
 </div>
 <p class="note">Carré noir : dépôt. Pastille : station, numérotée dans l'ordre de passage de sa tournée.
-Tracés schématiques (segments droits), les deux cartes sont à la même échelle.</p>
+Tracés schématiques (segments droits), les deux cartes sont à la même échelle.
+{%- if plans[0].legend | length > 10 or plans[1].legend | length > 10 %} Au-delà de dix tournées les couleurs se répètent :
+le style du trait (continu, tirets, pointillés) les distingue, comme dans la légende.{% endif %}</p>
 
 {% for p in plans %}
 <div class="page-break"></div>
 <h2>Annexe {{ p.letter }} — tournées du plan {{ p.letter }} ({{ p.summary.title }})</h2>
 {% for route in p.routes %}
 <div class="trip">
-  <h3><span class="swatch" style="background: {{ route.color }}"></span>Tournée {{ route.seq }} — camion {{ route.truck_plate or "—" }}, chauffeur {{ route.driver_name or "non renseigné" }}, dépôt {{ route.depot_code or "—" }}</h3>
+  <h3>{{ p.legend[loop.index0].swatch }} Tournée {{ route.seq }} — camion {{ route.truck_plate or "—" }}, chauffeur {{ route.driver_name or "non renseigné" }}, dépôt {{ route.depot_code or "—" }}</h3>
   <div class="meta">
     <div><span>Départ prévu :</span> {{ route.planned_depart_at | hm }}</div>
     <div><span>Retour prévu :</span> {{ route.planned_return_at | hm }}</div>

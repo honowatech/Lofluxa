@@ -132,7 +132,7 @@ async def move_stop(
     plan = await editing.move_stop(
         session, plan_id, trip_id, payload.stop_id, payload.to_trip_id, payload.to_seq
     )
-    return await views.plan_out(session, plan)
+    return await views.plan_out(session, plan, with_last_edit=True)
 
 
 @router.post("/plans/{plan_id}/trips/{trip_id}/reorder", response_model=PlanOut)
@@ -140,7 +140,7 @@ async def reorder(
     plan_id: uuid.UUID, trip_id: uuid.UUID, payload: ReorderIn, session: SessionDep, _: Dispatcher
 ) -> PlanOut:
     plan = await editing.reorder_stops(session, plan_id, trip_id, payload.stop_ids)
-    return await views.plan_out(session, plan)
+    return await views.plan_out(session, plan, with_last_edit=True)
 
 
 @router.post("/plans/{plan_id}/trips/{trip_id}/assign", response_model=PlanOut)
@@ -149,17 +149,19 @@ async def assign(
 ) -> PlanOut:
     changes = {name: getattr(payload, name) for name in payload.model_fields_set}
     plan = await editing.assign_resources(session, plan_id, trip_id, changes)
-    return await views.plan_out(session, plan)
+    return await views.plan_out(session, plan, with_last_edit=True)
 
 
 @router.post("/plans/{plan_id}/trips/{trip_id}/lock", response_model=PlanOut)
 async def lock(plan_id: uuid.UUID, trip_id: uuid.UUID, session: SessionDep, _: Dispatcher) -> PlanOut:
-    return await views.plan_out(session, await editing.set_locked(session, plan_id, trip_id, True))
+    plan = await editing.set_locked(session, plan_id, trip_id, True)
+    return await views.plan_out(session, plan, with_last_edit=True)
 
 
 @router.post("/plans/{plan_id}/trips/{trip_id}/unlock", response_model=PlanOut)
 async def unlock(plan_id: uuid.UUID, trip_id: uuid.UUID, session: SessionDep, _: Dispatcher) -> PlanOut:
-    return await views.plan_out(session, await editing.set_locked(session, plan_id, trip_id, False))
+    plan = await editing.set_locked(session, plan_id, trip_id, False)
+    return await views.plan_out(session, plan, with_last_edit=True)
 
 
 # --------------------------------------------------------------------------- recalcul, publication

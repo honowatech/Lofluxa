@@ -17,13 +17,13 @@ from app.core.enums import (
     TripStatus,
 )
 from app.imports.models import ImportBatch
-from app.imports.reference_day import TEMPLATE_ORDERS, TEMPLATE_TRIPS, build_workbook, read_reference_day
+from app.imports.reference_day import build_workbook, read_reference_day
 from app.orders.models import Order
 from app.planning import service as plan_service
 from app.planning.models import DistanceCache, Plan, TripCompartmentLoad
 
 from . import factory
-from .factory import DAY, DEPOT, STATIONS, at, leg_m
+from .factory import DAY, DEPOT, EXAMPLE_ORDERS, EXAMPLE_TRIPS, STATIONS, at, leg_m
 
 TEMPLATE = Path(__file__).resolve().parents[4] / "data" / "templates" / "reference_day.xlsx"
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -36,7 +36,7 @@ def _files(content: bytes, name: str = "journee_A.xlsx") -> dict:
 async def _import(client, headers, content: bytes | None = None, **form):
     return await client.post(
         "/reference-days/import",
-        files=_files(content if content is not None else TEMPLATE.read_bytes()),
+        files=_files(content if content is not None else factory.example_workbook()),
         data={k: str(v) for k, v in form.items()},
         headers=headers,
     )
@@ -46,7 +46,7 @@ async def _plans(db) -> list[Plan]:
     return list((await db.execute(select(Plan).order_by(Plan.created_at, Plan.id))).scalars().all())
 
 
-async def test_import_du_fichier_modele_cree_le_plan_de_reference(client, db, world, auth_headers):
+async def test_import_cree_le_plan_de_reference(client, db, world, auth_headers):
     response = await _import(client, await auth_headers("dispatcher"))
     assert response.status_code == 201, response.text
     body = response.json()
@@ -169,13 +169,13 @@ async def test_import_du_fichier_modele_cree_le_plan_de_reference(client, db, wo
 
 
 async def test_import_rapport_d_erreurs_ligne_par_ligne(client, db, world, auth_headers):
-    trips = [list(row) for row in TEMPLATE_TRIPS]
+    trips = [list(row) for row in EXAMPLE_TRIPS]
     trips[0][1] = "LT-999-ZZ"  # camion inconnu
     trips[0][2] = "Inconnu Total"  # chauffeur inconnu
     trips[2][5] = "ST-XXX-404"  # station inconnue
     trips[3][3] = "DEPOT-??"  # dépôt inconnu
     trips[3][6] = "KEROZEN"  # produit inconnu
-    orders = [list(row) for row in TEMPLATE_ORDERS]
+    orders = [list(row) for row in EXAMPLE_ORDERS]
     orders[4][0] = "ST-ZZZ-000"
     content = build_workbook(day="2027-01-12", orders=orders, trips=trips)
 
@@ -185,7 +185,14 @@ async def test_import_rapport_d_erreurs_ligne_par_ligne(client, db, world, auth_
     assert body["code"] == "import_rejected"
     assert body["status"] == "rejected" and body["plan_id"] is None
     assert body["error_count"] == 6
-    assert body["details"] == body["errors"]
+    # `details` reprend erreurs et avertissements, avec leur gravité (clients qui ne gardent que l'enveloppe).
+    assert [d for d in body["details"] if d["severity"] == "error"] == [
+        {**e, "severity": "error"} for e in body["errors"]
+    ]
+    assert [d for d in body["details"] if d["severity"] == "warning"] == [
+        {**w, "severity": "warning"} for w in body["warnings"]
+    ]
+    assert len(body["warnings"]) == 2 and len(body["details"]) == 8
     found = {(e["sheet"], e["row"], e["column"]): e["message"] for e in body["errors"]}
     assert found == {
         ("Commandes", 6, "Code station"): "Station inconnue : ST-ZZZ-000.",
@@ -476,7 +483,7 @@ async def test_registre_previsualiser_puis_appliquer(client, db, world, auth_hea
     response = await client.post(
         "/imports/reference_day/preview",
         params={"prep_time_min": "95", "label": "Mardi type"},
-        files=_files(TEMPLATE.read_bytes()),
+        files=_files(factory.example_workbook()),
         headers=headers,
     )
     assert response.status_code == 201, response.text
@@ -519,9 +526,9 @@ async def test_registre_previsualiser_puis_appliquer(client, db, world, auth_hea
 async def test_registre_rejets_roles_et_journee_existante(client, db, world, auth_headers):
     headers = await auth_headers("dispatcher")
     manager = await auth_headers("manager")
-    trips = [list(row) for row in TEMPLATE_TRIPS]
+    trips = [list(row) for row in EXAMPLE_TRIPS]
     trips[0][1] = "LT-999-ZZ"
-    bad = build_workbook(day="2027-01-12", orders=TEMPLATE_ORDERS, trips=trips)
+    bad = build_workbook(day="2027-01-12", orders=EXAMPLE_ORDERS, trips=trips)
 
     response = await client.post("/imports/reference_day/preview", files=_files(bad), headers=headers)
     assert response.status_code == 201
@@ -540,7 +547,7 @@ async def test_registre_rejets_roles_et_journee_existante(client, db, world, aut
 
     # Journée déjà importée : la prévisualisation est rejetée, sauf avec replace=true.
     first = (await _import(client, headers)).json()
-    template = _files(TEMPLATE.read_bytes())
+    template = _files(factory.example_workbook())
     response = await client.post("/imports/reference_day/preview", files=template, headers=headers)
     assert response.json()["status"] == "rejected"
     assert "existe déjà" in response.json()["report"]["issues"][0]["message"]
@@ -563,3 +570,35 @@ async def test_controle_seul_puis_application_par_le_registre(client, db, world,
     assert response.status_code == 200, response.text
     (plan,) = await _plans(db)
     assert plan.kind == PlanKind.MANUAL_REFERENCE and plan.label == "Journée A — exemple"
+
+
+async def test_modele_importable_sur_les_referentiels_modeles(client, db, products, auth_headers):
+    """D1 : sur une base remplie avec les fichiers modèles du lot L3 (dépôts, stations, camions,
+    chauffeurs), le fichier modèle de la journée de référence s'importe sans erreur."""
+    admin = await auth_headers("admin")
+    templates = TEMPLATE.parent
+    for kind in ("depots", "stations", "trucks", "drivers"):
+        content = (templates / f"{kind}.xlsx").read_bytes()
+        response = await client.post(
+            f"/imports/{kind}/preview", files=_files(content, f"{kind}.xlsx"), headers=admin
+        )
+        assert response.status_code == 201 and response.json()["status"] == "previewed", (kind, response.text)
+        response = await client.post(f"/imports/{response.json()['batch_id']}/apply", headers=admin)
+        assert response.status_code == 200, (kind, response.text)
+
+    response = await _import(client, await auth_headers("dispatcher"), TEMPLATE.read_bytes())
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["status"] == "applied" and body["errors"] == [] and body["warnings"] == []
+    assert body["summary"]["trips"] == 2 and body["summary"]["orders"] == 3
+    assert body["summary"]["orders_unserved"] == 1
+
+    from app.comparison.service import load_bundle, plan_metrics
+
+    bundle = await load_bundle(db, body["plan_id"])
+    metrics = plan_metrics(bundle)
+    assert (metrics.trucks_used, metrics.drivers_used, metrics.trips_count) == (1, 1, 2)
+    assert (metrics.orders_requested, metrics.orders_served) == (3, 2)
+    assert metrics.distance_actual_m == 45_000 and metrics.distance_estimated_m > 0
+    # Seule violation bloquante de l'exemple : le grand camion envoyé à Akwa (gabarit moyen), RM-09.
+    assert [v.rule_code for v in bundle.plan.violations if v.severity == Severity.BLOCKING] == ["RM-09"]

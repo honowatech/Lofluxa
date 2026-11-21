@@ -6,7 +6,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
-import { expect, type APIRequestContext } from "@playwright/test";
+import { expect, type APIRequestContext, type Page } from "@playwright/test";
 
 export const API = "http://localhost:8000/api/v1";
 export const ADMIN = { email: "admin@honowa.tech", password: "admin-dev-only" };
@@ -26,9 +26,43 @@ interface Named {
   full_name?: string;
 }
 
-export async function login(request: APIRequestContext, account: { email: string; password: string }) {
+export interface Tokens {
+  access_token: string;
+  refresh_token: string;
+}
+export type Account = { email: string; password: string };
+
+/**
+ * Une seule connexion par compte et par exécution : l'API limite les connexions (10 par minute et par adresse).
+ * Les jetons obtenus servent aux appels directs et sont déposés dans le navigateur par `openAs`.
+ */
+const sessions = new Map<string, Tokens | null>();
+
+export async function tokensOf(request: APIRequestContext, account: Account): Promise<Tokens | null> {
+  const known = sessions.get(account.email);
+  if (known) return known;
   const response = await request.post(`${API}/auth/login`, { data: account });
-  return response.ok() ? ((await response.json()) as { access_token: string }).access_token : null;
+  const tokens = response.ok() ? ((await response.json()) as Tokens) : null;
+  sessions.set(account.email, tokens);
+  return tokens;
+}
+
+export async function login(request: APIRequestContext, account: Account) {
+  return (await tokensOf(request, account))?.access_token ?? null;
+}
+
+/** Ouvre `target` avec la session du compte (jetons déposés dans le stockage local, sans repasser par la connexion). */
+export async function openAs(page: Page, request: APIRequestContext, account: Account, target: string) {
+  const tokens = await tokensOf(request, account);
+  expect(tokens, `connexion de ${account.email}`).not.toBeNull();
+  // Page de même origine sans application : aucun code de session ne peut réécrire les jetons entre-temps.
+  await page.goto("/api/v1/health");
+  await page.evaluate((pair) => window.localStorage.setItem("tourneo.tokens", JSON.stringify(pair)), {
+    access_token: tokens?.access_token,
+    refresh_token: tokens?.refresh_token,
+  });
+  await page.goto(target);
+  await expect(page.getByTestId("user-menu")).toBeVisible();
 }
 
 const bearer = (token: string) => ({ Authorization: `Bearer ${token}` });
@@ -60,7 +94,10 @@ export async function ensureAccounts(request: APIRequestContext): Promise<string
     { ...MANAGER, role: "manager", full_name: "Mme Direction" },
   ];
   for (const account of accounts) {
-    if (!(await login(request, account))) await post(request, admin as string, "/users", account);
+    if (!(await login(request, account))) {
+      await post(request, admin as string, "/users", account);
+      sessions.delete(account.email);
+    }
   }
   return admin as string;
 }

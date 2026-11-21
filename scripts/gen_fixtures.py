@@ -118,8 +118,13 @@ def _truck(
     return TruckD(truck_id, plate, size, compartments, carrier_id=carrier)
 
 
-def _driver(rng: random.Random, index: int, carrier: str, **kwargs) -> DriverD:
-    name = f"{rng.choice(FIRST_NAMES)} {rng.choice(LAST_NAMES)}"
+def _driver(rng: random.Random, used_names: set[str], index: int, carrier: str, **kwargs) -> DriverD:
+    # Noms uniques dans un jeu : une journée de référence peut désigner un chauffeur par son nom.
+    while True:
+        name = f"{rng.choice(FIRST_NAMES)} {rng.choice(LAST_NAMES)}"
+        if name not in used_names:
+            break
+    used_names.add(name)
     return DriverD(
         f"CH{index:02d}",
         name,
@@ -230,12 +235,13 @@ def build_demo_douala() -> PlanningProblem:
         ),
     ]
     del all_products
+    names: set[str] = set()
     drivers = [
-        _driver(rng, 1, "TR-OLA", default_truck_id="CAM01"),
-        _driver(rng, 2, "TR-OLA", default_truck_id="CAM02"),
-        _driver(rng, 3, "TR-OLA", default_truck_id="CAM03"),
-        _driver(rng, 4, "TR-SOTRACAM", default_truck_id="CAM04"),
-        _driver(rng, 5, "TR-OLA"),  # chauffeur de réserve
+        _driver(rng, names, 1, "TR-OLA", default_truck_id="CAM01"),
+        _driver(rng, names, 2, "TR-OLA", default_truck_id="CAM02"),
+        _driver(rng, names, 3, "TR-OLA", default_truck_id="CAM03"),
+        _driver(rng, names, 4, "TR-SOTRACAM", default_truck_id="CAM04"),
+        _driver(rng, names, 5, "TR-OLA"),  # chauffeur de réserve
     ]
     orders = [
         OrderD(
@@ -289,34 +295,35 @@ YAOUNDE_DEPOT = DepotD(
     name="SCDP Yaoundé (Nsam)",
 )
 
-# (ville, lat, lon, nombre de stations, dispersion en degrés, zone)
+# (ville, code à 3 lettres — unique —, lat, lon, nombre de stations, dispersion en degrés, zone)
 SCALE_CITIES = [
-    ("Douala", 4.0483, 9.7043, 20, 0.055, "DLA"),
-    ("Limbé", 4.0186, 9.2043, 2, 0.012, "DLA"),
-    ("Buea", 4.1560, 9.2320, 2, 0.012, "DLA"),
-    ("Tiko", 4.0750, 9.3600, 1, 0.008, "DLA"),
-    ("Kumba", 4.6363, 9.4469, 2, 0.012, "DLA"),
-    ("Mbanga", 4.5010, 9.5680, 1, 0.008, "DLA"),
-    ("Loum", 4.7180, 9.7350, 1, 0.008, "DLA"),
-    ("Nkongsamba", 4.9547, 9.9404, 2, 0.012, "DLA"),
-    ("Edéa", 3.8000, 10.1330, 2, 0.012, "DLA"),
-    ("Kribi", 2.9400, 9.9100, 2, 0.012, "DLA"),
-    ("Dizangué", 3.7650, 9.9800, 1, 0.008, "DLA"),
-    ("Yaoundé", 3.8667, 11.5167, 17, 0.050, "YDE"),
-    ("Mbalmayo", 3.5170, 11.5000, 2, 0.012, "YDE"),
-    ("Obala", 4.1667, 11.5333, 2, 0.010, "YDE"),
-    ("Soa", 3.9800, 11.5950, 1, 0.008, "YDE"),
-    ("Mfou", 3.7200, 11.6400, 1, 0.008, "YDE"),
-    ("Bafia", 4.7500, 11.2300, 2, 0.012, "YDE"),
-    ("Akonolinga", 3.7700, 12.2500, 1, 0.008, "YDE"),
-    ("Eséka", 3.6500, 10.7700, 1, 0.008, "YDE"),
-    ("Ebolowa", 2.9000, 11.1500, 2, 0.012, "YDE"),
-    ("Sangmélima", 2.9300, 11.9800, 2, 0.012, "YDE"),
-    ("Monatélé", 4.2700, 11.2000, 1, 0.008, "YDE"),
-    ("Ntui", 4.4500, 11.6300, 1, 0.008, "YDE"),
-    ("Nanga-Eboko", 4.6800, 12.3700, 1, 0.008, "YDE"),
+    ("Douala", "DLA", 4.0483, 9.7043, 20, 0.055, "DLA"),
+    ("Limbé", "LIM", 4.0186, 9.2043, 2, 0.012, "DLA"),
+    ("Buea", "BUE", 4.1560, 9.2320, 2, 0.012, "DLA"),
+    ("Tiko", "TIK", 4.0750, 9.3600, 1, 0.008, "DLA"),
+    ("Kumba", "KUM", 4.6363, 9.4469, 2, 0.012, "DLA"),
+    ("Mbanga", "MBG", 4.5010, 9.5680, 1, 0.008, "DLA"),
+    ("Loum", "LOU", 4.7180, 9.7350, 1, 0.008, "DLA"),
+    ("Nkongsamba", "NKO", 4.9547, 9.9404, 2, 0.012, "DLA"),
+    ("Edéa", "EDE", 3.8000, 10.1330, 2, 0.012, "DLA"),
+    ("Kribi", "KRI", 2.9400, 9.9100, 2, 0.012, "DLA"),
+    ("Dizangué", "DIZ", 3.7650, 9.9800, 1, 0.008, "DLA"),
+    ("Yaoundé", "YDE", 3.8667, 11.5167, 17, 0.050, "YDE"),
+    ("Mbalmayo", "MBL", 3.5170, 11.5000, 2, 0.012, "YDE"),
+    ("Obala", "OBA", 4.1667, 11.5333, 2, 0.010, "YDE"),
+    ("Soa", "SOA", 3.9800, 11.5950, 1, 0.008, "YDE"),
+    ("Mfou", "MFO", 3.7200, 11.6400, 1, 0.008, "YDE"),
+    ("Bafia", "BAF", 4.7500, 11.2300, 2, 0.012, "YDE"),
+    ("Akonolinga", "AKO", 3.7700, 12.2500, 1, 0.008, "YDE"),
+    ("Eséka", "ESE", 3.6500, 10.7700, 1, 0.008, "YDE"),
+    ("Ebolowa", "EBO", 2.9000, 11.1500, 2, 0.012, "YDE"),
+    ("Sangmélima", "SAN", 2.9300, 11.9800, 2, 0.012, "YDE"),
+    ("Monatélé", "MON", 4.2700, 11.2000, 1, 0.008, "YDE"),
+    ("Ntui", "NTU", 4.4500, 11.6300, 1, 0.008, "YDE"),
+    ("Nanga-Eboko", "NAN", 4.6800, 12.3700, 1, 0.008, "YDE"),
 ]
-assert sum(city[3] for city in SCALE_CITIES) == 70
+assert sum(city[4] for city in SCALE_CITIES) == 70
+assert len({city[1] for city in SCALE_CITIES}) == len(SCALE_CITIES), "codes de ville en double"
 
 SCALE_FLEET = [(TruckSize.SMALL, 6), (TruckSize.MEDIUM, 12), (TruckSize.LARGE, 7)]
 SCALE_CARRIERS = ["TR-OLA", "TR-SOTRACAM", "TR-TRANSLOG"]
@@ -335,9 +342,9 @@ def build_demo_scale() -> PlanningProblem:
 
     stations: list[StationD] = []
     travel_s: dict[str, int] = {}  # trajet depuis le dépôt de la zone (repli haversine)
-    for city, lat, lon, count, spread, zone in SCALE_CITIES:
+    for city, prefix, lat, lon, count, spread, zone in SCALE_CITIES:
         for k in range(1, count + 1):
-            code = f"{city[:3].upper().replace('É', 'E')}{k:02d}"
+            code = f"{prefix}{k:02d}"
             s_lat = round(lat + rng.uniform(-spread, spread), 5)
             s_lon = round(lon + rng.uniform(-spread, spread), 5)
             in_big_city = count >= 10
@@ -380,10 +387,11 @@ def build_demo_scale() -> PlanningProblem:
             trucks.append(_truck(f"CAM{index:02d}", plate, size, layout, carrier))
 
     drivers: list[DriverD] = []
+    names: set[str] = set()
     for truck in trucks:  # un chauffeur habituel par camion
-        drivers.append(_driver(rng, len(drivers) + 1, truck.carrier_id, default_truck_id=truck.id))
+        drivers.append(_driver(rng, names, len(drivers) + 1, truck.carrier_id, default_truck_id=truck.id))
     for carrier in SCALE_CARRIERS:  # un chauffeur de réserve par transporteur
-        drivers.append(_driver(rng, len(drivers) + 1, carrier))
+        drivers.append(_driver(rng, names, len(drivers) + 1, carrier))
     # Deux indisponibilités réalistes : un permis expiré (RM-03) et un congé ; les réserves compensent.
     drivers[3] = replace(drivers[3], license_expiry=date(2026, 12, 31))
     drivers[10] = replace(drivers[10], status="leave")
@@ -398,9 +406,9 @@ def build_demo_scale() -> PlanningProblem:
         for zone, depot in depot_of_zone.items()
     }
     zone_of = {}
-    for city, _, _, count, _, zone in SCALE_CITIES:
+    for _, prefix, _, _, count, _, zone in SCALE_CITIES:
         for k in range(1, count + 1):
-            zone_of[f"{city[:3].upper().replace('É', 'E')}{k:02d}"] = zone
+            zone_of[f"{prefix}{k:02d}"] = zone
 
     orders: list[OrderD] = []
     # Chaque station commande au moins une fois, au plus trois (une commande par produit).
@@ -453,6 +461,25 @@ def build_demo_scale() -> PlanningProblem:
     )
 
 
+def check_unique(name: str, problem: PlanningProblem) -> None:
+    """Fait échouer la génération si un identifiant, un code, une immatriculation ou un nom est en double."""
+    series = {
+        "identifiants de dépôt": [d.id for d in problem.depots],
+        "identifiants de station": [s.id for s in problem.stations],
+        "codes de station": [s.code for s in problem.stations],
+        "identifiants de camion": [t.id for t in problem.trucks],
+        "immatriculations": [t.plate for t in problem.trucks],
+        "identifiants de compartiment": [c.id for t in problem.trucks for c in t.compartments],
+        "identifiants de chauffeur": [d.id for d in problem.drivers],
+        "noms de chauffeur": [d.full_name for d in problem.drivers],
+        "identifiants de commande": [o.id for o in problem.orders],
+    }
+    for label, values in series.items():
+        duplicates = sorted({v for v in values if values.count(v) > 1})
+        if duplicates:
+            raise ValueError(f"{name} : {label} en double : {', '.join(duplicates)}")
+
+
 BUILDERS = {
     "demo_douala": build_demo_douala,
     "demo_shortage": build_demo_shortage,
@@ -470,6 +497,7 @@ def main() -> int:
     status = 0
     for name, builder in BUILDERS.items():
         problem = builder()
+        check_unique(name, problem)
         target = args.out / name / "problem.json"
         if args.check:
             import json

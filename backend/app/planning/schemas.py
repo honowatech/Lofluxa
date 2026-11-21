@@ -10,7 +10,7 @@ import uuid
 from datetime import UTC, date, datetime
 from typing import Annotated, Any, Literal
 
-from pydantic import AfterValidator, BaseModel, Field
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 
 from app.core.enums import (
     OrderPriority,
@@ -114,11 +114,26 @@ class StopOut(BaseModel):
 
 
 class LoadOut(BaseModel):
+    """Un compartiment chargé (plan de chargement de la tournée)."""
+
     id: uuid.UUID
     compartment_id: uuid.UUID
     compartment_position: int | None = None
     capacity_l: float | None = None
     product_id: uuid.UUID
+    product_code: str | None = None
+    product_label: str | None = None
+    product_color: str | None = None
+    planned_l: float
+
+
+class TripCompartmentOut(BaseModel):
+    """Un compartiment du camion de la tournée, chargé ou vide (`planned_l = 0`, `product_id = null`)."""
+
+    compartment_id: uuid.UUID
+    compartment_position: int
+    capacity_l: float
+    product_id: uuid.UUID | None = None
     product_code: str | None = None
     product_label: str | None = None
     product_color: str | None = None
@@ -156,6 +171,10 @@ class TripOut(BaseModel):
     warning_count: int = 0
     stops: list[StopOut]
     loads: list[LoadOut]
+    compartments: list[TripCompartmentOut] = Field(
+        default_factory=list,
+        description="Tous les compartiments du camion, vides compris, dans l'ordre des positions.",
+    )
 
 
 class UnservedOut(BaseModel):
@@ -190,6 +209,31 @@ class ViolationOut(BaseModel):
     stop_seq: int | None = None
 
 
+class PlanAggregatesOut(BaseModel):
+    """Métriques agrégées d'un plan, recalculées à chaque modification. Mêmes clés dans la liste
+    (`GET /plans`) et dans le plan complet. D'autres clés peuvent s'y ajouter (métriques du moteur
+    au calcul, `comparison` pour une journée de référence)."""
+
+    model_config = ConfigDict(extra="allow")
+
+    total_distance_m: int = 0
+    total_duration_s: int = 0
+    trips_count: int = 0
+    trucks_count: int = 0
+    drivers_count: int = 0
+    stops_count: int = 0
+    stations_served: int = 0
+    orders_total: int = 0
+    orders_served: int = 0
+    orders_partial: int = 0
+    orders_unserved: int = 0
+    requested_l: float = 0
+    planned_l: float = 0
+    avg_fill_rate: float | None = None
+    blocking_count: int = 0
+    warning_count: int = 0
+
+
 class PlanSummaryOut(BaseModel):
     id: uuid.UUID
     day: date
@@ -204,7 +248,7 @@ class PlanSummaryOut(BaseModel):
     computed_at: UtcDatetime | None = None
     computed_in_ms: int | None = None
     prep_time_s: int | None = None
-    metrics: dict[str, Any] | None = None
+    metrics: PlanAggregatesOut | None = None
     blocking_count: int = 0
     warning_count: int = 0
     publishable: bool = Field(description="Brouillon calculé sans violation bloquante.")
@@ -214,7 +258,17 @@ class PlanSummaryOut(BaseModel):
     created_by_name: str | None = None
 
 
+class LastEditOut(BaseModel):
+    """Ce que la modification qui vient d'être faite a changé (résumé journalisé dans `events`)."""
+
+    action: str
+    summary: str
+
+
 class PlanOut(PlanSummaryOut):
+    last_edit: LastEditOut | None = Field(
+        default=None, description="Présent seulement dans la réponse d'une modification manuelle."
+    )
     params_snapshot: dict[str, Any] | None = None
     solver_log: dict[str, Any] | None = None
     trips: list[TripOut]

@@ -1,2 +1,171 @@
 /** Textes de l'écran « loading » (vague 2). Seul le lot propriétaire de l'écran modifie ce fichier. */
-export const loadingTexts = {} as const;
+export const loadingTexts = {
+  subtitle: "Tournées du jour au dépôt : arrivée, chargement par compartiment, fiche et départ.",
+  readOnly: "Lecture seule : la saisie du chargement est réservée aux rôles Fleet et Dispatcher.",
+
+  filters: {
+    depot: "Dépôt",
+    allDepots: "Tous les dépôts",
+    status: "Statut de la tournée",
+    allStatuses: "Tous",
+    loading: "État de chargement",
+    loadingAll: "Tous",
+    loadingTodo: "À charger",
+    loadingDone: "Chargement saisi",
+    loadingWarning: "Écart RM-13",
+  },
+
+  list: {
+    title: "Tournées du jour",
+    count: (shown: number, total: number) =>
+      shown === total
+        ? `${total} tournée${total > 1 ? "s" : ""}`
+        : `${shown} sur ${total} tournée${total > 1 ? "s" : ""}`,
+    trip: (seq: number) => `Tournée ${seq}`,
+    noDriver: "Chauffeur non affecté",
+    start: "Arrivée prévue",
+    depart: "Départ prévu",
+    stops: (n: number) => `${n} arrêt${n > 1 ? "s" : ""}`,
+    notLoaded: "À charger",
+    loaded: "Chargement saisi",
+    gapWarning: "Écart RM-13",
+    at15: "à 15 °C",
+    emptyTitle: "Aucune tournée publiée ce jour",
+    emptyHint: "Les tournées apparaissent ici dès que le plan du jour est publié par le dispatcher.",
+    emptyFiltered: "Aucune tournée ne correspond aux filtres.",
+    selectHint: "Sélectionnez une tournée pour saisir son chargement.",
+  },
+
+  trip: {
+    depot: "Dépôt",
+    driver: "Chauffeur",
+    plannedStart: "Arrivée dépôt prévue",
+    plannedDepart: "Départ prévu",
+    actualDepart: "Départ réel",
+    plannedVolume: "Volume planifié",
+    stops: "Arrêts",
+    routeSheet: "Feuille de route",
+    loadingSheet: "Fiche de chargement",
+    loadingSheetHint: "La fiche de chargement existe une fois le chargement enregistré.",
+    email: "Envoyer la fiche",
+    followUp: "Suivi des livraisons",
+  },
+
+  steps: {
+    label: "Avancement de la tournée",
+    toAtDepot: "Camion arrivé au dépôt",
+    toLoaded: "Chargement terminé",
+    toInProgress: "Départ du dépôt",
+    departTime: "Heure de départ réelle",
+    departTimeHint: "Vide : heure de l'enregistrement.",
+    loadedNeedsLoading: "Enregistrez le chargement avant de passer la tournée à « Chargée ».",
+    unsavedChanges: "Des saisies ne sont pas enregistrées : enregistrez le chargement d'abord.",
+    inProgressHint: "Camion parti : les livraisons se saisissent dans le suivi des livraisons.",
+    completedHint: "Tournée terminée.",
+    done: (label: string) => `Tournée passée à « ${label} »`,
+    failed: "Changement de statut refusé",
+  },
+
+  form: {
+    title: "Chargement réel",
+    arrivedAt: "Arrivée au dépôt",
+    startedAt: "Début du chargement",
+    finishedAt: "Fin du chargement",
+    now: "Maintenant",
+    nowFor: (label: string) => `Maintenant : ${label}`,
+    ticket: "N° de bon dépôt",
+    ticketPlaceholder: "BL-000000",
+    compartments: "Compartiments",
+    position: "Comp.",
+    product: "Produit",
+    capacity: "Capacité",
+    planned: "Planifié",
+    observed: "Volume observé",
+    temperature: "Température",
+    density: "Densité",
+    at15: "À 15 °C (L)",
+    gap: "Écart (L)",
+    gapPct: "Écart %",
+    total: "Total",
+    litersUnit: "L",
+    tempUnit: "°C",
+    densityUnit: "kg/L",
+    observedFor: (position: number) => `Volume observé, compartiment ${position}`,
+    temperatureFor: (position: number) => `Température, compartiment ${position}`,
+    densityFor: (position: number) => `Densité, compartiment ${position}`,
+    copyPlanned: "Reprendre les volumes planifiés",
+    notLoadedLine: "non chargé",
+    save: "Enregistrer le chargement",
+    update: "Mettre à jour le chargement",
+    saveShortcut: "Entrée : champ suivant · Ctrl + Entrée : enregistrer",
+    saved: "Chargement enregistré",
+    savedWithWarning: "Chargement enregistré avec un avertissement RM-13",
+    saveFailed: "Chargement refusé",
+    enteredBy: (name: string) => `Saisi par ${name}`,
+    locked: (status: string) =>
+      `Chargement figé : la tournée est « ${status} ». Il ne peut plus être modifié.`,
+    lockedNoLoading: "Aucun chargement n'a été enregistré pour cette tournée.",
+    noPlannedLoads: "Aucun compartiment n'est prévu au plan de chargement de cette tournée.",
+    liveHint: "Calcul indicatif en direct ; la valeur enregistrée est celle renvoyée par le serveur.",
+    astmNote:
+      "Volume corrigé à 15 °C par le coefficient de dilatation du produit (RM-12). Densité stockée, non utilisée dans le calcul ; tables ASTM non appliquées dans le prototype.",
+    coefficient: (code: string, value: string) => `${code} : ${value} /°C`,
+    toleranceUnknown:
+      "Tolérance RM-13 indisponible : l'écart sera contrôlé par le serveur à l'enregistrement.",
+  },
+
+  rm13: {
+    title: (tolerance: string) =>
+      `RM-13 — écart entre volume chargé à 15 °C et volume planifié au-delà de la tolérance (${tolerance})`,
+    compartment: (position: number | string, gap: string, pct: string) =>
+      `compartiment ${position} : ${gap} (${pct})`,
+    total: (gap: string, pct: string) => `total de la tournée : ${gap} (${pct})`,
+    liveSuffix: "L'avertissement sera porté sur la tournée et sur la fiche de chargement.",
+    within: (tolerance: string) => `Écarts dans la tolérance (${tolerance}).`,
+  },
+
+  validation: {
+    noLine: "Saisissez au moins un compartiment (volume observé et température).",
+    observed: "Volume observé invalide (nombre supérieur à 0).",
+    temperature: "Température obligatoire (entre −50 et 100 °C).",
+    density: "Densité invalide (entre 0 et 10 kg/L).",
+    time: "Heure invalide (HH:mm).",
+    order: "Heures incohérentes : arrivée ≤ début ≤ fin du chargement.",
+    ticket: "64 caractères au plus.",
+  },
+
+  /** Explication des refus de l'API, par code d'erreur. */
+  errors: {
+    loading_missing:
+      "Le chargement doit être enregistré avant cette étape (statut « Chargée », fiche de chargement).",
+    invalid_transition:
+      "Cette étape n'est plus possible : la tournée a déjà changé de statut (un seul pas en avant à la fois). La liste a été rechargée.",
+    loading_locked: "Le chargement n'est plus modifiable : le camion a quitté le dépôt.",
+    plan_not_published: "Le plan de cette tournée n'est plus publié (nouvelle version en cours ou archivée).",
+    invalid_loading: "Le chargement ne correspond pas au plan de chargement de la tournée.",
+    invalid_times: "Heures incohérentes.",
+    stops_pending: "Des arrêts ne sont ni livrés ni sautés.",
+    forbidden: "Votre rôle ne permet pas cette action.",
+    no_recipient: "Aucun destinataire : aucune station de la tournée n'a d'adresse e-mail de contact.",
+    smtp_error: "Le serveur de messagerie est injoignable ou a refusé l'envoi. Réessayez plus tard.",
+  } as Record<string, string>,
+
+  email: {
+    title: "Envoyer la fiche de chargement",
+    description: (plate: string) =>
+      `La fiche PDF du camion ${plate} est envoyée en pièce jointe, en un seul message, aux gérants des stations de la tournée.`,
+    recipients: "Destinataires proposés",
+    noEmail: "pas d'adresse e-mail",
+    withoutEmail: (codes: string) => `Stations sans adresse e-mail (non destinataires) : ${codes}.`,
+    extra: "Autres destinataires",
+    extraPlaceholder: "adresse@exemple.cm, autre@exemple.cm",
+    extraHint: "Adresses séparées par une virgule ou un espace.",
+    invalid: (address: string) => `Adresse invalide : ${address}`,
+    none: "Choisissez au moins un destinataire.",
+    send: "Envoyer",
+    sending: "Envoi…",
+    sent: (n: number) => `Fiche envoyée à ${n} destinataire${n > 1 ? "s" : ""}`,
+    sentTo: "Envoyée à",
+    failed: "Envoi de la fiche impossible",
+  },
+} as const;

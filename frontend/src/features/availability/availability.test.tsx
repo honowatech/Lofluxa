@@ -370,7 +370,9 @@ describe("Disponibilité — chauffeurs", () => {
     expect(table.querySelector("[data-editable]")).toBeNull();
     expect(rowOf(table, "Samuel Etoga")).toHaveTextContent("RM-03");
     await user.click(screen.getByRole("tab", { name: "Stocks dépôt" }));
-    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+    // Limité au contenu de l'onglet : le sélecteur de jour de la coquille est lui-même un champ de saisie.
+    const panel = screen.getByRole("tabpanel", { name: "Stocks dépôt" });
+    expect(within(panel).queryByRole("textbox")).not.toBeInTheDocument();
   });
 });
 

@@ -21,7 +21,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import new_id
-from app.core.enums import EventType, OrderStatus, PlanKind, PlanStatus, Severity, TripStatus
+from app.core.enums import EventType, OrderStatus, PlanKind, PlanStatus, Severity, StopStatus, TripStatus
 from app.core.errors import ConflictError, RuleViolationError, ValidationAppError
 from app.core.settings_store import load_params
 from app.core.time import utcnow
@@ -31,7 +31,7 @@ from app.planning import checking, editing, engine, mapping, versions
 from app.planning.checking import load_plan, log_event
 from app.planning.domain import Params, PlanningProblem, PlanningResult, TripD, ViolationD
 from app.planning.engine import ProgressCallback
-from app.planning.models import Plan, Trip, UnservedOrder
+from app.planning.models import Plan, Stop, StopDelivery, Trip, UnservedOrder
 
 _PARAM_NAMES = {f.name for f in fields(Params)}
 _EPSILON_L = 0.01
@@ -84,7 +84,9 @@ async def build_problem(
     rows = await session.execute(select(Order).where(Order.day == day, Order.status == OrderStatus.CONFIRMED))
     orders = list(rows.scalars())
     requested, orders = await _remainders(session, orders)
-    return await mapping.assemble_problem(session, day, params, orders, requested=requested, **extra)
+    return await mapping.assemble_problem(
+        session, day, params, orders, requested=requested, net_of_published=True, **extra
+    )
 
 
 async def _remainders(
@@ -273,7 +275,14 @@ async def run_recompute(
         extra = set(rows.scalars())
     problem = await checking.plan_problem(session, plan, params_override=override, extra_order_ids=extra)
     if plan.kind == PlanKind.COMPUTED:
-        frozen_orders = {str(d.order_id) for t in frozen for s in t.stops for d in s.deliveries}
+        # Les commandes d'un arrêt sauté ne sont pas servies par la tournée figée : elles restent à planifier.
+        frozen_orders = {
+            str(d.order_id)
+            for t in frozen
+            for s in t.stops
+            if s.status != StopStatus.SKIPPED
+            for d in s.deliveries
+        }
         statuses = dict(
             (
                 await session.execute(select(Order.id, Order.status).where(Order.id.in_(plan_orders | extra)))
@@ -284,7 +293,9 @@ async def run_recompute(
             o for o in problem.orders if o.id in frozen_orders or statuses.get(uuid.UUID(o.id)) in keep
         ]
     tz_name = problem.params.timezone
-    problem.locked_trips = [mapping.trip_to_domain(t, plan.day, tz_name) for t in frozen]
+    problem.locked_trips = mapping.without_skipped(
+        [mapping.trip_to_domain(t, plan.day, tz_name) for t in frozen]
+    )
 
     notify(8, "Calcul des distances")
     matrix = await mapping.build_plan_matrix(session, problem)
@@ -413,6 +424,40 @@ async def recheck_plan(session: AsyncSession, plan_id: uuid.UUID) -> list[Violat
     return await checking.recheck(session, plan)
 
 
+async def recheck_drafts_for_orders(session: AsyncSession, order_ids: Iterable[uuid.UUID]) -> list[uuid.UUID]:
+    """À appeler quand le statut d'une commande change hors du service de plans (report,
+    annulation) : recontrôle les plans **brouillons** qui portent ces commandes (servies ou non
+    servies), pour que l'état lu — violations, `blocking_count`, `publishable` — reste cohérent
+    (RM-15 : une urgente non servie ne bloque plus une fois reportée).
+
+    Les plans publiés ou archivés et les journées de référence ne sont pas touchés. Renvoie les
+    identifiants des plans recontrôlés."""
+    ids = list(order_ids)
+    if not ids:
+        return []
+    await session.flush()
+    unserved = select(UnservedOrder.plan_id).where(UnservedOrder.order_id.in_(ids))
+    delivered = (
+        select(Trip.plan_id)
+        .join(Stop, Stop.trip_id == Trip.id)
+        .join(StopDelivery, StopDelivery.stop_id == Stop.id)
+        .where(StopDelivery.order_id.in_(ids))
+    )
+    rows = await session.execute(
+        select(Plan.id)
+        .where(
+            Plan.status == PlanStatus.DRAFT,
+            Plan.kind != PlanKind.MANUAL_REFERENCE,
+            Plan.id.in_(unserved.union(delivered)),
+        )
+        .order_by(Plan.id)
+    )
+    plan_ids = list(rows.scalars())
+    for plan_id in plan_ids:
+        await checking.recheck(session, await load_plan(session, plan_id, for_update=True))
+    return plan_ids
+
+
 # --------------------------------------------------------------------------- publication (F5.4)
 
 
@@ -433,6 +478,9 @@ async def publish_plan(session: AsyncSession, plan_id: uuid.UUID) -> Plan:
             code="plan_kind_not_publishable",
         )
 
+    # L'exécution a pu avancer sur la version en vigueur depuis la copie : on la reprend d'abord.
+    await versions.sync_execution_from_published(session, plan)
+    plan = await load_plan(session, plan.id)
     await checking.recheck(session, plan)
     plan = await load_plan(session, plan.id)
     blocking = [v for v in plan.violations if v.severity == Severity.BLOCKING]

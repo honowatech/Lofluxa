@@ -201,7 +201,8 @@ export interface paths {
     /**
      * Put Depot Stocks
      * @description Saisie Supply. Chaque valeur modifiée ajoute une ligne horodatée et signée ; les saisies
-     *     précédentes sont conservées. Renvoie la valeur courante des couples saisis.
+     *     précédentes sont conservées. `available_l: null` efface la saisie : le stock redevient
+     *     « non renseigné » (l'historique garde la trace). Renvoie la valeur courante des couples saisis.
      */
     put: operations["put_depot_stocks_api_v1_availability_depot_stocks_put"];
     post?: never;
@@ -2142,6 +2143,7 @@ export interface components {
     /**
      * DepotStockEntryOut
      * @description Une saisie de l'historique. `is_current` : c'est elle qui fait foi.
+     *     `available_l` nul = effacement de la saisie précédente.
      */
     DepotStockEntryOut: {
       /**
@@ -2173,7 +2175,7 @@ export interface components {
       /** Product Label */
       product_label: string;
       /** Available L */
-      available_l: number;
+      available_l: number | null;
       /** Entered At */
       entered_at: string;
       /** Entered By */
@@ -2197,13 +2199,14 @@ export interface components {
       product_id: string;
       /**
        * Available L
-       * @description Stock disponible, en litres
+       * @description Stock disponible, en litres ; `null` efface la saisie (retour à « non renseigné »)
        */
-      available_l: number;
+      available_l: number | null;
     };
     /**
      * DepotStockOut
-     * @description Valeur courante pour (dépôt, produit, jour). `available_l` nul = stock non renseigné.
+     * @description Valeur courante pour (dépôt, produit, jour). `available_l` nul = stock non renseigné
+     *     (jamais saisi, ou saisie effacée : `id`, `entered_at`, `entered_by` décrivent alors l'effacement).
      */
     DepotStockOut: {
       /** Id */
@@ -2833,7 +2836,20 @@ export interface components {
        */
       warnings: number;
     };
-    /** LoadOut */
+    /**
+     * LastEditOut
+     * @description Ce que la modification qui vient d'être faite a changé (résumé journalisé dans `events`).
+     */
+    LastEditOut: {
+      /** Action */
+      action: string;
+      /** Summary */
+      summary: string;
+    };
+    /**
+     * LoadOut
+     * @description Un compartiment chargé (plan de chargement de la tournée).
+     */
     LoadOut: {
       /**
        * Id
@@ -3527,6 +3543,93 @@ export interface components {
       password: string;
     };
     /**
+     * PlanAggregatesOut
+     * @description Métriques agrégées d'un plan, recalculées à chaque modification. Mêmes clés dans la liste
+     *     (`GET /plans`) et dans le plan complet. D'autres clés peuvent s'y ajouter (métriques du moteur
+     *     au calcul, `comparison` pour une journée de référence).
+     */
+    PlanAggregatesOut: {
+      /**
+       * Total Distance M
+       * @default 0
+       */
+      total_distance_m: number;
+      /**
+       * Total Duration S
+       * @default 0
+       */
+      total_duration_s: number;
+      /**
+       * Trips Count
+       * @default 0
+       */
+      trips_count: number;
+      /**
+       * Trucks Count
+       * @default 0
+       */
+      trucks_count: number;
+      /**
+       * Drivers Count
+       * @default 0
+       */
+      drivers_count: number;
+      /**
+       * Stops Count
+       * @default 0
+       */
+      stops_count: number;
+      /**
+       * Stations Served
+       * @default 0
+       */
+      stations_served: number;
+      /**
+       * Orders Total
+       * @default 0
+       */
+      orders_total: number;
+      /**
+       * Orders Served
+       * @default 0
+       */
+      orders_served: number;
+      /**
+       * Orders Partial
+       * @default 0
+       */
+      orders_partial: number;
+      /**
+       * Orders Unserved
+       * @default 0
+       */
+      orders_unserved: number;
+      /**
+       * Requested L
+       * @default 0
+       */
+      requested_l: number;
+      /**
+       * Planned L
+       * @default 0
+       */
+      planned_l: number;
+      /** Avg Fill Rate */
+      avg_fill_rate?: number | null;
+      /**
+       * Blocking Count
+       * @default 0
+       */
+      blocking_count: number;
+      /**
+       * Warning Count
+       * @default 0
+       */
+      warning_count: number;
+    } & {
+      [key: string]: unknown;
+    };
+    /**
      * PlanKind
      * @enum {string}
      */
@@ -3613,10 +3716,7 @@ export interface components {
       computed_in_ms?: number | null;
       /** Prep Time S */
       prep_time_s?: number | null;
-      /** Metrics */
-      metrics?: {
-        [key: string]: unknown;
-      } | null;
+      metrics?: components["schemas"]["PlanAggregatesOut"] | null;
       /**
        * Blocking Count
        * @default 0
@@ -3646,6 +3746,8 @@ export interface components {
       created_by?: string | null;
       /** Created By Name */
       created_by_name?: string | null;
+      /** @description Présent seulement dans la réponse d'une modification manuelle. */
+      last_edit?: components["schemas"]["LastEditOut"] | null;
       /** Params Snapshot */
       params_snapshot?: {
         [key: string]: unknown;
@@ -3755,6 +3857,11 @@ export interface components {
        * @description Jour J (défaut : aujourd'hui, heure locale).
        */
       day?: string | null;
+      /**
+       * Occurred At
+       * @description Heure du constat (défaut : maintenant).
+       */
+      occurred_at?: string | null;
       /** Comment */
       comment?: string | null;
     };
@@ -3852,6 +3959,11 @@ export interface components {
       resolutions: components["schemas"]["ShortageResolutionIn"][];
       /** Publish */
       publish?: boolean | null;
+      /**
+       * Occurred At
+       * @description Heure de la décision (défaut : maintenant).
+       */
+      occurred_at?: string | null;
     };
     /** ResolveOut */
     ResolveOut: {
@@ -4470,6 +4582,31 @@ export interface components {
       blocked_reason?: string | null;
     };
     /**
+     * TripCompartmentOut
+     * @description Un compartiment du camion de la tournée, chargé ou vide (`planned_l = 0`, `product_id = null`).
+     */
+    TripCompartmentOut: {
+      /**
+       * Compartment Id
+       * Format: uuid
+       */
+      compartment_id: string;
+      /** Compartment Position */
+      compartment_position: number;
+      /** Capacity L */
+      capacity_l: number;
+      /** Product Id */
+      product_id?: string | null;
+      /** Product Code */
+      product_code?: string | null;
+      /** Product Label */
+      product_label?: string | null;
+      /** Product Color */
+      product_color?: string | null;
+      /** Planned L */
+      planned_l: number;
+    };
+    /**
      * TripLoadingOut
      * @description Une tournée vue du dépôt : libellés, heures, état de chargement, avancement des arrêts.
      */
@@ -4611,6 +4748,11 @@ export interface components {
       stops: components["schemas"]["app__planning__schemas__StopOut"][];
       /** Loads */
       loads: components["schemas"]["LoadOut"][];
+      /**
+       * Compartments
+       * @description Tous les compartiments du camion, vides compris, dans l'ordre des positions.
+       */
+      compartments?: components["schemas"]["TripCompartmentOut"][];
     };
     /** TripRouteOut */
     TripRouteOut: {
@@ -5205,10 +5347,7 @@ export interface components {
       computed_in_ms?: number | null;
       /** Prep Time S */
       prep_time_s?: number | null;
-      /** Metrics */
-      metrics?: {
-        [key: string]: unknown;
-      } | null;
+      metrics?: components["schemas"]["PlanAggregatesOut"] | null;
       /**
        * Blocking Count
        * @default 0

@@ -83,12 +83,17 @@ async def import_reference_day(
     if outcome.status == ImportStatus.REJECTED:
         # Réponse construite à la main (pas d'exception) : le lot `rejected` et son rapport sont conservés.
         payload = body.model_dump(mode="json")
+        # `details` : erreurs puis avertissements, chacun avec sa gravité (les clients qui ne gardent
+        # que l'enveloppe d'erreur voient ainsi tout le rapport).
+        details = [{**issue, "severity": "error"} for issue in payload["errors"]] + [
+            {**issue, "severity": "warning"} for issue in payload["warnings"]
+        ]
         return JSONResponse(
             {
                 **envelope(
                     "import_rejected",
                     f"Fichier rejeté : {outcome.batch.error_count} erreur(s). Aucune donnée n'a été créée.",
-                    payload["errors"],
+                    details,
                 ),
                 **payload,
             },
