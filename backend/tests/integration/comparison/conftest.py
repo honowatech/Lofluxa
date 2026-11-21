@@ -10,10 +10,7 @@ la transaction du test ; `run_compute` est appelé directement avec les argument
 import pytest
 import pytest_asyncio
 
-import app.planning.engine as engine_pkg
 from app.planning import tasks
-from app.planning.engine import compartments, distance_matrix
-from app.planning.violations import rules
 from tests.integration.planning import fakes
 
 from . import factory
@@ -28,12 +25,7 @@ def engine_doubles(monkeypatch):
         calls.append(kwargs)
         return "task-rejeu-1"
 
-    fake_engine = fakes.FakeEngine(rules=fakes.FakeRules(real_check_plan=rules.check_plan))
-    monkeypatch.setattr(distance_matrix, "coord_hash", fakes.fake_coord_hash)
-    monkeypatch.setattr(distance_matrix, "build_matrix", fakes.fake_build_matrix)
-    monkeypatch.setattr(compartments, "assign_compartments", fakes.fake_assign_compartments)
-    monkeypatch.setattr(engine_pkg, "solve", fake_engine.solve)
-    monkeypatch.setattr(engine_pkg, "ENGINE_VERSION", fakes.FAKE_ENGINE_VERSION)
+    fakes.install(monkeypatch)  # moteur simulé ; les règles restent celles du lot L1
     monkeypatch.setattr(tasks, "dispatch_compute", fake_dispatch)
     return calls
 

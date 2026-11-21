@@ -166,7 +166,7 @@ async def test_import_du_fichier_modele_cree_le_plan_de_reference(client, db, wo
 
     # Les distances calculées sont rangées dans le cache en base (lot L5) : 4 nœuds, 12 paires au plus.
     cached = (await db.execute(select(DistanceCache))).scalars().all()
-    assert 6 <= len(cached) <= 12
+    assert len(cached) == 20  # dépôt + 4 stations des commandes : 5 × 4 paires
 
 
 async def test_import_rapport_d_erreurs_ligne_par_ligne(client, db, world, auth_headers):
@@ -365,6 +365,15 @@ async def test_rejeu_lance_un_calcul_replay_par_le_vrai_service_de_plans(
     `run_compute` réel sur les mêmes commandes (moteur simulé) → comparaison A / rejeu."""
     headers = await auth_headers("dispatcher")
     imported = (await _import(client, headers)).json()
+
+    # Le plan de référence est lisible par l'API du service de plans, et en lecture seule.
+    response = await client.get(f"/plans/{imported['plan_id']}", headers=headers)
+    assert response.status_code == 200, response.text
+    read = response.json()
+    assert read["kind"] == "manual_reference" and len(read["trips"]) == 2
+    assert read["trips"][0]["truck_plate"] == "LT-123-AA" and len(read["trips"][0]["stops"]) == 2
+    response = await client.post(f"/plans/{imported['plan_id']}/publish", headers=headers)
+    assert response.status_code == 409 and response.json()["code"] == "plan_kind_not_publishable"
 
     response = await client.post(f"/plans/{imported['plan_id']}/replay", headers=headers)
     assert response.status_code == 202, response.text
