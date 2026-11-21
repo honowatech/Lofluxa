@@ -21,7 +21,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import new_id
-from app.core.enums import EventType, PlanStatus
+from app.core.enums import EventType, PlanKind, PlanStatus
 from app.core.errors import ConflictError, NotFoundError
 from app.events.models import Event
 from app.planning.checking import load_plan, log_event, recheck, root_id
@@ -194,6 +194,11 @@ async def restore_version(session: AsyncSession, plan_id: uuid.UUID, version: in
     """F5.5 : restaure la version `version` de la lignée du plan → nouvelle version brouillon,
     recontrôlée avec les données du moment (à publier pour qu'elle prenne effet)."""
     plan = await load_plan(session, plan_id, for_update=True)
+    if plan.kind == PlanKind.MANUAL_REFERENCE:
+        raise ConflictError(
+            "Ce plan est une journée de référence importée : il n'a pas de version à restaurer.",
+            code="plan_is_reference",
+        )
     versions = await lineage(session, plan)
     target = next((p for p in versions if p.version == version), None)
     if target is None:
