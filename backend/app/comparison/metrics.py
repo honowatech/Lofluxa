@@ -35,8 +35,8 @@ ses livraisons + commandes non servies (`unserved_orders`).
 - `prep_time_s` : `plans.prep_time_s` s'il est saisi (plan manuel), sinon `computed_in_ms` arrondi
   à la seconde (plan calculé) ; `prep_time_source` vaut `manual`, `computed` ou `None`.
 
-Écarts : `delta` = B − A ; `delta_pct` = (B − A) ÷ A × 100, `None` si A vaut 0 ou si l'une des
-deux valeurs est inconnue.
+Écarts : `delta` = B − A ; `delta_pct` = (B − A) ÷ A × 100 ; 0 si A et B valent 0 ; `None` si A
+vaut 0 et pas B (pourcentage indéfini) ou si l'une des deux valeurs est inconnue.
 """
 
 from __future__ import annotations
@@ -272,7 +272,8 @@ def compare(a: PlanMetrics, b: PlanMetrics) -> list[MetricDelta]:
         delta = delta_pct = better = None
         if value_a is not None and value_b is not None:
             delta = round(value_b - value_a, 2)
-            delta_pct = _pct(value_b - value_a, value_a)
+            # 0 → 0 : aucun écart (0 %) ; 0 → autre chose : pourcentage indéfini (None).
+            delta_pct = 0.0 if value_a == 0 and value_b == 0 else _pct(value_b - value_a, value_a)
             if indicator.lower_is_better is not None:
                 if delta == 0:
                     better = "equal"

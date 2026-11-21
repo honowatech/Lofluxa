@@ -25,18 +25,22 @@ from app.planning import service as plan_service
 from app.planning.models import Plan, Stop, Trip
 from app.referentials.models import Depot, Driver, Product, Station, Truck
 
-# Couleurs des tournées sur les cartes (présentation ; cyclique au-delà de dix tournées).
+# Couleurs des tournées (cartes du PDF, `TripRouteOut.color`) : exactement la palette de l'interface,
+# dans le même ordre, pour qu'une tournée ait la même couleur à l'écran et dans le rapport.
+# Source : `ROUTE_COLORS` / `routeColor` dans frontend/src/components/map/MapView.tsx (valeurs
+# recopiées, sans dépendance au dossier frontend ; à tenir à jour si la palette de l'interface
+# change). Hors rouge et orange, réservés aux violations ; cyclique au-delà de dix tournées.
 ROUTE_COLORS = (
-    "#1f77b4",
-    "#d62728",
-    "#2ca02c",
-    "#ff7f0e",
-    "#9467bd",
-    "#8c564b",
-    "#e377c2",
-    "#17becf",
-    "#bcbd22",
-    "#7f7f7f",
+    "#1d6fb8",
+    "#0f8a7a",
+    "#7a4fc4",
+    "#b0347e",
+    "#4a7a1c",
+    "#2c4a9e",
+    "#8a6a12",
+    "#0e7490",
+    "#6b4a2e",
+    "#525f6b",
 )
 
 KIND_LABELS = {

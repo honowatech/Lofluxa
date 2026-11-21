@@ -699,47 +699,24 @@ TEMPLATE_README = [
     "Ne pas renommer les feuilles ni les colonnes.",
 ]
 
+# Lignes d'exemple : elles ne citent que des dépôts, stations, camions et chauffeurs présents dans
+# les autres fichiers modèles (`depots.xlsx`, `stations.xlsx`, `trucks.xlsx`, `drivers.xlsx`), pour
+# que la journée d'exemple s'importe telle quelle sur les référentiels d'exemple (test
+# `test_modele_importable_sur_les_referentiels_modeles`). Ces modèles n'ont qu'un camion disponible :
+# il fait deux tournées et la commande de Bonabéri est livrée en deux fois. Ce camion est de gabarit
+# « grand » alors que la station Akwa n'accepte que le gabarit « moyen » : le plan d'exemple porte
+# donc une violation RM-09, comme pourrait en porter une vraie journée construite à la main.
 TEMPLATE_ORDERS = [
-    ("ST-DLA-001", "SUPER", 12000, "normal", None, None, None),
-    ("ST-DLA-001", "GASOIL", 8000, "normal", None, None, None),
-    ("ST-DLA-002", "GASOIL", 15000, "urgent", "08:00", "12:00", "Rupture annoncée"),
-    ("ST-DLA-003", "SUPER", 10000, "normal", None, None, None),
-    ("ST-DLA-004", "PETROLE", 5000, "normal", None, None, "Non livrée ce jour-là"),
+    ("ST-AKWA", "SUPER", 10000, "normal", None, None, None),
+    ("ST-BONAB", "GASOIL", 20000, "urgent", "08:00", "17:00", "Rupture annoncée"),
+    ("ST-AKWA", "GASOIL", 8000, "normal", None, None, "Non livrée ce jour-là"),
 ]
 
+_TRUCK, _DRIVER, _DEPOT = "LT 123 AB", "Jean Mbarga", "SCDP-DLA"
 TEMPLATE_TRIPS = [
-    (
-        1,
-        "LT-123-AA",
-        "Jean Mbarga",
-        "SCDP-DLA",
-        1,
-        "ST-DLA-001",
-        "SUPER",
-        12000,
-        86,
-        "07:30",
-        "13:10",
-        "08:15",
-        "09:00",
-    ),
-    (1, None, None, None, 1, "ST-DLA-001", "GASOIL", 8000, None, None, None, None, None),
-    (1, None, None, None, 2, "ST-DLA-003", "SUPER", 10000, None, None, None, "10:05", "10:50"),
-    (
-        2,
-        "LT-456-BB",
-        "Paul Etoa",
-        "SCDP-DLA",
-        1,
-        "ST-DLA-002",
-        "GASOIL",
-        15000,
-        54,
-        "07:45",
-        "11:20",
-        "08:40",
-        "09:30",
-    ),
+    (1, _TRUCK, _DRIVER, _DEPOT, 1, "ST-AKWA", "SUPER", 10000, 24, "07:30", "11:10", "08:00", "08:50"),
+    (1, None, None, None, 2, "ST-BONAB", "GASOIL", 8000, None, None, None, "09:40", "10:30"),
+    (2, _TRUCK, _DRIVER, _DEPOT, 1, "ST-BONAB", "GASOIL", 12000, 21, "13:30", "15:40", "14:10", "15:00"),
 ]
 
 
