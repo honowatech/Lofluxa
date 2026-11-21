@@ -1,0 +1,3485 @@
+{
+ "format_version": 1,
+ "day": "2027-01-12",
+ "params": {
+  "default_avg_speed_kmh": 40.0,
+  "max_service_hours": 11.0,
+  "default_depot_wait_min": 90,
+  "depot_loading_time_min": 45,
+  "default_unload_time_min": 45,
+  "default_max_loadings_per_truck_day": 2,
+  "compartment_safety_margin_pct": 2.0,
+  "loading_tolerance_pct": 2.0,
+  "window_tolerance_min": 30,
+  "partial_delivery_min_pct": 50.0,
+  "day_start_time": "06:00",
+  "timezone": "Africa/Douala",
+  "objective_distance_weight": 1.0,
+  "objective_vehicle_fixed_cost_km": 40.0,
+  "objective_unserved_penalty_normal_km": 500.0,
+  "objective_unserved_penalty_urgent_km": 5000.0,
+  "solver_time_limit_s": 30,
+  "solver_no_improvement_s": 15,
+  "solver_no_improvement_solutions": 1000,
+  "solver_seed": 42,
+  "haversine_factor": 1.3
+ },
+ "products": [
+  {
+   "id": "SUPER",
+   "code": "SUPER",
+   "label": "Super sans plomb"
+  },
+  {
+   "id": "GASOIL",
+   "code": "GASOIL",
+   "label": "Gasoil"
+  },
+  {
+   "id": "PETROLE",
+   "code": "PETROLE",
+   "label": "Pétrole lampant"
+  }
+ ],
+ "depots": [
+  {
+   "id": "DEP-DLA",
+   "code": "SCDP-DLA",
+   "name": "SCDP Douala (Bessengué)",
+   "lat": 4.0483,
+   "lon": 9.6905,
+   "windows": [
+    [
+     21600,
+     64800
+    ]
+   ],
+   "avg_wait_min": 90,
+   "max_loadings_per_truck_day": 2
+  },
+  {
+   "id": "DEP-YDE",
+   "code": "SCDP-YDE",
+   "name": "SCDP Yaoundé (Nsam)",
+   "lat": 3.848,
+   "lon": 11.5021,
+   "windows": [
+    [
+     21600,
+     64800
+    ]
+   ],
+   "avg_wait_min": 75,
+   "max_loadings_per_truck_day": 2
+  }
+ ],
+ "stations": [
+  {
+   "id": "DOU01",
+   "code": "DOU01",
+   "name": "OLA Douala 1",
+   "lat": 4.02731,
+   "lon": 9.72246,
+   "windows": [
+    [
+     21600,
+     64800
+    ]
+   ],
+   "max_truck_size": "small",
+   "unload_time_min": 45
+  },
+  {
+   "id": "DOU02",
+   "code": "DOU02",
+   "name": "OLA Douala 2",
+   "lat": 4.03033,
+   "lon": 9.71608,
+   "windows": [
+    [
+     21600,
+     72000
+    ]
+   ],
+   "max_truck_size": "small",
+   "unload_time_min": 40
+  },
+  {
+   "id": "DOU03",
+   "code": "DOU03",
+   "name": "OLA Douala 3",
+   "lat": 4.09724,
+   "lon": 9.69037,
+   "windows": [
+    [
+     25200,
+     68400
+    ]
+   ],
+   "max_truck_size": "large",
+   "unload_time_min": 45
+  },
+  {
+   "id": "DOU04",
+   "code": "DOU04",
+   "name": "OLA Douala 4",
+   "lat": 4.02122,
+   "lon": 9.6615,
+   "windows": [
+    [
+     21600,
+     68400
+    ]
+   ],
+   "max_truck_size": "medium",
+   "unload_time_min": 45
+  },
+  {
+   "id": "DOU05",
+   "code": "DOU05",
+   "name": "OLA Douala 5",
+   "lat": 4.04297,
+   "lon": 9.68983,
+   "windows": [
+    [
+     21600,
+     68400
+    ]
+   ],
+   "max_truck_size": "medium",
+   "unload_time_min": 35
+  },
+  {
+   "id": "DOU06",
+   "code": "DOU06",
+   "name": "OLA Douala 6",
+   "lat": 4.07645,
+   "lon": 9.7072,
+   "windows": [
+    [
+     21600,
+     68400
+    ]
+   ],
+   "max_truck_size": "large",
+   "unload_time_min": 40
+  },
+  {
+   "id": "DOU07",
+   "code": "DOU07",
+   "name": "OLA Douala 7",
+   "lat": 4.01469,
+   "lon": 9.70046,
+   "windows": [
+    [
+     21600,
+     72000
+    ]
+   ],
+   "max_truck_size": "medium",
+   "unload_time_min": 40
+  },
+  {
+   "id": "DOU08",
+   "code": "DOU08",
+   "name": "OLA Douala 8",
+   "lat": 4.0092,
+   "lon": 9.69352,
+   "windows": [
+    [
+     21600,
+     68400
+    ]
+   ],
+   "max_truck_size": "medium",
+   "unload_time_min": 35
+  },
+  {
+   "id": "DOU09",
+   "code": "DOU09",
+   "name": "OLA Douala 9",
+   "lat": 4.09049,
+   "lon": 9.73502,
+   "windows": [
+    [
+     25200,
+     68400
+    ]
+   ],
+   "max_truck_size": "small",
+   "unload_time_min": 40
+  },
+  {
+   "id": "DOU10",
+   "code": "DOU10",
+   "name": "OLA Douala 10",
+   "lat": 4.09751,
+   "lon": 9.67653,
+   "windows": [
+    [
+     21600,
+     68400
+    ]
+   ],
+   "max_truck_size": "small",
+   "unload_time_min": 40
+  },
+  {
+   "id": "DOU11",
+   "code": "DOU11",
+   "name": "OLA Douala 11",
+   "lat": 4.0242,
+   "lon": 9.7092,
+   "windows": [
+    [
+     25200,
+     68400
+    ]
+   ],
+   "max_truck_size": "large",
+   "unload_time_min": 45
+  },
+  {
+   "id": "DOU12",
+   "code": "DOU12",
+   "name": "OLA Douala 12",
+   "lat": 4.0597,
+   "lon": 9.69683,
+   "windows": [
+    [
+     25200,
+     68400
+    ]
+   ],
+   "max_truck_size": "medium",
+   "unload_time_min": 40
+  },
+  {
+   "id": "DOU13",
+   "code": "DOU13",
+   "name": "OLA Douala 13",
+   "lat": 4.09429,
+   "lon": 9.67675,
+   "windows": [
+    [
+     25200,
+     68400
+    ]
+   ],
+   "max_truck_size": "large",
+   "unload_time_min": 45
+  },
+  {
+   "id": "DOU14",
+   "code": "DOU14",
+   "name": "OLA Douala 14",
+   "lat": 4.07277,
+   "lon": 9.70739,
+   "windows": [
+    [
+     25200,
+     68400
+    ]
+   ],
+   "max_truck_size": "medium",
+   "unload_time_min": 45
+  },
+  {
+   "id": "DOU15",
+   "code": "DOU15",
+   "name": "OLA Douala 15",
+   "lat": 4.03369,
+   "lon": 9.66726,
+   "windows": [
+    [
+     25200,
+     68400
+    ]
+   ],
+   "max_truck_size": "small",
+   "unload_time_min": 40
+  },
+  {
+   "id": "DOU16",
+   "code": "DOU16",
+   "name": "OLA Douala 16",
+   "lat": 4.04829,
+   "lon": 9.65494,
+   "windows": [
+    [
+     21600,
+     64800
+    ]
+   ],
+   "max_truck_size": "medium",
+   "unload_time_min": 35
+  },
+  {
+   "id": "DOU17",
+   "code": "DOU17",
+   "name": "OLA Douala 17",
+   "lat": 3.99378,
+   "lon": 9.70201,
+   "windows": [
+    [
+     21600,
+     64800
+    ]
+   ],
+   "max_truck_size": "small",
+   "unload_time_min": 45
+  },
+  {
+   "id": "DOU18",
+   "code": "DOU18",
+   "name": "OLA Douala 18",
+   "lat": 4.04529,
+   "lon": 9.70372,
+   "windows": [
+    [
+     21600,
+     64800
+    ]
+   ],
+   "max_truck_size": "small",
+   "unload_time_min": 35
+  },
+  {
+   "id": "DOU19",
+   "code": "DOU19",
+   "name": "OLA Douala 19",
+   "lat": 4.05237,
+   "lon": 9.73387,
+   "windows": [
+    [
+     21600,
+     72000
+    ]
+   ],
+   "max_truck_size": "large",
+   "unload_time_min": 45
+  },
+  {
+   "id": "DOU20",
+   "code": "DOU20",
+   "name": "OLA Douala 20",
+   "lat": 4.10061,
+   "lon": 9.65799,
+   "windows": [
+    [
+     21600,
+     64800
+    ]
+   ],
+   "max_truck_size": "medium",
+   "unload_time_min": 40
+  },
+  {
+   "id": "LIM01",
+   "code": "LIM01",
+   "name": "OLA Limbé 1",
+   "lat": 4.01405,
+   "lon": 9.2087,
+   "windows": [
+    [
+     21600,
+     72000
+    ]
+   ],
+   "max_truck_size": "medium",
+   "unload_time_min": 35
+  },
+  {
+   "id": "LIM02",
+   "code": "LIM02",
+   "name": "OLA Limbé 2",
+   "lat": 4.00681,
+   "lon": 9.1969,
+   "windows": [
+    [
+     21600,
+     72000
+    ]
+   ],
+   "max_truck_size": "large",
+   "unload_time_min": 35
+  },
+  {
+   "id": "BUE01",
+   "code": "BUE01",
+   "name": "OLA Buea 1",
+   "lat": 4.15336,
+   "lon": 9.23817,
+   "windows": [
+    [
+     21600,
+     72000
+    ]
+   ],
+   "max_truck_size": "large",
+   "unload_time_min": 40
+  },
+  {
+   "id": "BUE02",
+   "code": "BUE02",
+   "name": "OLA Buea 2",
+   "lat": 4.15517,
+   "lon": 9.22661,
+   "windows": [
+    [
+     21600,
+     72000
+    ]
+   ],
+   "max_truck_size": "large",
+   "unload_time_min": 40
+  },
+  {
+   "id": "TIK01",
+   "code": "TIK01",
+   "name": "OLA Tiko 1",
+   "lat": 4.06977,
+   "lon": 9.35206,
+   "windows": [
+    [
+     25200,
+     72000
+    ]
+   ],
+   "max_truck_size": "medium",
+   "unload_time_min": 35
+  },
+  {
+   "id": "KUM01",
+   "code": "KUM01",
+   "name": "OLA Kumba 1",
+   "lat": 4.62585,
+   "lon": 9.43915,
+   "windows": [
+    [
+     21600,
+     72000
+    ]
+   ],
+   "max_truck_size": "medium",
+   "unload_time_min": 35
+  },
+  {
+   "id": "KUM02",
+   "code": "KUM02",
+   "name": "OLA Kumba 2",
+   "lat": 4.63891,
+   "lon": 9.45819,
+   "windows": [
+    [
+     21600,
+     72000
+    ]
+   ],
+   "max_truck_size": "large",
+   "unload_time_min": 45
+  },
+  {
+   "id": "MBA01",
+   "code": "MBA01",
+   "name": "OLA Mbanga 1",
+   "lat": 4.50302,
+   "lon": 9.57109,
+   "windows": [
+    [
+     21600,
+     72000
+    ]
+   ],
+   "max_truck_size": "medium",
+   "unload_time_min": 45
+  },
+  {
+   "id": "LOU01",
+   "code": "LOU01",
+   "name": "OLA Loum 1",
+   "lat": 4.71582,
+   "lon": 9.7318,
+   "windows": [
+    [
+     21600,
+     72000
+    ]
+   ],
+   "max_truck_size": "large",
+   "unload_time_min": 45
+  },
+  {
+   "id": "NKO01",
+   "code": "NKO01",
+   "name": "OLA Nkongsamba 1",
+   "lat": 4.94324,
+   "lon": 9.94145,
+   "windows": [
+    [
+     21600,
+     72000
+    ]
+   ],
+   "max_truck_size": "large",
+   "unload_time_min": 35
+  },
+  {
+   "id": "NKO02",
+   "code": "NKO02",
+   "name": "OLA Nkongsamba 2",
+   "lat": 4.9481,
+   "lon": 9.93694,
+   "windows": [
+    [
+     21600,
+     72000
+    ]
+   ],
+   "max_truck_size": "large",
+   "unload_time_min": 40
+  },
+  {
+   "id": "EDE01",
+   "code": "EDE01",
+   "name": "OLA Edéa 1",
+   "lat": 3.79784,
+   "lon": 10.13114,
+   "windows": [
+    [
+     21600,
+     72000
+    ]
+   ],
+   "max_truck_size": "large",
+   "unload_time_min": 40
+  },
+  {
+   "id": "EDE02",
+   "code": "EDE02",
+   "name": "OLA Edéa 2",
+   "lat": 3.79353,
+   "lon": 10.14,
+   "windows": [
+    [
+     21600,
+     72000
+    ]
+   ],
+   "max_truck_size": "medium",
+   "unload_time_min": 40
+  },
+  {
+   "id": "KRI01",
+   "code": "KRI01",
+   "name": "OLA Kribi 1",
+   "lat": 2.94512,
+   "lon": 9.90565,
+   "windows": [
+    [
+     25200,
+     72000
+    ]
+   ],
+   "max_truck_size": "medium",
+   "unload_time_min": 40
+  },
+  {
+   "id": "KRI02",
+   "code": "KRI02",
+   "name": "OLA Kribi 2",
+   "lat": 2.93054,
+   "lon": 9.90577,
+   "windows": [
+    [
+     21600,
+     72000
+    ]
+   ],
+   "max_truck_size": "large",
+   "unload_time_min": 45
+  },
+  {
+   "id": "DIZ01",
+   "code": "DIZ01",
+   "name": "OLA Dizangué 1",
+   "lat": 3.76335,
+   "lon": 9.97991,
+   "windows": [
+    [
+     21600,
+     72000
+    ]
+   ],
+   "max_truck_size": "large",
+   "unload_time_min": 45
+  },
+  {
+   "id": "YAO01",
+   "code": "YAO01",
+   "name": "OLA Yaoundé 1",
+   "lat": 3.86071,
+   "lon": 11.46753,
+   "windows": [
+    [
+     21600,
+     72000
+    ]
+   ],
+   "max_truck_size": "medium",
+   "unload_time_min": 45
+  },
+  {
+   "id": "YAO02",
+   "code": "YAO02",
+   "name": "OLA Yaoundé 2",
+   "lat": 3.90816,
+   "lon": 11.48604,
+   "windows": [
+    [
+     21600,
+     72000
+    ]
+   ],
+   "max_truck_size": "medium",
+   "unload_time_min": 40
+  },
+  {
+   "id": "YAO03",
+   "code": "YAO03",
+   "name": "OLA Yaoundé 3",
+   "lat": 3.85899,
+   "lon": 11.53615,
+   "windows": [
+    [
+     21600,
+     72000
+    ]
+   ],
+   "max_truck_size": "large",
+   "unload_time_min": 40
+  },
+  {
+   "id": "YAO04",
+   "code": "YAO04",
+   "name": "OLA Yaoundé 4",
+   "lat": 3.89833,
+   "lon": 11.47725,
+   "windows": [
+    [
+     25200,
+     68400
+    ]
+   ],
+   "max_truck_size": "medium",
+   "unload_time_min": 45
+  },
+  {
+   "id": "YAO05",
+   "code": "YAO05",
+   "name": "OLA Yaoundé 5",
+   "lat": 3.83695,
+   "lon": 11.53967,
+   "windows": [
+    [
+     21600,
+     64800
+    ]
+   ],
+   "max_truck_size": "medium",
+   "unload_time_min": 45
+  },
+  {
+   "id": "YAO06",
+   "code": "YAO06",
+   "name": "OLA Yaoundé 6",
+   "lat": 3.87505,
+   "lon": 11.48431,
+   "windows": [
+    [
+     21600,
+     68400
+    ]
+   ],
+   "max_truck_size": "medium",
+   "unload_time_min": 40
+  },
+  {
+   "id": "YAO07",
+   "code": "YAO07",
+   "name": "OLA Yaoundé 7",
+   "lat": 3.87441,
+   "lon": 11.50953,
+   "windows": [
+    [
+     21600,
+     64800
+    ]
+   ],
+   "max_truck_size": "small",
+   "unload_time_min": 40
+  },
+  {
+   "id": "YAO08",
+   "code": "YAO08",
+   "name": "OLA Yaoundé 8",
+   "lat": 3.87462,
+   "lon": 11.49158,
+   "windows": [
+    [
+     21600,
+     72000
+    ]
+   ],
+   "max_truck_size": "medium",
+   "unload_time_min": 40
+  },
+  {
+   "id": "YAO09",
+   "code": "YAO09",
+   "name": "OLA Yaoundé 9",
+   "lat": 3.87006,
+   "lon": 11.50744,
+   "windows": [
+    [
+     25200,
+     68400
+    ]
+   ],
+   "max_truck_size": "medium",
+   "unload_time_min": 45
+  },
+  {
+   "id": "YAO10",
+   "code": "YAO10",
+   "name": "OLA Yaoundé 10",
+   "lat": 3.83903,
+   "lon": 11.47579,
+   "windows": [
+    [
+     21600,
+     72000
+    ]
+   ],
+   "max_truck_size": "medium",
+   "unload_time_min": 40
+  },
+  {
+   "id": "YAO11",
+   "code": "YAO11",
+   "name": "OLA Yaoundé 11",
+   "lat": 3.857,
+   "lon": 11.46965,
+   "windows": [
+    [
+     21600,
+     64800
+    ]
+   ],
+   "max_truck_size": "medium",
+   "unload_time_min": 35
+  },
+  {
+   "id": "YAO12",
+   "code": "YAO12",
+   "name": "OLA Yaoundé 12",
+   "lat": 3.82546,
+   "lon": 11.48449,
+   "windows": [
+    [
+     21600,
+     72000
+    ]
+   ],
+   "max_truck_size": "large",
+   "unload_time_min": 45
+  },
+  {
+   "id": "YAO13",
+   "code": "YAO13",
+   "name": "OLA Yaoundé 13",
+   "lat": 3.87908,
+   "lon": 11.56285,
+   "windows": [
+    [
+     21600,
+     64800
+    ]
+   ],
+   "max_truck_size": "large",
+   "unload_time_min": 40
+  },
+  {
+   "id": "YAO14",
+   "code": "YAO14",
+   "name": "OLA Yaoundé 14",
+   "lat": 3.81681,
+   "lon": 11.53773,
+   "windows": [
+    [
+     21600,
+     72000
+    ]
+   ],
+   "max_truck_size": "medium",
+   "unload_time_min": 45
+  },
+  {
+   "id": "YAO15",
+   "code": "YAO15",
+   "name": "OLA Yaoundé 15",
+   "lat": 3.86059,
+   "lon": 11.50931,
+   "windows": [
+    [
+     25200,
+     68400
+    ]
+   ],
+   "max_truck_size": "large",
+   "unload_time_min": 40
+  },
+  {
+   "id": "YAO16",
+   "code": "YAO16",
+   "name": "OLA Yaoundé 16",
+   "lat": 3.87171,
+   "lon": 11.52774,
+   "windows": [
+    [
+     21600,
+     72000
+    ]
+   ],
+   "max_truck_size": "medium",
+   "unload_time_min": 40
+  },
+  {
+   "id": "YAO17",
+   "code": "YAO17",
+   "name": "OLA Yaoundé 17",
+   "lat": 3.90812,
+   "lon": 11.53316,
+   "windows": [
+    [
+     25200,
+     68400
+    ]
+   ],
+   "max_truck_size": "medium",
+   "unload_time_min": 45
+  },
+  {
+   "id": "MBA01",
+   "code": "MBA01",
+   "name": "OLA Mbalmayo 1",
+   "lat": 3.51432,
+   "lon": 11.48822,
+   "windows": [
+    [
+     21600,
+     72000
+    ]
+   ],
+   "max_truck_size": "large",
+   "unload_time_min": 40
+  },
+  {
+   "id": "MBA02",
+   "code": "MBA02",
+   "name": "OLA Mbalmayo 2",
+   "lat": 3.5257,
+   "lon": 11.50548,
+   "windows": [
+    [
+     25200,
+     72000
+    ]
+   ],
+   "max_truck_size": "medium",
+   "unload_time_min": 45
+  },
+  {
+   "id": "OBA01",
+   "code": "OBA01",
+   "name": "OLA Obala 1",
+   "lat": 4.17556,
+   "lon": 11.5387,
+   "windows": [
+    [
+     21600,
+     72000
+    ]
+   ],
+   "max_truck_size": "large",
+   "unload_time_min": 45
+  },
+  {
+   "id": "OBA02",
+   "code": "OBA02",
+   "name": "OLA Obala 2",
+   "lat": 4.1582,
+   "lon": 11.52805,
+   "windows": [
+    [
+     21600,
+     72000
+    ]
+   ],
+   "max_truck_size": "medium",
+   "unload_time_min": 40
+  },
+  {
+   "id": "SOA01",
+   "code": "SOA01",
+   "name": "OLA Soa 1",
+   "lat": 3.97954,
+   "lon": 11.58848,
+   "windows": [
+    [
+     21600,
+     72000
+    ]
+   ],
+   "max_truck_size": "large",
+   "unload_time_min": 45
+  },
+  {
+   "id": "MFO01",
+   "code": "MFO01",
+   "name": "OLA Mfou 1",
+   "lat": 3.71986,
+   "lon": 11.63819,
+   "windows": [
+    [
+     21600,
+     72000
+    ]
+   ],
+   "max_truck_size": "large",
+   "unload_time_min": 45
+  },
+  {
+   "id": "BAF01",
+   "code": "BAF01",
+   "name": "OLA Bafia 1",
+   "lat": 4.75079,
+   "lon": 11.24197,
+   "windows": [
+    [
+     21600,
+     72000
+    ]
+   ],
+   "max_truck_size": "medium",
+   "unload_time_min": 35
+  },
+  {
+   "id": "BAF02",
+   "code": "BAF02",
+   "name": "OLA Bafia 2",
+   "lat": 4.74598,
+   "lon": 11.2318,
+   "windows": [
+    [
+     21600,
+     72000
+    ]
+   ],
+   "max_truck_size": "medium",
+   "unload_time_min": 45
+  },
+  {
+   "id": "AKO01",
+   "code": "AKO01",
+   "name": "OLA Akonolinga 1",
+   "lat": 3.76712,
+   "lon": 12.24503,
+   "windows": [
+    [
+     21600,
+     72000
+    ]
+   ],
+   "max_truck_size": "large",
+   "unload_time_min": 45
+  },
+  {
+   "id": "ESE01",
+   "code": "ESE01",
+   "name": "OLA Eséka 1",
+   "lat": 3.64202,
+   "lon": 10.7777,
+   "windows": [
+    [
+     21600,
+     72000
+    ]
+   ],
+   "max_truck_size": "large",
+   "unload_time_min": 45
+  },
+  {
+   "id": "EBO01",
+   "code": "EBO01",
+   "name": "OLA Ebolowa 1",
+   "lat": 2.88883,
+   "lon": 11.13933,
+   "windows": [
+    [
+     25200,
+     72000
+    ]
+   ],
+   "max_truck_size": "large",
+   "unload_time_min": 40
+  },
+  {
+   "id": "EBO02",
+   "code": "EBO02",
+   "name": "OLA Ebolowa 2",
+   "lat": 2.89638,
+   "lon": 11.14878,
+   "windows": [
+    [
+     21600,
+     72000
+    ]
+   ],
+   "max_truck_size": "medium",
+   "unload_time_min": 35
+  },
+  {
+   "id": "SAN01",
+   "code": "SAN01",
+   "name": "OLA Sangmélima 1",
+   "lat": 2.92335,
+   "lon": 11.96844,
+   "windows": [
+    [
+     21600,
+     72000
+    ]
+   ],
+   "max_truck_size": "large",
+   "unload_time_min": 40
+  },
+  {
+   "id": "SAN02",
+   "code": "SAN02",
+   "name": "OLA Sangmélima 2",
+   "lat": 2.92595,
+   "lon": 11.98366,
+   "windows": [
+    [
+     25200,
+     72000
+    ]
+   ],
+   "max_truck_size": "large",
+   "unload_time_min": 40
+  },
+  {
+   "id": "MON01",
+   "code": "MON01",
+   "name": "OLA Monatélé 1",
+   "lat": 4.26865,
+   "lon": 11.1932,
+   "windows": [
+    [
+     21600,
+     72000
+    ]
+   ],
+   "max_truck_size": "large",
+   "unload_time_min": 40
+  },
+  {
+   "id": "NTU01",
+   "code": "NTU01",
+   "name": "OLA Ntui 1",
+   "lat": 4.44747,
+   "lon": 11.62389,
+   "windows": [
+    [
+     21600,
+     72000
+    ]
+   ],
+   "max_truck_size": "large",
+   "unload_time_min": 45
+  },
+  {
+   "id": "NAN01",
+   "code": "NAN01",
+   "name": "OLA Nanga-Eboko 1",
+   "lat": 4.67517,
+   "lon": 12.36728,
+   "windows": [
+    [
+     21600,
+     72000
+    ]
+   ],
+   "max_truck_size": "medium",
+   "unload_time_min": 35
+  }
+ ],
+ "trucks": [
+  {
+   "id": "CAM01",
+   "plate": "LT-501-CB",
+   "size": "small",
+   "carrier_id": "TR-SOTRACAM",
+   "avg_speed_kmh": null,
+   "status": "available",
+   "available_today": true,
+   "compartments": [
+    {
+     "id": "CAM01-C1",
+     "position": 1,
+     "capacity_l": 6000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM01-C2",
+     "position": 2,
+     "capacity_l": 4000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM01-C3",
+     "position": 3,
+     "capacity_l": 3000.0,
+     "allowed_product_ids": null
+    }
+   ]
+  },
+  {
+   "id": "CAM02",
+   "plate": "LT-502-DH",
+   "size": "small",
+   "carrier_id": "TR-TRANSLOG",
+   "avg_speed_kmh": null,
+   "status": "available",
+   "available_today": true,
+   "compartments": [
+    {
+     "id": "CAM02-C1",
+     "position": 1,
+     "capacity_l": 5000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM02-C2",
+     "position": 2,
+     "capacity_l": 4000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM02-C3",
+     "position": 3,
+     "capacity_l": 4000.0,
+     "allowed_product_ids": null
+    }
+   ]
+  },
+  {
+   "id": "CAM03",
+   "plate": "CE-503-BH",
+   "size": "small",
+   "carrier_id": "TR-OLA",
+   "avg_speed_kmh": null,
+   "status": "available",
+   "available_today": true,
+   "compartments": [
+    {
+     "id": "CAM03-C1",
+     "position": 1,
+     "capacity_l": 6000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM03-C2",
+     "position": 2,
+     "capacity_l": 4000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM03-C3",
+     "position": 3,
+     "capacity_l": 3000.0,
+     "allowed_product_ids": null
+    }
+   ]
+  },
+  {
+   "id": "CAM04",
+   "plate": "LT-504-BE",
+   "size": "small",
+   "carrier_id": "TR-SOTRACAM",
+   "avg_speed_kmh": null,
+   "status": "available",
+   "available_today": true,
+   "compartments": [
+    {
+     "id": "CAM04-C1",
+     "position": 1,
+     "capacity_l": 5000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM04-C2",
+     "position": 2,
+     "capacity_l": 4000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM04-C3",
+     "position": 3,
+     "capacity_l": 4000.0,
+     "allowed_product_ids": null
+    }
+   ]
+  },
+  {
+   "id": "CAM05",
+   "plate": "CE-505-GD",
+   "size": "small",
+   "carrier_id": "TR-TRANSLOG",
+   "avg_speed_kmh": null,
+   "status": "available",
+   "available_today": true,
+   "compartments": [
+    {
+     "id": "CAM05-C1",
+     "position": 1,
+     "capacity_l": 6000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM05-C2",
+     "position": 2,
+     "capacity_l": 4000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM05-C3",
+     "position": 3,
+     "capacity_l": 3000.0,
+     "allowed_product_ids": null
+    }
+   ]
+  },
+  {
+   "id": "CAM06",
+   "plate": "LT-506-DB",
+   "size": "small",
+   "carrier_id": "TR-OLA",
+   "avg_speed_kmh": null,
+   "status": "available",
+   "available_today": true,
+   "compartments": [
+    {
+     "id": "CAM06-C1",
+     "position": 1,
+     "capacity_l": 5000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM06-C2",
+     "position": 2,
+     "capacity_l": 4000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM06-C3",
+     "position": 3,
+     "capacity_l": 4000.0,
+     "allowed_product_ids": null
+    }
+   ]
+  },
+  {
+   "id": "CAM07",
+   "plate": "LT-507-DE",
+   "size": "medium",
+   "carrier_id": "TR-SOTRACAM",
+   "avg_speed_kmh": null,
+   "status": "available",
+   "available_today": true,
+   "compartments": [
+    {
+     "id": "CAM07-C1",
+     "position": 1,
+     "capacity_l": 7000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM07-C2",
+     "position": 2,
+     "capacity_l": 6000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM07-C3",
+     "position": 3,
+     "capacity_l": 5000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM07-C4",
+     "position": 4,
+     "capacity_l": 4000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM07-C5",
+     "position": 5,
+     "capacity_l": 3000.0,
+     "allowed_product_ids": null
+    }
+   ]
+  },
+  {
+   "id": "CAM08",
+   "plate": "LT-508-BF",
+   "size": "medium",
+   "carrier_id": "TR-TRANSLOG",
+   "avg_speed_kmh": null,
+   "status": "available",
+   "available_today": true,
+   "compartments": [
+    {
+     "id": "CAM08-C1",
+     "position": 1,
+     "capacity_l": 6000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM08-C2",
+     "position": 2,
+     "capacity_l": 6000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM08-C3",
+     "position": 3,
+     "capacity_l": 5000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM08-C4",
+     "position": 4,
+     "capacity_l": 4000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM08-C5",
+     "position": 5,
+     "capacity_l": 4000.0,
+     "allowed_product_ids": null
+    }
+   ]
+  },
+  {
+   "id": "CAM09",
+   "plate": "CE-509-CH",
+   "size": "medium",
+   "carrier_id": "TR-OLA",
+   "avg_speed_kmh": null,
+   "status": "available",
+   "available_today": true,
+   "compartments": [
+    {
+     "id": "CAM09-C1",
+     "position": 1,
+     "capacity_l": 7000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM09-C2",
+     "position": 2,
+     "capacity_l": 6000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM09-C3",
+     "position": 3,
+     "capacity_l": 5000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM09-C4",
+     "position": 4,
+     "capacity_l": 4000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM09-C5",
+     "position": 5,
+     "capacity_l": 3000.0,
+     "allowed_product_ids": null
+    }
+   ]
+  },
+  {
+   "id": "CAM10",
+   "plate": "LT-510-EC",
+   "size": "medium",
+   "carrier_id": "TR-SOTRACAM",
+   "avg_speed_kmh": null,
+   "status": "available",
+   "available_today": true,
+   "compartments": [
+    {
+     "id": "CAM10-C1",
+     "position": 1,
+     "capacity_l": 6000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM10-C2",
+     "position": 2,
+     "capacity_l": 6000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM10-C3",
+     "position": 3,
+     "capacity_l": 5000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM10-C4",
+     "position": 4,
+     "capacity_l": 4000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM10-C5",
+     "position": 5,
+     "capacity_l": 4000.0,
+     "allowed_product_ids": null
+    }
+   ]
+  },
+  {
+   "id": "CAM11",
+   "plate": "CE-511-CH",
+   "size": "medium",
+   "carrier_id": "TR-TRANSLOG",
+   "avg_speed_kmh": null,
+   "status": "available",
+   "available_today": true,
+   "compartments": [
+    {
+     "id": "CAM11-C1",
+     "position": 1,
+     "capacity_l": 7000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM11-C2",
+     "position": 2,
+     "capacity_l": 6000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM11-C3",
+     "position": 3,
+     "capacity_l": 5000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM11-C4",
+     "position": 4,
+     "capacity_l": 4000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM11-C5",
+     "position": 5,
+     "capacity_l": 3000.0,
+     "allowed_product_ids": null
+    }
+   ]
+  },
+  {
+   "id": "CAM12",
+   "plate": "LT-512-FE",
+   "size": "medium",
+   "carrier_id": "TR-OLA",
+   "avg_speed_kmh": null,
+   "status": "available",
+   "available_today": true,
+   "compartments": [
+    {
+     "id": "CAM12-C1",
+     "position": 1,
+     "capacity_l": 6000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM12-C2",
+     "position": 2,
+     "capacity_l": 6000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM12-C3",
+     "position": 3,
+     "capacity_l": 5000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM12-C4",
+     "position": 4,
+     "capacity_l": 4000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM12-C5",
+     "position": 5,
+     "capacity_l": 4000.0,
+     "allowed_product_ids": null
+    }
+   ]
+  },
+  {
+   "id": "CAM13",
+   "plate": "LT-513-GF",
+   "size": "medium",
+   "carrier_id": "TR-SOTRACAM",
+   "avg_speed_kmh": null,
+   "status": "available",
+   "available_today": true,
+   "compartments": [
+    {
+     "id": "CAM13-C1",
+     "position": 1,
+     "capacity_l": 7000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM13-C2",
+     "position": 2,
+     "capacity_l": 6000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM13-C3",
+     "position": 3,
+     "capacity_l": 5000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM13-C4",
+     "position": 4,
+     "capacity_l": 4000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM13-C5",
+     "position": 5,
+     "capacity_l": 3000.0,
+     "allowed_product_ids": null
+    }
+   ]
+  },
+  {
+   "id": "CAM14",
+   "plate": "LT-514-DA",
+   "size": "medium",
+   "carrier_id": "TR-TRANSLOG",
+   "avg_speed_kmh": null,
+   "status": "available",
+   "available_today": true,
+   "compartments": [
+    {
+     "id": "CAM14-C1",
+     "position": 1,
+     "capacity_l": 6000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM14-C2",
+     "position": 2,
+     "capacity_l": 6000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM14-C3",
+     "position": 3,
+     "capacity_l": 5000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM14-C4",
+     "position": 4,
+     "capacity_l": 4000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM14-C5",
+     "position": 5,
+     "capacity_l": 4000.0,
+     "allowed_product_ids": null
+    }
+   ]
+  },
+  {
+   "id": "CAM15",
+   "plate": "CE-515-BF",
+   "size": "medium",
+   "carrier_id": "TR-OLA",
+   "avg_speed_kmh": null,
+   "status": "available",
+   "available_today": true,
+   "compartments": [
+    {
+     "id": "CAM15-C1",
+     "position": 1,
+     "capacity_l": 7000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM15-C2",
+     "position": 2,
+     "capacity_l": 6000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM15-C3",
+     "position": 3,
+     "capacity_l": 5000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM15-C4",
+     "position": 4,
+     "capacity_l": 4000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM15-C5",
+     "position": 5,
+     "capacity_l": 3000.0,
+     "allowed_product_ids": null
+    }
+   ]
+  },
+  {
+   "id": "CAM16",
+   "plate": "LT-516-AA",
+   "size": "medium",
+   "carrier_id": "TR-SOTRACAM",
+   "avg_speed_kmh": null,
+   "status": "available",
+   "available_today": true,
+   "compartments": [
+    {
+     "id": "CAM16-C1",
+     "position": 1,
+     "capacity_l": 6000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM16-C2",
+     "position": 2,
+     "capacity_l": 6000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM16-C3",
+     "position": 3,
+     "capacity_l": 5000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM16-C4",
+     "position": 4,
+     "capacity_l": 4000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM16-C5",
+     "position": 5,
+     "capacity_l": 4000.0,
+     "allowed_product_ids": null
+    }
+   ]
+  },
+  {
+   "id": "CAM17",
+   "plate": "LT-517-DA",
+   "size": "medium",
+   "carrier_id": "TR-TRANSLOG",
+   "avg_speed_kmh": null,
+   "status": "available",
+   "available_today": true,
+   "compartments": [
+    {
+     "id": "CAM17-C1",
+     "position": 1,
+     "capacity_l": 7000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM17-C2",
+     "position": 2,
+     "capacity_l": 6000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM17-C3",
+     "position": 3,
+     "capacity_l": 5000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM17-C4",
+     "position": 4,
+     "capacity_l": 4000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM17-C5",
+     "position": 5,
+     "capacity_l": 3000.0,
+     "allowed_product_ids": null
+    }
+   ]
+  },
+  {
+   "id": "CAM18",
+   "plate": "LT-518-DG",
+   "size": "medium",
+   "carrier_id": "TR-OLA",
+   "avg_speed_kmh": null,
+   "status": "available",
+   "available_today": true,
+   "compartments": [
+    {
+     "id": "CAM18-C1",
+     "position": 1,
+     "capacity_l": 6000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM18-C2",
+     "position": 2,
+     "capacity_l": 6000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM18-C3",
+     "position": 3,
+     "capacity_l": 5000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM18-C4",
+     "position": 4,
+     "capacity_l": 4000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM18-C5",
+     "position": 5,
+     "capacity_l": 4000.0,
+     "allowed_product_ids": null
+    }
+   ]
+  },
+  {
+   "id": "CAM19",
+   "plate": "LT-519-GD",
+   "size": "large",
+   "carrier_id": "TR-SOTRACAM",
+   "avg_speed_kmh": null,
+   "status": "available",
+   "available_today": true,
+   "compartments": [
+    {
+     "id": "CAM19-C1",
+     "position": 1,
+     "capacity_l": 8000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM19-C2",
+     "position": 2,
+     "capacity_l": 7000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM19-C3",
+     "position": 3,
+     "capacity_l": 6000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM19-C4",
+     "position": 4,
+     "capacity_l": 6000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM19-C5",
+     "position": 5,
+     "capacity_l": 5000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM19-C6",
+     "position": 6,
+     "capacity_l": 4000.0,
+     "allowed_product_ids": null
+    }
+   ]
+  },
+  {
+   "id": "CAM20",
+   "plate": "CE-520-GC",
+   "size": "large",
+   "carrier_id": "TR-TRANSLOG",
+   "avg_speed_kmh": null,
+   "status": "available",
+   "available_today": true,
+   "compartments": [
+    {
+     "id": "CAM20-C1",
+     "position": 1,
+     "capacity_l": 6000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM20-C2",
+     "position": 2,
+     "capacity_l": 6000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM20-C3",
+     "position": 3,
+     "capacity_l": 6000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM20-C4",
+     "position": 4,
+     "capacity_l": 5000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM20-C5",
+     "position": 5,
+     "capacity_l": 5000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM20-C6",
+     "position": 6,
+     "capacity_l": 4000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM20-C7",
+     "position": 7,
+     "capacity_l": 4000.0,
+     "allowed_product_ids": null
+    }
+   ]
+  },
+  {
+   "id": "CAM21",
+   "plate": "CE-521-AE",
+   "size": "large",
+   "carrier_id": "TR-OLA",
+   "avg_speed_kmh": null,
+   "status": "available",
+   "available_today": true,
+   "compartments": [
+    {
+     "id": "CAM21-C1",
+     "position": 1,
+     "capacity_l": 8000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM21-C2",
+     "position": 2,
+     "capacity_l": 7000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM21-C3",
+     "position": 3,
+     "capacity_l": 6000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM21-C4",
+     "position": 4,
+     "capacity_l": 6000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM21-C5",
+     "position": 5,
+     "capacity_l": 5000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM21-C6",
+     "position": 6,
+     "capacity_l": 4000.0,
+     "allowed_product_ids": null
+    }
+   ]
+  },
+  {
+   "id": "CAM22",
+   "plate": "CE-522-HF",
+   "size": "large",
+   "carrier_id": "TR-SOTRACAM",
+   "avg_speed_kmh": null,
+   "status": "available",
+   "available_today": true,
+   "compartments": [
+    {
+     "id": "CAM22-C1",
+     "position": 1,
+     "capacity_l": 6000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM22-C2",
+     "position": 2,
+     "capacity_l": 6000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM22-C3",
+     "position": 3,
+     "capacity_l": 6000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM22-C4",
+     "position": 4,
+     "capacity_l": 5000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM22-C5",
+     "position": 5,
+     "capacity_l": 5000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM22-C6",
+     "position": 6,
+     "capacity_l": 4000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM22-C7",
+     "position": 7,
+     "capacity_l": 4000.0,
+     "allowed_product_ids": null
+    }
+   ]
+  },
+  {
+   "id": "CAM23",
+   "plate": "CE-523-GE",
+   "size": "large",
+   "carrier_id": "TR-TRANSLOG",
+   "avg_speed_kmh": null,
+   "status": "available",
+   "available_today": true,
+   "compartments": [
+    {
+     "id": "CAM23-C1",
+     "position": 1,
+     "capacity_l": 8000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM23-C2",
+     "position": 2,
+     "capacity_l": 7000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM23-C3",
+     "position": 3,
+     "capacity_l": 6000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM23-C4",
+     "position": 4,
+     "capacity_l": 6000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM23-C5",
+     "position": 5,
+     "capacity_l": 5000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM23-C6",
+     "position": 6,
+     "capacity_l": 4000.0,
+     "allowed_product_ids": null
+    }
+   ]
+  },
+  {
+   "id": "CAM24",
+   "plate": "CE-524-HE",
+   "size": "large",
+   "carrier_id": "TR-OLA",
+   "avg_speed_kmh": null,
+   "status": "available",
+   "available_today": true,
+   "compartments": [
+    {
+     "id": "CAM24-C1",
+     "position": 1,
+     "capacity_l": 6000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM24-C2",
+     "position": 2,
+     "capacity_l": 6000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM24-C3",
+     "position": 3,
+     "capacity_l": 6000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM24-C4",
+     "position": 4,
+     "capacity_l": 5000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM24-C5",
+     "position": 5,
+     "capacity_l": 5000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM24-C6",
+     "position": 6,
+     "capacity_l": 4000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM24-C7",
+     "position": 7,
+     "capacity_l": 4000.0,
+     "allowed_product_ids": null
+    }
+   ]
+  },
+  {
+   "id": "CAM25",
+   "plate": "LT-525-HB",
+   "size": "large",
+   "carrier_id": "TR-SOTRACAM",
+   "avg_speed_kmh": null,
+   "status": "available",
+   "available_today": true,
+   "compartments": [
+    {
+     "id": "CAM25-C1",
+     "position": 1,
+     "capacity_l": 8000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM25-C2",
+     "position": 2,
+     "capacity_l": 7000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM25-C3",
+     "position": 3,
+     "capacity_l": 6000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM25-C4",
+     "position": 4,
+     "capacity_l": 6000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM25-C5",
+     "position": 5,
+     "capacity_l": 5000.0,
+     "allowed_product_ids": null
+    },
+    {
+     "id": "CAM25-C6",
+     "position": 6,
+     "capacity_l": 4000.0,
+     "allowed_product_ids": null
+    }
+   ]
+  }
+ ],
+ "drivers": [
+  {
+   "id": "CH01",
+   "full_name": "André Njoya",
+   "carrier_id": "TR-SOTRACAM",
+   "license_expiry": "2028-06-30",
+   "hazmat_cert": true,
+   "hazmat_expiry": "2027-12-31",
+   "status": "available",
+   "available_today": true,
+   "default_truck_id": "CAM01"
+  },
+  {
+   "id": "CH02",
+   "full_name": "Paul Atangana",
+   "carrier_id": "TR-TRANSLOG",
+   "license_expiry": "2028-06-30",
+   "hazmat_cert": true,
+   "hazmat_expiry": "2027-12-31",
+   "status": "available",
+   "available_today": true,
+   "default_truck_id": "CAM02"
+  },
+  {
+   "id": "CH03",
+   "full_name": "Martin Etoundi",
+   "carrier_id": "TR-OLA",
+   "license_expiry": "2028-06-30",
+   "hazmat_cert": true,
+   "hazmat_expiry": "2027-12-31",
+   "status": "available",
+   "available_today": true,
+   "default_truck_id": "CAM03"
+  },
+  {
+   "id": "CH04",
+   "full_name": "Achille Etoundi",
+   "carrier_id": "TR-SOTRACAM",
+   "license_expiry": "2026-12-31",
+   "hazmat_cert": true,
+   "hazmat_expiry": "2027-12-31",
+   "status": "available",
+   "available_today": true,
+   "default_truck_id": "CAM04"
+  },
+  {
+   "id": "CH05",
+   "full_name": "Patrice Biyong",
+   "carrier_id": "TR-TRANSLOG",
+   "license_expiry": "2028-06-30",
+   "hazmat_cert": true,
+   "hazmat_expiry": "2027-12-31",
+   "status": "available",
+   "available_today": true,
+   "default_truck_id": "CAM05"
+  },
+  {
+   "id": "CH06",
+   "full_name": "Fabrice Manga",
+   "carrier_id": "TR-OLA",
+   "license_expiry": "2028-06-30",
+   "hazmat_cert": true,
+   "hazmat_expiry": "2027-12-31",
+   "status": "available",
+   "available_today": true,
+   "default_truck_id": "CAM06"
+  },
+  {
+   "id": "CH07",
+   "full_name": "Fabrice Manga",
+   "carrier_id": "TR-SOTRACAM",
+   "license_expiry": "2028-06-30",
+   "hazmat_cert": true,
+   "hazmat_expiry": "2027-12-31",
+   "status": "available",
+   "available_today": true,
+   "default_truck_id": "CAM07"
+  },
+  {
+   "id": "CH08",
+   "full_name": "Alain Essomba",
+   "carrier_id": "TR-TRANSLOG",
+   "license_expiry": "2028-06-30",
+   "hazmat_cert": true,
+   "hazmat_expiry": "2027-12-31",
+   "status": "available",
+   "available_today": true,
+   "default_truck_id": "CAM08"
+  },
+  {
+   "id": "CH09",
+   "full_name": "Martin Tchoupo",
+   "carrier_id": "TR-OLA",
+   "license_expiry": "2028-06-30",
+   "hazmat_cert": true,
+   "hazmat_expiry": "2027-12-31",
+   "status": "available",
+   "available_today": true,
+   "default_truck_id": "CAM09"
+  },
+  {
+   "id": "CH10",
+   "full_name": "Georges Ndjock",
+   "carrier_id": "TR-SOTRACAM",
+   "license_expiry": "2028-06-30",
+   "hazmat_cert": true,
+   "hazmat_expiry": "2027-12-31",
+   "status": "available",
+   "available_today": true,
+   "default_truck_id": "CAM10"
+  },
+  {
+   "id": "CH11",
+   "full_name": "Samuel Tchoupo",
+   "carrier_id": "TR-TRANSLOG",
+   "license_expiry": "2028-06-30",
+   "hazmat_cert": true,
+   "hazmat_expiry": "2027-12-31",
+   "status": "leave",
+   "available_today": true,
+   "default_truck_id": "CAM11"
+  },
+  {
+   "id": "CH12",
+   "full_name": "Jean Fotso",
+   "carrier_id": "TR-OLA",
+   "license_expiry": "2028-06-30",
+   "hazmat_cert": true,
+   "hazmat_expiry": "2027-12-31",
+   "status": "available",
+   "available_today": true,
+   "default_truck_id": "CAM12"
+  },
+  {
+   "id": "CH13",
+   "full_name": "Achille Atangana",
+   "carrier_id": "TR-SOTRACAM",
+   "license_expiry": "2028-06-30",
+   "hazmat_cert": true,
+   "hazmat_expiry": "2027-12-31",
+   "status": "available",
+   "available_today": true,
+   "default_truck_id": "CAM13"
+  },
+  {
+   "id": "CH14",
+   "full_name": "Blaise Ndjock",
+   "carrier_id": "TR-TRANSLOG",
+   "license_expiry": "2028-06-30",
+   "hazmat_cert": true,
+   "hazmat_expiry": "2027-12-31",
+   "status": "available",
+   "available_today": true,
+   "default_truck_id": "CAM14"
+  },
+  {
+   "id": "CH15",
+   "full_name": "Georges Kamga",
+   "carrier_id": "TR-OLA",
+   "license_expiry": "2028-06-30",
+   "hazmat_cert": true,
+   "hazmat_expiry": "2027-12-31",
+   "status": "available",
+   "available_today": true,
+   "default_truck_id": "CAM15"
+  },
+  {
+   "id": "CH16",
+   "full_name": "Blaise Owona",
+   "carrier_id": "TR-SOTRACAM",
+   "license_expiry": "2028-06-30",
+   "hazmat_cert": true,
+   "hazmat_expiry": "2027-12-31",
+   "status": "available",
+   "available_today": true,
+   "default_truck_id": "CAM16"
+  },
+  {
+   "id": "CH17",
+   "full_name": "Désiré Ndjock",
+   "carrier_id": "TR-TRANSLOG",
+   "license_expiry": "2028-06-30",
+   "hazmat_cert": true,
+   "hazmat_expiry": "2027-12-31",
+   "status": "available",
+   "available_today": true,
+   "default_truck_id": "CAM17"
+  },
+  {
+   "id": "CH18",
+   "full_name": "Emmanuel Fotso",
+   "carrier_id": "TR-OLA",
+   "license_expiry": "2028-06-30",
+   "hazmat_cert": true,
+   "hazmat_expiry": "2027-12-31",
+   "status": "available",
+   "available_today": true,
+   "default_truck_id": "CAM18"
+  },
+  {
+   "id": "CH19",
+   "full_name": "Jean Bella",
+   "carrier_id": "TR-SOTRACAM",
+   "license_expiry": "2028-06-30",
+   "hazmat_cert": true,
+   "hazmat_expiry": "2027-12-31",
+   "status": "available",
+   "available_today": true,
+   "default_truck_id": "CAM19"
+  },
+  {
+   "id": "CH20",
+   "full_name": "Georges Etoundi",
+   "carrier_id": "TR-TRANSLOG",
+   "license_expiry": "2028-06-30",
+   "hazmat_cert": true,
+   "hazmat_expiry": "2027-12-31",
+   "status": "available",
+   "available_today": true,
+   "default_truck_id": "CAM20"
+  },
+  {
+   "id": "CH21",
+   "full_name": "Roger Tchoupo",
+   "carrier_id": "TR-OLA",
+   "license_expiry": "2028-06-30",
+   "hazmat_cert": true,
+   "hazmat_expiry": "2027-12-31",
+   "status": "available",
+   "available_today": true,
+   "default_truck_id": "CAM21"
+  },
+  {
+   "id": "CH22",
+   "full_name": "Joseph Kamga",
+   "carrier_id": "TR-SOTRACAM",
+   "license_expiry": "2028-06-30",
+   "hazmat_cert": true,
+   "hazmat_expiry": "2027-12-31",
+   "status": "available",
+   "available_today": true,
+   "default_truck_id": "CAM22"
+  },
+  {
+   "id": "CH23",
+   "full_name": "Samuel Eyenga",
+   "carrier_id": "TR-TRANSLOG",
+   "license_expiry": "2028-06-30",
+   "hazmat_cert": true,
+   "hazmat_expiry": "2027-12-31",
+   "status": "available",
+   "available_today": true,
+   "default_truck_id": "CAM23"
+  },
+  {
+   "id": "CH24",
+   "full_name": "Jean Kamga",
+   "carrier_id": "TR-OLA",
+   "license_expiry": "2028-06-30",
+   "hazmat_cert": true,
+   "hazmat_expiry": "2027-12-31",
+   "status": "available",
+   "available_today": true,
+   "default_truck_id": "CAM24"
+  },
+  {
+   "id": "CH25",
+   "full_name": "Claude Owona",
+   "carrier_id": "TR-SOTRACAM",
+   "license_expiry": "2028-06-30",
+   "hazmat_cert": true,
+   "hazmat_expiry": "2027-12-31",
+   "status": "available",
+   "available_today": true,
+   "default_truck_id": "CAM25"
+  },
+  {
+   "id": "CH26",
+   "full_name": "Fabrice Manga",
+   "carrier_id": "TR-OLA",
+   "license_expiry": "2028-06-30",
+   "hazmat_cert": true,
+   "hazmat_expiry": "2027-12-31",
+   "status": "available",
+   "available_today": true,
+   "default_truck_id": null
+  },
+  {
+   "id": "CH27",
+   "full_name": "André Ndjock",
+   "carrier_id": "TR-SOTRACAM",
+   "license_expiry": "2028-06-30",
+   "hazmat_cert": true,
+   "hazmat_expiry": "2027-12-31",
+   "status": "available",
+   "available_today": true,
+   "default_truck_id": null
+  },
+  {
+   "id": "CH28",
+   "full_name": "Georges Ngono",
+   "carrier_id": "TR-TRANSLOG",
+   "license_expiry": "2028-06-30",
+   "hazmat_cert": true,
+   "hazmat_expiry": "2027-12-31",
+   "status": "available",
+   "available_today": true,
+   "default_truck_id": null
+  }
+ ],
+ "orders": [
+  {
+   "id": "CMD001",
+   "station_id": "DOU15",
+   "product_id": "PETROLE",
+   "requested_l": 2000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD002",
+   "station_id": "NAN01",
+   "product_id": "SUPER",
+   "requested_l": 8000.0,
+   "priority": "normal",
+   "window": [
+    54000,
+    68400
+   ]
+  },
+  {
+   "id": "CMD003",
+   "station_id": "YAO04",
+   "product_id": "GASOIL",
+   "requested_l": 8000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD004",
+   "station_id": "MFO01",
+   "product_id": "GASOIL",
+   "requested_l": 7000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD005",
+   "station_id": "YAO03",
+   "product_id": "GASOIL",
+   "requested_l": 5000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD006",
+   "station_id": "DOU11",
+   "product_id": "SUPER",
+   "requested_l": 4000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD007",
+   "station_id": "BUE01",
+   "product_id": "SUPER",
+   "requested_l": 5000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD008",
+   "station_id": "DOU20",
+   "product_id": "PETROLE",
+   "requested_l": 3000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD009",
+   "station_id": "BUE02",
+   "product_id": "GASOIL",
+   "requested_l": 5000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD010",
+   "station_id": "KRI02",
+   "product_id": "GASOIL",
+   "requested_l": 4000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD011",
+   "station_id": "DOU07",
+   "product_id": "SUPER",
+   "requested_l": 7000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD012",
+   "station_id": "YAO01",
+   "product_id": "PETROLE",
+   "requested_l": 2000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD013",
+   "station_id": "DOU03",
+   "product_id": "GASOIL",
+   "requested_l": 4000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD014",
+   "station_id": "DOU04",
+   "product_id": "SUPER",
+   "requested_l": 5000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD015",
+   "station_id": "NKO01",
+   "product_id": "GASOIL",
+   "requested_l": 5000.0,
+   "priority": "urgent",
+   "window": null
+  },
+  {
+   "id": "CMD016",
+   "station_id": "DOU20",
+   "product_id": "GASOIL",
+   "requested_l": 5000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD017",
+   "station_id": "TIK01",
+   "product_id": "PETROLE",
+   "requested_l": 3000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD018",
+   "station_id": "YAO14",
+   "product_id": "GASOIL",
+   "requested_l": 4000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD019",
+   "station_id": "YAO07",
+   "product_id": "SUPER",
+   "requested_l": 7000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD020",
+   "station_id": "YAO14",
+   "product_id": "SUPER",
+   "requested_l": 5000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD021",
+   "station_id": "NKO02",
+   "product_id": "SUPER",
+   "requested_l": 4000.0,
+   "priority": "normal",
+   "window": [
+    46800,
+    61200
+   ]
+  },
+  {
+   "id": "CMD022",
+   "station_id": "SAN02",
+   "product_id": "GASOIL",
+   "requested_l": 5000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD023",
+   "station_id": "LOU01",
+   "product_id": "PETROLE",
+   "requested_l": 3000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD024",
+   "station_id": "DOU02",
+   "product_id": "SUPER",
+   "requested_l": 6000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD025",
+   "station_id": "DOU14",
+   "product_id": "SUPER",
+   "requested_l": 4000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD026",
+   "station_id": "YAO11",
+   "product_id": "GASOIL",
+   "requested_l": 7000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD027",
+   "station_id": "DOU18",
+   "product_id": "SUPER",
+   "requested_l": 7000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD028",
+   "station_id": "EDE01",
+   "product_id": "GASOIL",
+   "requested_l": 5000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD029",
+   "station_id": "YAO16",
+   "product_id": "SUPER",
+   "requested_l": 8000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD030",
+   "station_id": "DOU12",
+   "product_id": "SUPER",
+   "requested_l": 5000.0,
+   "priority": "normal",
+   "window": [
+    54000,
+    68400
+   ]
+  },
+  {
+   "id": "CMD031",
+   "station_id": "DIZ01",
+   "product_id": "SUPER",
+   "requested_l": 6000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD032",
+   "station_id": "DOU07",
+   "product_id": "GASOIL",
+   "requested_l": 5000.0,
+   "priority": "urgent",
+   "window": [
+    50400,
+    64800
+   ]
+  },
+  {
+   "id": "CMD033",
+   "station_id": "KUM01",
+   "product_id": "GASOIL",
+   "requested_l": 7000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD034",
+   "station_id": "MBA02",
+   "product_id": "SUPER",
+   "requested_l": 8000.0,
+   "priority": "normal",
+   "window": [
+    54000,
+    68400
+   ]
+  },
+  {
+   "id": "CMD035",
+   "station_id": "YAO15",
+   "product_id": "GASOIL",
+   "requested_l": 4000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD036",
+   "station_id": "DOU01",
+   "product_id": "SUPER",
+   "requested_l": 5000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD037",
+   "station_id": "DOU06",
+   "product_id": "GASOIL",
+   "requested_l": 3000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD038",
+   "station_id": "TIK01",
+   "product_id": "GASOIL",
+   "requested_l": 7000.0,
+   "priority": "urgent",
+   "window": null
+  },
+  {
+   "id": "CMD039",
+   "station_id": "MBA01",
+   "product_id": "PETROLE",
+   "requested_l": 2000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD040",
+   "station_id": "DOU03",
+   "product_id": "SUPER",
+   "requested_l": 5000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD041",
+   "station_id": "KRI02",
+   "product_id": "PETROLE",
+   "requested_l": 3000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD042",
+   "station_id": "DOU11",
+   "product_id": "GASOIL",
+   "requested_l": 8000.0,
+   "priority": "urgent",
+   "window": null
+  },
+  {
+   "id": "CMD043",
+   "station_id": "YAO06",
+   "product_id": "SUPER",
+   "requested_l": 6000.0,
+   "priority": "normal",
+   "window": [
+    46800,
+    61200
+   ]
+  },
+  {
+   "id": "CMD044",
+   "station_id": "YAO06",
+   "product_id": "GASOIL",
+   "requested_l": 6000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD045",
+   "station_id": "EBO02",
+   "product_id": "SUPER",
+   "requested_l": 6000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD046",
+   "station_id": "EBO01",
+   "product_id": "GASOIL",
+   "requested_l": 7000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD047",
+   "station_id": "BAF02",
+   "product_id": "SUPER",
+   "requested_l": 5000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD048",
+   "station_id": "MFO01",
+   "product_id": "SUPER",
+   "requested_l": 8000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD049",
+   "station_id": "YAO08",
+   "product_id": "SUPER",
+   "requested_l": 5000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD050",
+   "station_id": "KRI01",
+   "product_id": "GASOIL",
+   "requested_l": 7000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD051",
+   "station_id": "DOU02",
+   "product_id": "GASOIL",
+   "requested_l": 8000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD052",
+   "station_id": "YAO05",
+   "product_id": "SUPER",
+   "requested_l": 7000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD053",
+   "station_id": "BAF01",
+   "product_id": "GASOIL",
+   "requested_l": 8000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD054",
+   "station_id": "SOA01",
+   "product_id": "GASOIL",
+   "requested_l": 8000.0,
+   "priority": "normal",
+   "window": [
+    43200,
+    57600
+   ]
+  },
+  {
+   "id": "CMD055",
+   "station_id": "YAO08",
+   "product_id": "GASOIL",
+   "requested_l": 4000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD056",
+   "station_id": "DIZ01",
+   "product_id": "GASOIL",
+   "requested_l": 5000.0,
+   "priority": "urgent",
+   "window": null
+  },
+  {
+   "id": "CMD057",
+   "station_id": "BUE01",
+   "product_id": "GASOIL",
+   "requested_l": 4000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD058",
+   "station_id": "YAO12",
+   "product_id": "PETROLE",
+   "requested_l": 3000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD059",
+   "station_id": "YAO09",
+   "product_id": "SUPER",
+   "requested_l": 6000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD060",
+   "station_id": "YAO17",
+   "product_id": "PETROLE",
+   "requested_l": 3000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD061",
+   "station_id": "DOU17",
+   "product_id": "SUPER",
+   "requested_l": 5000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD062",
+   "station_id": "LIM02",
+   "product_id": "GASOIL",
+   "requested_l": 5000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD063",
+   "station_id": "SAN02",
+   "product_id": "SUPER",
+   "requested_l": 4000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD064",
+   "station_id": "YAO13",
+   "product_id": "GASOIL",
+   "requested_l": 8000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD065",
+   "station_id": "NTU01",
+   "product_id": "SUPER",
+   "requested_l": 3000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD066",
+   "station_id": "DOU20",
+   "product_id": "SUPER",
+   "requested_l": 5000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD067",
+   "station_id": "YAO10",
+   "product_id": "SUPER",
+   "requested_l": 6000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD068",
+   "station_id": "EBO02",
+   "product_id": "GASOIL",
+   "requested_l": 5000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD069",
+   "station_id": "DOU17",
+   "product_id": "GASOIL",
+   "requested_l": 3000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD070",
+   "station_id": "YAO06",
+   "product_id": "PETROLE",
+   "requested_l": 2000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD071",
+   "station_id": "YAO08",
+   "product_id": "PETROLE",
+   "requested_l": 2000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD072",
+   "station_id": "KRI01",
+   "product_id": "SUPER",
+   "requested_l": 4000.0,
+   "priority": "normal",
+   "window": [
+    54000,
+    68400
+   ]
+  },
+  {
+   "id": "CMD073",
+   "station_id": "YAO17",
+   "product_id": "GASOIL",
+   "requested_l": 6000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD074",
+   "station_id": "DOU05",
+   "product_id": "GASOIL",
+   "requested_l": 7000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD075",
+   "station_id": "OBA02",
+   "product_id": "SUPER",
+   "requested_l": 5000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD076",
+   "station_id": "DOU02",
+   "product_id": "PETROLE",
+   "requested_l": 2000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD077",
+   "station_id": "EDE02",
+   "product_id": "SUPER",
+   "requested_l": 3000.0,
+   "priority": "urgent",
+   "window": null
+  },
+  {
+   "id": "CMD078",
+   "station_id": "LIM01",
+   "product_id": "SUPER",
+   "requested_l": 4000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD079",
+   "station_id": "YAO03",
+   "product_id": "SUPER",
+   "requested_l": 6000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD080",
+   "station_id": "BAF02",
+   "product_id": "PETROLE",
+   "requested_l": 2000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD081",
+   "station_id": "NKO02",
+   "product_id": "GASOIL",
+   "requested_l": 6000.0,
+   "priority": "urgent",
+   "window": null
+  },
+  {
+   "id": "CMD082",
+   "station_id": "DIZ01",
+   "product_id": "PETROLE",
+   "requested_l": 3000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD083",
+   "station_id": "DOU10",
+   "product_id": "SUPER",
+   "requested_l": 7000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD084",
+   "station_id": "SOA01",
+   "product_id": "SUPER",
+   "requested_l": 4000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD085",
+   "station_id": "EDE02",
+   "product_id": "GASOIL",
+   "requested_l": 5000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD086",
+   "station_id": "YAO02",
+   "product_id": "PETROLE",
+   "requested_l": 3000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD087",
+   "station_id": "ESE01",
+   "product_id": "SUPER",
+   "requested_l": 4000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD088",
+   "station_id": "YAO05",
+   "product_id": "GASOIL",
+   "requested_l": 5000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD089",
+   "station_id": "DOU04",
+   "product_id": "GASOIL",
+   "requested_l": 5000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD090",
+   "station_id": "KUM02",
+   "product_id": "SUPER",
+   "requested_l": 4000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD091",
+   "station_id": "YAO03",
+   "product_id": "PETROLE",
+   "requested_l": 3000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD092",
+   "station_id": "DOU08",
+   "product_id": "PETROLE",
+   "requested_l": 2000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD093",
+   "station_id": "DOU16",
+   "product_id": "SUPER",
+   "requested_l": 3000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD094",
+   "station_id": "DOU16",
+   "product_id": "GASOIL",
+   "requested_l": 7000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD095",
+   "station_id": "YAO04",
+   "product_id": "SUPER",
+   "requested_l": 5000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD096",
+   "station_id": "MON01",
+   "product_id": "GASOIL",
+   "requested_l": 3000.0,
+   "priority": "urgent",
+   "window": null
+  },
+  {
+   "id": "CMD097",
+   "station_id": "MFO01",
+   "product_id": "PETROLE",
+   "requested_l": 2000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD098",
+   "station_id": "OBA01",
+   "product_id": "GASOIL",
+   "requested_l": 4000.0,
+   "priority": "normal",
+   "window": [
+    50400,
+    64800
+   ]
+  },
+  {
+   "id": "CMD099",
+   "station_id": "SAN01",
+   "product_id": "SUPER",
+   "requested_l": 8000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD100",
+   "station_id": "DOU19",
+   "product_id": "SUPER",
+   "requested_l": 6000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD101",
+   "station_id": "DOU18",
+   "product_id": "GASOIL",
+   "requested_l": 3000.0,
+   "priority": "urgent",
+   "window": null
+  },
+  {
+   "id": "CMD102",
+   "station_id": "EDE01",
+   "product_id": "SUPER",
+   "requested_l": 5000.0,
+   "priority": "normal",
+   "window": [
+    57600,
+    72000
+   ]
+  },
+  {
+   "id": "CMD103",
+   "station_id": "LIM02",
+   "product_id": "SUPER",
+   "requested_l": 4000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD104",
+   "station_id": "YAO02",
+   "product_id": "SUPER",
+   "requested_l": 6000.0,
+   "priority": "urgent",
+   "window": null
+  },
+  {
+   "id": "CMD105",
+   "station_id": "YAO13",
+   "product_id": "SUPER",
+   "requested_l": 6000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD106",
+   "station_id": "MBA01",
+   "product_id": "GASOIL",
+   "requested_l": 5000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD107",
+   "station_id": "DOU08",
+   "product_id": "SUPER",
+   "requested_l": 3000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD108",
+   "station_id": "TIK01",
+   "product_id": "SUPER",
+   "requested_l": 5000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD109",
+   "station_id": "EBO01",
+   "product_id": "PETROLE",
+   "requested_l": 3000.0,
+   "priority": "normal",
+   "window": [
+    54000,
+    68400
+   ]
+  },
+  {
+   "id": "CMD110",
+   "station_id": "DOU01",
+   "product_id": "GASOIL",
+   "requested_l": 5000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD111",
+   "station_id": "KUM01",
+   "product_id": "SUPER",
+   "requested_l": 5000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD112",
+   "station_id": "YAO16",
+   "product_id": "GASOIL",
+   "requested_l": 7000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD113",
+   "station_id": "LOU01",
+   "product_id": "SUPER",
+   "requested_l": 3000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD114",
+   "station_id": "YAO02",
+   "product_id": "GASOIL",
+   "requested_l": 4000.0,
+   "priority": "normal",
+   "window": [
+    46800,
+    61200
+   ]
+  },
+  {
+   "id": "CMD115",
+   "station_id": "DOU09",
+   "product_id": "GASOIL",
+   "requested_l": 8000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD116",
+   "station_id": "DOU13",
+   "product_id": "GASOIL",
+   "requested_l": 5000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD117",
+   "station_id": "YAO12",
+   "product_id": "SUPER",
+   "requested_l": 7000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD118",
+   "station_id": "AKO01",
+   "product_id": "SUPER",
+   "requested_l": 7000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD119",
+   "station_id": "KUM02",
+   "product_id": "GASOIL",
+   "requested_l": 5000.0,
+   "priority": "normal",
+   "window": null
+  },
+  {
+   "id": "CMD120",
+   "station_id": "ESE01",
+   "product_id": "GASOIL",
+   "requested_l": 8000.0,
+   "priority": "normal",
+   "window": null
+  }
+ ],
+ "depot_stocks": [
+  {
+   "depot_id": "DEP-DLA",
+   "product_id": "GASOIL",
+   "available_l": 294000.0
+  },
+  {
+   "depot_id": "DEP-DLA",
+   "product_id": "PETROLE",
+   "available_l": 68000.0
+  },
+  {
+   "depot_id": "DEP-DLA",
+   "product_id": "SUPER",
+   "available_l": 299000.0
+  },
+  {
+   "depot_id": "DEP-YDE",
+   "product_id": "GASOIL",
+   "available_l": 294000.0
+  },
+  {
+   "depot_id": "DEP-YDE",
+   "product_id": "PETROLE",
+   "available_l": 68000.0
+  },
+  {
+   "depot_id": "DEP-YDE",
+   "product_id": "SUPER",
+   "available_l": 299000.0
+  }
+ ],
+ "driver_by_truck": {},
+ "locked_trips": []
+}
