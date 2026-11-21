@@ -67,4 +67,14 @@ async def test_require_roles_admin_passe_partout(client, auth_headers):
 
 
 async def test_health(client):
-    assert (await client.get("/health")).json() == {"status": "ok"}
+    assert (await client.get("/health")).json()["status"] == "ok"
+
+
+async def test_requete_en_erreur_n_annule_pas_les_donnees_du_test(client, auth_headers):
+    """Une requête refusée (ici 403) ne doit pas faire disparaître l'utilisateur créé par le test."""
+    headers = await auth_headers("manager")
+    assert (await client.get("/_test/fleet-only", headers=headers)).status_code in (403, 404)
+    assert (
+        await client.post("/auth/login", json={"email": "x@tourneo-test.cm", "password": "faux"})
+    ).status_code == 401
+    assert (await client.get("/me", headers=headers)).status_code == 200

@@ -57,6 +57,9 @@ class Params:
     # Solveur
     solver_time_limit_s: int = 45
     solver_no_improvement_s: int = 10
+    # Arrêt anticipé indépendant de l'horloge (reproductibilité) : nombre de solutions consécutives
+    # sans amélioration ; 0 = critère désactivé.
+    solver_no_improvement_solutions: int = 1000
     solver_seed: int = 42
     # Repli sans OSRM (§7.2)
     haversine_factor: float = 1.3

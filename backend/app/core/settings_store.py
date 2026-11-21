@@ -35,9 +35,14 @@ DEFAULTS: dict[str, tuple[Any, str]] = {
     "objective_unserved_penalty_urgent_km": (5000.0, "Objectif : pénalité commande urgente non servie (km)"),
     "solver_time_limit_s": (45, "Limite de temps du solveur (secondes)"),
     "solver_no_improvement_s": (10, "Arrêt anticipé du solveur sans amélioration (secondes)"),
+    "solver_no_improvement_solutions": (
+        1000,
+        "Arrêt anticipé du solveur après N solutions sans amélioration (0 = désactivé ; reproductibilité)",
+    ),
     "solver_seed": (42, "Graine du solveur (reproductibilité)"),
     "haversine_factor": (1.3, "Coefficient appliqué à la distance à vol d'oiseau si OSRM est indisponible"),
     "ab_success_threshold_pct": (10.0, "Seuil de réussite du test A/B : gain kilométrique minimal (%)"),
+    "import_max_file_mb": (10, "Taille maximale d'un fichier d'import (Mo)"),
     "company_name": ("OLA Energy Cameroun", "Nom affiché en en-tête des documents PDF"),
     "pdf_logo_url": (None, "Logo des documents PDF (URL ou chemin de fichier ; vide = nom en texte)"),
 }

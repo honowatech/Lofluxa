@@ -47,7 +47,8 @@ RM-18 dans le service de plans, RM-19 dans `app/events`, RM-20 dans `app/core/ti
 ENGINE_VERSION: str
 def solve(problem: PlanningProblem, matrix: Matrix, progress=None) -> PlanningResult
 def assign_compartments(truck, volumes_by_product, safety_margin_pct) -> list[CompartmentLoadD] | None   # compartments.py
-def build_matrix(nodes, params, *, osrm_url=None, cache=None) -> Matrix                                 # distance_matrix.py
+def build_matrix(nodes, params, *, osrm_url=None, cache=None, client=None) -> Matrix                    # distance_matrix.py
+def problem_nodes(problem) -> list[tuple[str, float, float]]                                            # distance_matrix.py
 def coord_hash(lat, lon) -> str
 ```
 
@@ -59,6 +60,11 @@ Jeux de données : `data/fixtures/<nom>/problem.json` (sérialisation de `Planni
 `build_problem`, `persist_result`, `load_plan_trips`, `launch_compute`, `new_version`, `recheck_plan`
 (signatures et docstrings dans le fichier). Les lots événements et comparaison passent par ces fonctions et
 n'appellent jamais le moteur directement.
+
+Ajouts du lot L5 (mêmes conventions) : `run_compute` / `run_recompute` (logique des tâches, avec session),
+`launch_recompute`, `publish_plan`, `new_version_with_ids` (nouvelle version + correspondance ancien → nouvel
+identifiant de tournée et d'arrêt, pour F6.1/F6.2), `order_remainders` (reliquat RM-16) ; `checking.load_plan`
+et `checking.log_event` ; `views.plan_out` (plan complet de l'API). Modèle de versions : `planning/versions.py`.
 
 ## 6. Imports — `backend/app/imports/` (lot L3)
 
