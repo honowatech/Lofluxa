@@ -78,3 +78,9 @@ Chaque lot ne modifie que les fichiers listés (chemins relatifs à `backend/app
 | 5 | RM-01 à RM-20 testées ; couverture du module `planning` ≥ 80 % | L1, L2, L5, L6, L10, socle (RM-20) |
 | 6 | Redémarrage sans perte, sauvegarde restaurable en moins de 30 minutes | L8 |
 | 7 | Aucun fichier Excel lu hors de `imports/` | L3, L7 (contrôle automatisé en vague 3) |
+
+## 7. Avancement
+
+| Date | État |
+|---|---|
+| 21/11/2026 | Vague 0 faite. Vague 1 : lots L1 à L8 livrés et fusionnés (règles, moteur, référentiels et imports, commandes et disponibilité, service de plans, chargement, comparaison, administration et infrastructure). Calcul réel de bout en bout vérifié (`tests/integration/planning/test_real_engine.py`). L9 (socle de l'interface) en cours. Vague 2 : L10 (événements) et L15 (démonstration de bout en bout) lancés ; les écrans (L11 à L14) partent à la livraison de L9. |

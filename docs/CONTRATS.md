@@ -47,7 +47,8 @@ RM-18 dans le service de plans, RM-19 dans `app/events`, RM-20 dans `app/core/ti
 ENGINE_VERSION: str
 def solve(problem: PlanningProblem, matrix: Matrix, progress=None) -> PlanningResult
 def assign_compartments(truck, volumes_by_product, safety_margin_pct) -> list[CompartmentLoadD] | None   # compartments.py
-def build_matrix(nodes, params, *, osrm_url=None, cache=None) -> Matrix                                 # distance_matrix.py
+def build_matrix(nodes, params, *, osrm_url=None, cache=None, client=None) -> Matrix                    # distance_matrix.py
+def problem_nodes(problem) -> list[tuple[str, float, float]]                                            # distance_matrix.py
 def coord_hash(lat, lon) -> str
 ```
 
