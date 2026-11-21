@@ -58,9 +58,10 @@ test("plan calculé → déplacer un arrêt → verrouiller → publier → feui
   page,
 }) => {
   const day = freshDay();
-  const { planId } = await seedPlan({ fixture: "demo_douala", day });
+  const { planId, token } = await seedPlan({ fixture: "demo_douala", day });
   expect(planId).toBeTruthy();
-  const api = await Api.login();
+  // Une seule connexion par l'API (10 connexions par minute et par adresse) : le jeton de la mise en données est réutilisé.
+  const api = new Api(token);
   const initial = await api.call<ApiPlan>("GET", `/plans/${planId}`);
   expect(initial.trips.length).toBeGreaterThan(1);
 
@@ -186,8 +187,8 @@ test("plan calculé → déplacer un arrêt → verrouiller → publier → feui
 
 test("édition au clavier et vue tableau contre la vraie API", async ({ page }) => {
   const day = freshDay();
-  const { planId } = await seedPlan({ fixture: "demo_douala", day });
-  const api = await Api.login();
+  const { planId, token } = await seedPlan({ fixture: "demo_douala", day });
+  const api = new Api(token);
   const initial = await api.call<ApiPlan>("GET", `/plans/${planId}`);
   const trip = initial.trips.find((candidate) => candidate.stops.length > 1) as ApiTrip;
 

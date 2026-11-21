@@ -13,7 +13,7 @@ fi
 
 echo "→ Démarrage de PostgreSQL et Redis"
 service postgresql start >/dev/null 2>&1 || true
-(redis-cli ping >/dev/null 2>&1) || (redis-server --daemonize yes >/dev/null)
+(redis-cli ping >/dev/null 2>&1) || (redis-server --daemonize yes --dir /tmp >/dev/null)
 for _ in $(seq 1 20); do pg_isready -q && break; sleep 0.5; done
 
 su postgres -c "psql -v ON_ERROR_STOP=1 -q" <<'SQL'
