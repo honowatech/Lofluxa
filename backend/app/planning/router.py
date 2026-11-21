@@ -175,6 +175,7 @@ async def recompute(
     params = payload.params if payload else None
     service.validate_params_override(params)
     plan = await load_plan(session, plan_id)
+    editing.ensure_not_reference(plan)
     if plan.status == PlanStatus.ARCHIVED:
         raise ConflictError("Ce plan est archivé : il ne peut plus être recalculé.", code="plan_archived")
     task_id = await service.launch_recompute(session, plan_id, user_id=user.id, params_override=params)
