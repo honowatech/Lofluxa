@@ -11,6 +11,7 @@ import {
 } from "./edits";
 import { usePlanStore } from "./store";
 import { asNewVersion, makePlan, unserved, violation } from "./testing/fixtures";
+import type { EditOp } from "./types";
 
 const stopsOf = (plan: ReturnType<typeof makePlan>, tripId: string) =>
   plan.trips.find((trip) => trip.id === tripId)?.stops.map((stop) => `${stop.seq}:${stop.station_code}`);
@@ -197,7 +198,7 @@ describe("store d'édition", () => {
     usePlanStore.getState().reset();
     usePlanStore.getState().load(makePlan());
   });
-  const reorder = { type: "reorder", tripId: "trip-1", stopIds: ["stop-b", "stop-a", "stop-c"] } as const;
+  const reorder: EditOp = { type: "reorder", tripId: "trip-1", stopIds: ["stop-b", "stop-a", "stop-c"] };
 
   it("begin affiche l'état optimiste, commit le remplace par la réponse du serveur", () => {
     const store = usePlanStore.getState();
