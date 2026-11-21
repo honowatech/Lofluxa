@@ -18,6 +18,7 @@ from app.orders.models import Order
 from app.planning import checking, versions
 from app.planning.models import Plan, Trip
 from app.planning.schemas import (
+    CompartmentOut,
     DeliveryOut,
     LoadOut,
     PlanOut,
@@ -187,6 +188,24 @@ def trip_out(trip: Trip, labels: Labels, violations: Counter | None = None) -> T
         )
     loads.sort(key=lambda x: x.compartment_position if x.compartment_position is not None else 0)
 
+    # Tous les compartiments du camion, vides compris, pour dessiner le camion entier.
+    by_compartment = {x.compartment_id: x for x in loads}
+    all_compartments = []
+    for compartment in sorted(compartments.values(), key=lambda c: c.position):
+        load = by_compartment.get(compartment.id)
+        all_compartments.append(
+            CompartmentOut(
+                compartment_id=compartment.id,
+                compartment_position=compartment.position,
+                capacity_l=float(compartment.capacity_l),
+                product_id=load.product_id if load else None,
+                product_code=load.product_code if load else None,
+                product_label=load.product_label if load else None,
+                product_color=load.product_color if load else None,
+                planned_l=load.planned_l if load else 0.0,
+            )
+        )
+
     violations = violations or Counter()
     return TripOut(
         id=trip.id,
@@ -219,10 +238,11 @@ def trip_out(trip: Trip, labels: Labels, violations: Counter | None = None) -> T
         warning_count=violations[(trip.id, Severity.WARNING.value)],
         stops=stops,
         loads=loads,
+        compartments=all_compartments,
     )
 
 
-async def plan_out(session: AsyncSession, plan: Plan) -> PlanOut:
+async def plan_out(session: AsyncSession, plan: Plan, *, with_last_edit: bool = False) -> PlanOut:
     """Plan complet (chargé par `checking.load_plan`) → réponse de l'API."""
     labels = await load_labels(session, plan)
     per_trip: Counter = Counter(
@@ -279,6 +299,7 @@ async def plan_out(session: AsyncSession, plan: Plan) -> PlanOut:
 
     return PlanOut(
         **_summary_fields(plan, labels.users.get(plan.created_by)),
+        last_edit=getattr(plan, "last_edit", None) if with_last_edit else None,
         params_snapshot=plan.params_snapshot,
         solver_log=plan.solver_log,
         trips=[trip_out(t, labels, per_trip) for t in trips],

@@ -114,11 +114,26 @@ class StopOut(BaseModel):
 
 
 class LoadOut(BaseModel):
+    """Un compartiment chargé (plan de chargement de la tournée)."""
+
     id: uuid.UUID
     compartment_id: uuid.UUID
     compartment_position: int | None = None
     capacity_l: float | None = None
     product_id: uuid.UUID
+    product_code: str | None = None
+    product_label: str | None = None
+    product_color: str | None = None
+    planned_l: float
+
+
+class CompartmentOut(BaseModel):
+    """Un compartiment du camion de la tournée, chargé ou vide (`planned_l = 0`, `product_id = null`)."""
+
+    compartment_id: uuid.UUID
+    compartment_position: int
+    capacity_l: float
+    product_id: uuid.UUID | None = None
     product_code: str | None = None
     product_label: str | None = None
     product_color: str | None = None
@@ -156,6 +171,10 @@ class TripOut(BaseModel):
     warning_count: int = 0
     stops: list[StopOut]
     loads: list[LoadOut]
+    compartments: list[CompartmentOut] = Field(
+        default_factory=list,
+        description="Tous les compartiments du camion, vides compris, dans l'ordre des positions.",
+    )
 
 
 class UnservedOut(BaseModel):
@@ -214,7 +233,17 @@ class PlanSummaryOut(BaseModel):
     created_by_name: str | None = None
 
 
+class LastEditOut(BaseModel):
+    """Ce que la modification qui vient d'être faite a changé (résumé journalisé dans `events`)."""
+
+    action: str
+    summary: str
+
+
 class PlanOut(PlanSummaryOut):
+    last_edit: LastEditOut | None = Field(
+        default=None, description="Présent seulement dans la réponse d'une modification manuelle."
+    )
     params_snapshot: dict[str, Any] | None = None
     solver_log: dict[str, Any] | None = None
     trips: list[TripOut]
