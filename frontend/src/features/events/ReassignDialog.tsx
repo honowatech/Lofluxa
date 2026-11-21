@@ -1,10 +1,10 @@
 /**
  * Assistant de réaffectation (F6.1 panne de camion, F6.2 chauffeur indisponible) en quatre étapes courtes :
  * incident → tournée → remplaçant → confirmation. RM-19 : seuls les arrêts « à livrer » sont transférés.
+ * Les remplaçants et leurs motifs d'inéligibilité viennent de `GET /events/replacement-options` (lot L10).
  */
 import { CheckCircle2, Truck, UserX } from "lucide-react";
 import { useEffect, useId, useState, type ReactNode } from "react";
-import { Link } from "react-router-dom";
 
 import { notify } from "@/components/notify";
 import { Notice } from "@/components/PageHeader";
@@ -21,7 +21,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { NativeSelect } from "@/components/ui/input";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ViolationsPanel } from "@/components/ViolationsPanel";
 import { fr } from "@/i18n/fr";
@@ -35,12 +35,15 @@ import {
   usePublishedTrips,
   useReplacementOptions,
   useTruckBreakdown,
-  type IncidentKind,
+  type DriverOptionOut,
+  type EventResultOut,
   type PlanStopOut,
   type PublishedTrip,
-  type ReassignmentResult,
+  type ReasonOut,
 } from "./api";
-import { planLink } from "./summary";
+import { PlanResult } from "./PlanResult";
+
+type IncidentKind = "truck" | "driver";
 
 const t = fr.screens.events.assistant;
 const STEPS = ["kind", "trip", "replacement", "confirm"] as const;
@@ -120,6 +123,59 @@ function Rm19({ item }: { item: PublishedTrip }) {
   );
 }
 
+/** Motifs d'inéligibilité d'un remplaçant : code de règle et message du serveur. */
+function Reasons({ reasons }: { reasons: ReasonOut[] }) {
+  if (reasons.length === 0) return null;
+  return (
+    <ul className="mt-0.5 flex flex-col gap-0.5">
+      {reasons.map((reason, index) => (
+        <li key={index} className="text-xs text-warning">
+          {reason.rule_code && <span className="num font-semibold">{reason.rule_code} — </span>}
+          {reason.message}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function DriverChoice({
+  name,
+  driver,
+  checked,
+  onChange,
+}: {
+  name: string;
+  driver: DriverOptionOut;
+  checked: boolean;
+  onChange: () => void;
+}) {
+  return (
+    <Choice
+      name={name}
+      value={driver.driver_id}
+      checked={checked}
+      onChange={onChange}
+      disabled={!driver.eligible}
+    >
+      <span className="flex flex-wrap items-center gap-x-2 text-sm">
+        <span className="font-medium">{driver.full_name}</span>
+        {!driver.eligible && <Badge tone="warning">{t.replacement.ineligible}</Badge>}
+      </span>
+      <span className="block text-xs text-muted-foreground">
+        {[
+          driver.phone,
+          driver.carrier_name,
+          driver.assigned_truck_plate ? t.replacement.assignedTruck(driver.assigned_truck_plate) : null,
+          driver.other_trip_seqs.length > 0 ? t.replacement.otherTrips(driver.other_trip_seqs) : null,
+        ]
+          .filter(Boolean)
+          .join(" · ")}
+      </span>
+      <Reasons reasons={driver.reasons} />
+    </Choice>
+  );
+}
+
 function RecapRow({ label, children }: { label: string; children: ReactNode }) {
   return (
     <>
@@ -143,11 +199,16 @@ export function ReassignDialog({
   const [kind, setKind] = useState<IncidentKind>("truck");
   const [tripId, setTripId] = useState<string | null>(null);
   const [truckId, setTruckId] = useState<string | null>(null);
+  /** `null` : chauffeur proposé par le serveur (panne de camion uniquement). */
   const [driverId, setDriverId] = useState<string | null>(null);
-  const [done, setDone] = useState<ReassignmentResult | null>(null);
+  const [reason, setReason] = useState("");
+  const [done, setDone] = useState<EventResultOut | null>(null);
 
   const trips = usePublishedTrips(day, open);
-  const options = useReplacementOptions(tripId, kind, open && step >= 2);
+  // Tournée, camions, et chauffeurs pour une reprise de la tournée telle quelle (F6.2).
+  const options = useReplacementOptions(tripId, null, open && !done);
+  // Chauffeurs évalués pour la tournée de remplacement du camion choisi (F6.1).
+  const forTruck = useReplacementOptions(tripId, truckId, open && !done && kind === "truck" && !!truckId);
   const truckBreakdown = useTruckBreakdown();
   const driverUnavailable = useDriverUnavailable();
   const mutation = kind === "truck" ? truckBreakdown : driverUnavailable;
@@ -159,6 +220,7 @@ export function ReassignDialog({
     setTripId(null);
     setTruckId(null);
     setDriverId(null);
+    setReason("");
     setDone(null);
     truckBreakdown.reset();
     driverUnavailable.reset();
@@ -168,13 +230,30 @@ export function ReassignDialog({
   const selected = trips.data?.find((item) => item.trip.id === tripId) ?? null;
   const pendingCount = (item: PublishedTrip) =>
     item.trip.stops.filter((stop) => stop.status === "pending").length;
-  const truck = options.data?.trucks.find((item) => item.id === truckId) ?? null;
-  const driver = options.data?.drivers.find((item) => item.id === driverId) ?? null;
+  const brief = options.data?.trip ?? null;
+  const blocked = brief?.blocked_reason ?? null;
+  const trucks = (options.data?.trucks ?? []).filter((item) => item.truck_id !== brief?.truck_id);
+  const truck = trucks.find((item) => item.truck_id === truckId) ?? null;
+  const driverRequired =
+    forTruck.data?.trucks.find((item) => item.truck_id === truckId)?.driver_required ??
+    truck?.driver_required ??
+    false;
+  const drivers =
+    kind === "truck"
+      ? (forTruck.data?.drivers ?? [])
+      : (options.data?.drivers ?? []).filter((item) => !item.is_current);
+  const driver = drivers.find((item) => item.driver_id === driverId) ?? null;
 
   const canContinue =
     step === 0 ||
-    (step === 1 && !!selected) ||
-    (step === 2 && (kind === "truck" ? !!truck : !!driver)) ||
+    (step === 1 && !!selected && !!brief && !blocked) ||
+    (step === 2 &&
+      (kind === "truck"
+        ? !!truck &&
+          truck.eligible &&
+          !forTruck.isLoading &&
+          (driverId ? !!driver?.eligible : !driverRequired)
+        : !!driver?.eligible)) ||
     step === 3;
 
   const chooseKind = (next: IncidentKind) => {
@@ -190,6 +269,7 @@ export function ReassignDialog({
 
   const confirm = async () => {
     if (!selected) return;
+    const motive = reason.trim() ? { reason: reason.trim() } : {};
     try {
       const result =
         kind === "truck"
@@ -197,20 +277,25 @@ export function ReassignDialog({
               trip_id: selected.trip.id,
               replacement_truck_id: truckId as string,
               ...(driverId ? { replacement_driver_id: driverId } : {}),
+              ...motive,
             })
           : await driverUnavailable.mutateAsync({
               trip_id: selected.trip.id,
               replacement_driver_id: driverId as string,
+              ...motive,
             });
       setDone(result);
       notify.success(t.done.toast);
     } catch {
-      // L'erreur reste affichée dans la boîte (state de la mutation).
+      // L'erreur reste affichée dans la boîte (état de la mutation).
     }
   };
 
   const error = mutation.error;
   const stepName = STEPS[step];
+  const newDriverName =
+    driver?.full_name ??
+    (kind === "truck" ? (truck?.suggested_driver_name ?? selected?.trip.driver_name ?? EMPTY) : EMPTY);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -223,24 +308,25 @@ export function ReassignDialog({
         {done ? (
           <>
             <DialogBody className="flex flex-col gap-3">
-              <Notice tone="info" icon={<CheckCircle2 className="size-4" aria-hidden />}>
-                <strong className="font-semibold">{t.done.title}.</strong>{" "}
-                {t.done.newVersion(done.plan_version)}
-                {done.transferred_stop_count !== null &&
-                  ` ${t.done.transferred(done.transferred_stop_count)}`}
-              </Notice>
+              <p className="flex items-center gap-1.5 text-sm font-medium">
+                <CheckCircle2 className="size-4 text-success" aria-hidden />
+                {t.done.title}
+              </p>
+              <p className="text-sm">{done.event.summary}</p>
+              {kind === "truck" && (
+                <p className="text-xs text-muted-foreground">
+                  {t.done.transferred(done.transferred_stop_ids.length, done.kept_stop_ids.length)}
+                </p>
+              )}
+              <PlanResult result={done} day={day} onNavigate={() => onOpenChange(false)} />
+              {done.other_impacted_trips.length > 0 && (
+                <Notice tone="warning">
+                  {t.done.otherTrips(done.other_impacted_trips.map((item) => item.seq))}
+                </Notice>
+              )}
             </DialogBody>
             <DialogFooter>
-              <Button variant="ghost" onClick={() => onOpenChange(false)}>
-                {fr.common.close}
-              </Button>
-              {done.plan_id && (
-                <Button asChild>
-                  <Link to={planLink(done.plan_id, day)} onClick={() => onOpenChange(false)}>
-                    {t.done.openPlan}
-                  </Link>
-                </Button>
-              )}
+              <Button onClick={() => onOpenChange(false)}>{fr.common.close}</Button>
             </DialogFooter>
           </>
         ) : (
@@ -339,7 +425,21 @@ export function ReassignDialog({
                         );
                       })}
                     </fieldset>
-                    {selected && <Rm19 item={selected} />}
+                    {selected &&
+                      (options.isLoading ? (
+                        <LoadingState compact label={t.trips.checking} />
+                      ) : options.error ? (
+                        <ErrorState compact error={options.error} onRetry={() => options.refetch()} />
+                      ) : blocked ? (
+                        <Notice tone="blocking">{blocked}</Notice>
+                      ) : (
+                        <>
+                          {brief?.plan_status === "draft" && (
+                            <Notice tone="info">{t.trips.draftInProgress(brief.plan_version)}</Notice>
+                          )}
+                          <Rm19 item={selected} />
+                        </>
+                      ))}
                   </>
                 ))}
 
@@ -350,83 +450,99 @@ export function ReassignDialog({
                   <ErrorState compact error={options.error} onRetry={() => options.refetch()} />
                 ) : kind === "truck" ? (
                   <>
-                    {(options.data?.trucks ?? []).length === 0 ? (
+                    {trucks.length === 0 ? (
                       <EmptyState compact description={t.replacement.noTruck} />
                     ) : (
                       <fieldset className="flex flex-col gap-1.5">
                         <legend className="mb-1.5 text-sm font-medium">{t.replacement.truckLabel}</legend>
-                        {(options.data?.trucks ?? []).map((item) => (
+                        {trucks.map((item) => (
                           <Choice
-                            key={item.id}
+                            key={item.truck_id}
                             name={`${ids}-truck`}
-                            value={item.id}
-                            checked={truckId === item.id}
-                            onChange={() => setTruckId(item.id)}
-                            disabled={!item.suitable}
+                            value={item.truck_id}
+                            checked={truckId === item.truck_id}
+                            onChange={() => {
+                              setTruckId(item.truck_id);
+                              setDriverId(null);
+                            }}
+                            disabled={!item.eligible}
                           >
                             <span className="flex flex-wrap items-center gap-x-2 text-sm">
                               <span className="font-medium">{item.plate}</span>
-                              {!item.suitable && <Badge tone="warning">{t.replacement.unsuitable}</Badge>}
+                              {!item.eligible && <Badge tone="warning">{t.replacement.ineligible}</Badge>}
                             </span>
                             <span className="block text-xs text-muted-foreground">
                               {[
-                                item.size ? fr.status.size[item.size as keyof typeof fr.status.size] : null,
-                                item.total_capacity_l !== null
-                                  ? t.replacement.capacity(formatLiters(item.total_capacity_l))
-                                  : null,
+                                fr.status.size[item.size],
+                                t.replacement.capacity(formatLiters(item.total_capacity_l)),
                                 item.carrier_name,
-                                item.reason,
+                                item.assigned_driver_name
+                                  ? t.replacement.assignedDriver(item.assigned_driver_name)
+                                  : null,
+                                item.other_trip_seqs.length > 0
+                                  ? t.replacement.otherTrips(item.other_trip_seqs)
+                                  : null,
                               ]
                                 .filter(Boolean)
                                 .join(" · ")}
                             </span>
+                            <Reasons reasons={item.reasons} />
                           </Choice>
                         ))}
                       </fieldset>
                     )}
-                    <div className="flex flex-col gap-1">
-                      <Label htmlFor={`${ids}-driver`}>{t.replacement.driverOptional}</Label>
-                      <NativeSelect
-                        id={`${ids}-driver`}
-                        value={driverId ?? ""}
-                        onChange={(event) => setDriverId(event.target.value || null)}
-                        className="max-w-sm"
-                      >
-                        <option value="">
-                          {t.replacement.keepDriver(selected?.trip.driver_name ?? null)}
-                        </option>
-                        {(options.data?.drivers ?? [])
-                          .filter((item) => item.suitable)
-                          .map((item) => (
-                            <option key={item.id} value={item.id}>
-                              {item.full_name}
-                            </option>
+                    {truck &&
+                      (forTruck.isLoading ? (
+                        <LoadingState compact label={t.replacement.evaluating} />
+                      ) : forTruck.error ? (
+                        <ErrorState compact error={forTruck.error} onRetry={() => forTruck.refetch()} />
+                      ) : (
+                        <fieldset className="flex flex-col gap-1.5">
+                          <legend className="mb-1.5 text-sm font-medium">
+                            {t.replacement.driverForTruck(truck.plate)}
+                          </legend>
+                          {driverRequired ? (
+                            <Notice tone="warning">{t.replacement.driverRequired}</Notice>
+                          ) : (
+                            <Choice
+                              name={`${ids}-driver`}
+                              value=""
+                              checked={driverId === null}
+                              onChange={() => setDriverId(null)}
+                            >
+                              <span className="text-sm font-medium">
+                                {t.replacement.defaultDriver(truck.suggested_driver_name ?? null)}
+                              </span>
+                              <span className="block text-xs text-muted-foreground">
+                                {t.replacement.defaultDriverHint}
+                              </span>
+                            </Choice>
+                          )}
+                          {drivers.map((item) => (
+                            <DriverChoice
+                              key={item.driver_id}
+                              name={`${ids}-driver`}
+                              driver={item}
+                              checked={driverId === item.driver_id}
+                              onChange={() => setDriverId(item.driver_id)}
+                            />
                           ))}
-                      </NativeSelect>
-                    </div>
+                        </fieldset>
+                      ))}
                   </>
-                ) : (options.data?.drivers ?? []).length === 0 ? (
+                ) : drivers.length === 0 ? (
                   <EmptyState compact description={t.replacement.noDriver} />
                 ) : (
                   <fieldset className="flex flex-col gap-1.5">
                     <legend className="mb-1.5 text-sm font-medium">{t.replacement.driverLabel}</legend>
-                    {(options.data?.drivers ?? []).map((item) => (
-                      <Choice
-                        key={item.id}
+                    {drivers.map((item) => (
+                      <DriverChoice
+                        key={item.driver_id}
                         name={`${ids}-driver`}
-                        value={item.id}
-                        checked={driverId === item.id}
-                        onChange={() => setDriverId(item.id)}
-                        disabled={!item.suitable}
-                      >
-                        <span className="flex flex-wrap items-center gap-x-2 text-sm">
-                          <span className="font-medium">{item.full_name}</span>
-                          {!item.suitable && <Badge tone="warning">{t.replacement.unsuitable}</Badge>}
-                        </span>
-                        <span className="block text-xs text-muted-foreground">
-                          {[item.phone, item.reason].filter(Boolean).join(" · ")}
-                        </span>
-                      </Choice>
+                        driver={item}
+                        checked={driverId === item.driver_id}
+                        onChange={() => setDriverId(item.driver_id)}
+                      />
                     ))}
                   </fieldset>
                 ))}
@@ -454,9 +570,7 @@ export function ReassignDialog({
                           <RecapRow label={t.recap.newTruck}>
                             <span className="font-medium">{truck?.plate ?? EMPTY}</span>
                           </RecapRow>
-                          <RecapRow label={t.recap.newDriver}>
-                            {driver?.full_name ?? t.recap.unchangedDriver}
-                          </RecapRow>
+                          <RecapRow label={t.recap.newDriver}>{newDriverName}</RecapRow>
                         </>
                       ) : (
                         <>
@@ -464,7 +578,7 @@ export function ReassignDialog({
                             {selected.trip.driver_name ?? EMPTY}
                           </RecapRow>
                           <RecapRow label={t.recap.newDriver}>
-                            <span className="font-medium">{driver?.full_name ?? EMPTY}</span>
+                            <span className="font-medium">{newDriverName}</span>
                           </RecapRow>
                         </>
                       )}
@@ -474,6 +588,19 @@ export function ReassignDialog({
                     </dl>
                     <p className="mt-1.5 text-xs text-muted-foreground">{t.recap.effect}</p>
                   </section>
+                  <div className="flex flex-col gap-1">
+                    <Label htmlFor={`${ids}-reason`}>
+                      {t.reason}
+                      <span className="ml-1 font-normal text-muted-foreground">({fr.common.optional})</span>
+                    </Label>
+                    <Input
+                      id={`${ids}-reason`}
+                      value={reason}
+                      maxLength={500}
+                      placeholder={t.reasonPlaceholder}
+                      onChange={(event) => setReason(event.target.value)}
+                    />
+                  </div>
                   {error && (
                     <Notice tone="blocking">
                       <strong className="font-semibold">{t.failed}.</strong> {errorMessage(error)}

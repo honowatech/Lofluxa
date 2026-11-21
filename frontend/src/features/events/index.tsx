@@ -20,16 +20,17 @@ import { EmptyState, ErrorState, LoadingState } from "@/components/states";
 import { Badge, type Tone } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { fr } from "@/i18n/fr";
-import { useCan } from "@/lib/auth/session";
+import { useCan, useRole } from "@/lib/auth/session";
 import { formatDateLong, formatLocalTime } from "@/lib/format";
 import { EVENT_TYPES, type EventType, type IsoDate } from "@/lib/types";
 import { useDay } from "@/lib/useDay";
 import { cn } from "@/lib/utils";
 
-import { useEvents, type EventItem } from "./api";
+import { useEvents, type EventOut, type ShortageStatus } from "./api";
+import { ImpactDialog } from "./ImpactDialog";
 import { ReassignDialog } from "./ReassignDialog";
 import { ShortageDialog } from "./ShortageDialog";
-import { summarize } from "./summary";
+import { present } from "./summary";
 
 const t = fr.screens.events;
 
@@ -44,12 +45,26 @@ const TYPE_STYLE: Record<EventType, { icon: LucideIcon; tone: Tone }> = {
   delivery_recorded: { icon: PackageCheck, tone: "primary" },
 };
 const FALLBACK_STYLE = { icon: ClipboardCheck, tone: "neutral" as Tone };
+const SHORTAGE_TONE: Record<ShortageStatus, Tone> = {
+  open: "warning",
+  resolved: "success",
+  no_impact: "muted",
+};
 
-function EventRow({ event, day }: { event: EventItem; day: IsoDate }) {
-  const summary = summarize(event, day);
+function EventRow({
+  event,
+  day,
+  canResolve,
+  onOpenImpact,
+}: {
+  event: EventOut;
+  day: IsoDate;
+  canResolve: boolean;
+  onOpenImpact: (eventId: string) => void;
+}) {
+  const view = present(event, day);
   const style = TYPE_STYLE[event.type] ?? FALLBACK_STYLE;
   const Icon = style.icon;
-  const planVersion = event.payload.plan_version;
   return (
     <li
       className="grid grid-cols-[3.25rem_11.5rem_minmax(0,1fr)_auto] items-start gap-x-3 border-b px-3 py-2 last:border-b-0"
@@ -59,30 +74,41 @@ function EventRow({ event, day }: { event: EventItem; day: IsoDate }) {
       <time dateTime={event.occurred_at} className="num pt-0.5 text-sm font-medium tabular-nums">
         {formatLocalTime(event.occurred_at)}
       </time>
-      <div className="pt-px">
+      <div className="flex flex-col items-start gap-1 pt-px">
         <Badge tone={style.tone}>
           <Icon className="size-3" aria-hidden />
-          {t.types[event.type] ?? event.type}
+          {t.types[event.type] ?? event.type_label}
         </Badge>
+        {view.shortageStatus && (
+          <Badge tone={SHORTAGE_TONE[view.shortageStatus]}>
+            {t.feed.shortageStatus[view.shortageStatus]}
+          </Badge>
+        )}
       </div>
       <div className="min-w-0">
-        <p className={cn("text-sm", summary.warning && "font-medium")}>{summary.title}</p>
-        {summary.details.map((line) => (
-          <p
-            key={line}
-            className={cn("text-xs text-muted-foreground", line === t.feed.rm13 && "text-warning")}
-          >
+        <p className={cn("text-sm", view.warning && "font-medium")}>{event.summary}</p>
+        {view.details.map((line) => (
+          <p key={line} className="text-xs text-muted-foreground">
             {line}
           </p>
         ))}
         <p className="mt-0.5 flex flex-wrap gap-x-2 text-xs text-muted-foreground">
           {event.trip_id && <span>{t.feed.trip(event.trip_seq, event.truck_plate)}</span>}
-          {typeof planVersion === "number" && <span>{t.feed.planVersion(planVersion)}</span>}
+          {event.plan_version != null && <span>{t.feed.planVersion(event.plan_version)}</span>}
           <span>{t.feed.by(event.actor_name ?? t.feed.system)}</span>
         </p>
       </div>
-      <div className="flex flex-col items-end gap-0.5 pt-0.5">
-        {summary.links.map((link) => (
+      <div className="flex flex-col items-end gap-1 pt-0.5">
+        {view.shortageStatus && view.shortageStatus !== "no_impact" && (
+          <Button
+            variant={view.shortageStatus === "open" && canResolve ? "default" : "outline"}
+            size="sm"
+            onClick={() => onOpenImpact(event.id)}
+          >
+            {view.shortageStatus === "open" && canResolve ? t.feed.resolve : t.feed.viewImpact}
+          </Button>
+        )}
+        {view.links.map((link) => (
           <Link
             key={link.to}
             to={link.to}
@@ -130,11 +156,15 @@ function FilterChip({
 
 export default function EventsPage() {
   const { day } = useDay();
+  // Réaffectation et résolution d'une pénurie : dispatcher. Déclaration d'une pénurie : Supply (lot L10).
   const canWrite = useCan("events.write");
+  const role = useRole();
+  const canDeclare = role === "supply" || role === "admin";
   const events = useEvents(day);
   const [selected, setSelected] = useState<ReadonlySet<EventType>>(new Set());
   const [reassignOpen, setReassignOpen] = useState(false);
   const [shortageOpen, setShortageOpen] = useState(false);
+  const [impactEventId, setImpactEventId] = useState<string | null>(null);
 
   const all = useMemo(() => events.data ?? [], [events.data]);
   const counts = useMemo(() => {
@@ -169,22 +199,22 @@ export default function EventsPage() {
             >
               <RefreshCw className={cn(events.isFetching && "animate-spin")} aria-hidden />
             </Button>
+            {canDeclare && (
+              <Button variant="outline" onClick={() => setShortageOpen(true)}>
+                <Droplets aria-hidden />
+                {t.actions.shortage}
+              </Button>
+            )}
             {canWrite && (
-              <>
-                <Button variant="outline" onClick={() => setShortageOpen(true)}>
-                  <Droplets aria-hidden />
-                  {t.actions.shortage}
-                </Button>
-                <Button onClick={() => setReassignOpen(true)}>
-                  <Truck aria-hidden />
-                  {t.actions.reassign}
-                </Button>
-              </>
+              <Button onClick={() => setReassignOpen(true)}>
+                <Truck aria-hidden />
+                {t.actions.reassign}
+              </Button>
             )}
           </>
         }
       />
-      {!canWrite && (
+      {!canWrite && !canDeclare && (
         <Notice tone="neutral" icon={<Lock className="size-3.5" />}>
           {t.readOnlyNotice}
         </Notice>
@@ -228,18 +258,33 @@ export default function EventsPage() {
         ) : (
           <ol>
             {visible.map((event) => (
-              <EventRow key={event.id} event={event} day={day} />
+              <EventRow
+                key={event.id}
+                event={event}
+                day={day}
+                canResolve={canWrite}
+                onOpenImpact={setImpactEventId}
+              />
             ))}
           </ol>
         )}
       </section>
 
-      {canWrite && (
-        <>
-          <ReassignDialog day={day} open={reassignOpen} onOpenChange={setReassignOpen} />
-          <ShortageDialog day={day} open={shortageOpen} onOpenChange={setShortageOpen} />
-        </>
+      {canWrite && <ReassignDialog day={day} open={reassignOpen} onOpenChange={setReassignOpen} />}
+      {canDeclare && (
+        <ShortageDialog
+          day={day}
+          open={shortageOpen}
+          onOpenChange={setShortageOpen}
+          onResolve={canWrite ? setImpactEventId : undefined}
+        />
       )}
+      <ImpactDialog
+        day={day}
+        eventId={impactEventId}
+        canResolve={canWrite}
+        onClose={() => setImpactEventId(null)}
+      />
     </div>
   );
 }

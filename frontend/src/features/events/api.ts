@@ -1,31 +1,36 @@
 /**
- * Accès à l'API de l'écran « Journal des événements ».
+ * Accès à l'API de l'écran « Journal des événements » — aligné sur les routes RÉELLES du lot L10
+ * (`backend/app/events/router.py` et `schemas.py`, commit 1bd8741).
  *
- * ⚠ ROUTES D'ÉVÉNEMENTS NON LIVRÉES (lot L10) — tout ce qui SUPPOSE la forme de leurs réponses est ici,
- * et nulle part ailleurs dans l'écran. Rapprochement à l'intégration : ajuster les types « supposés » et
- * les fonctions `normalize*` de ce fichier (et les doublures de `mocks.ts`), rien d'autre.
+ * Les types ci-dessous sont écrits à la main, à l'identique des schémas Pydantic du lot L10, parce que
+ * `src/lib/types/api.gen.ts` ne contient pas encore ces routes :
+ * **à remplacer par `components["schemas"][…]` après régénération** (`scripts/gen_api_types.sh`) —
+ * les noms sont ceux des schémas (`EventOut`, `EventResultOut`, `ReplacementOptionsOut`, `ShortageOut`…).
  *
- * Certain (spec §9, à la lettre) :
- *   GET  /events?day=
- *   POST /events/truck-breakdown    {trip_id, replacement_truck_id, replacement_driver_id?}
- *   POST /events/driver-unavailable {trip_id, replacement_driver_id}
- *   POST /events/product-shortage   {depot_id, product_id, new_available_l}
- * Certain (modèle `backend/app/events/models.py`) : champs d'un événement
- *   id, day, plan_id, trip_id, type, payload, occurred_at, actor_id.
- * Supposé :
- *   - `GET /events` renvoie une `Page` (CONTRATS §7) avec des libellés (`actor_name`, `trip_seq`, `truck_plate`) ;
- *   - route des options de remplacement : `GET /events/replacement-options?trip_id=&kind=truck|driver` ;
- *   - réponses des trois POST (voir `ReassignmentResult` et `ShortageResult`).
- *
- * Les routes déjà livrées (plans, dépôts, produits) utilisent les types générés depuis l'OpenAPI.
+ *   GET  /events?day=&type=&trip_id=&plan_id=           → Page[EventOut]
+ *   GET  /events/replacement-options?trip_id=&replacement_truck_id=&occurred_at= → ReplacementOptionsOut
+ *   POST /events/truck-breakdown    {trip_id, replacement_truck_id, replacement_driver_id?, reason?} → EventResultOut
+ *   POST /events/driver-unavailable {trip_id, replacement_driver_id, reason?}                        → EventResultOut
+ *   POST /events/product-shortage   {depot_id, product_id, new_available_l, day?}  (supply) → ShortageOut
+ *   GET  /events/{id}/impact                                                               → ShortageOut
+ *   POST /events/{id}/resolve       {resolutions: [{trip_id, action, depot_id?}]} (dispatcher) → ResolveOut
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api, fetchAll, type ApiError } from "@/lib/api";
-import type { EventType, IsoDate, IsoDateTime, UUID } from "@/lib/types";
+import type {
+  EventType,
+  IsoDate,
+  IsoDateTime,
+  PlanStatus,
+  Severity,
+  TripStatus,
+  TruckSize,
+  UUID,
+} from "@/lib/types";
 import type { components } from "@/lib/types/api.gen";
 
-/* ------------------------------------------------------------------ routes livrées (types générés) */
+/* ------------------------------------------------------------------ routes déjà dans api.gen.ts */
 
 export type PlanOut = components["schemas"]["PlanOut"];
 export type TripOut = components["schemas"]["TripOut"];
@@ -46,10 +51,13 @@ export function usePublishedTrips(day: IsoDate, enabled = true) {
   return useQuery<PublishedTrip[], ApiError>({
     queryKey: ["/plans", "published-trips", day],
     enabled,
+    staleTime: 0,
     queryFn: async ({ signal }) => {
       const summaries = await fetchAll<PlanSummaryOut>("/plans", { day, status: "published" }, signal);
       const plans = await Promise.all(
-        summaries.map((summary) => api<PlanOut>(`/plans/${summary.id}`, { signal })),
+        summaries
+          .filter((summary) => summary.kind === "computed")
+          .map((summary) => api<PlanOut>(`/plans/${summary.id}`, { signal })),
       );
       return plans.flatMap((plan) =>
         [...plan.trips]
@@ -78,272 +86,304 @@ export function useProducts(enabled = true) {
   });
 }
 
-/* ------------------------------------------------------------------ GET /events (forme supposée) */
+/* ------------------------------------------------------------------ journal : EventOut */
 
-/** Événement du journal. Les six premiers champs suivent le modèle ; les libellés sont supposés. */
-export interface EventItem {
+/** `EventOut` : une ligne du journal de la journée (F6.4). `summary` est toujours fourni par le serveur. */
+export interface EventOut {
   id: UUID;
   day: IsoDate;
-  plan_id: UUID | null;
-  trip_id: UUID | null;
   type: EventType;
-  payload: Record<string, unknown>;
+  type_label: string;
+  action?: string | null;
+  summary: string;
   occurred_at: IsoDateTime;
-  actor_id: UUID | null;
-  /** Supposé (CONTRATS §7 : « libellés utiles à l'affichage »). */
-  actor_name: string | null;
-  trip_seq: number | null;
-  truck_plate: string | null;
+  actor_id?: UUID | null;
+  actor_name?: string | null;
+  plan_id?: UUID | null;
+  plan_version?: number | null;
+  trip_id?: UUID | null;
+  trip_seq?: number | null;
+  truck_plate?: string | null;
+  payload: Record<string, unknown>;
 }
-
-type Raw = Record<string, unknown>;
-const isRecord = (value: unknown): value is Raw =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
-const str = (value: unknown): string | null => (typeof value === "string" && value !== "" ? value : null);
-const num = (value: unknown): number | null =>
-  typeof value === "number" && Number.isFinite(value) ? value : null;
-
-function normalizeEvent(raw: unknown): EventItem {
-  const row = isRecord(raw) ? raw : {};
-  const payload = isRecord(row.payload) ? row.payload : {};
-  return {
-    id: String(row.id),
-    day: String(row.day ?? ""),
-    plan_id: str(row.plan_id),
-    trip_id: str(row.trip_id),
-    type: String(row.type) as EventType,
-    payload,
-    occurred_at: String(row.occurred_at ?? row.created_at ?? ""),
-    actor_id: str(row.actor_id),
-    actor_name: str(row.actor_name) ?? str(payload.actor_name),
-    trip_seq: num(row.trip_seq) ?? num(payload.trip_seq),
-    truck_plate: str(row.truck_plate) ?? str(payload.truck_plate),
-  };
-}
-
-/** Accepte une `Page` ou une simple liste ; renvoie le fil du plus récent au plus ancien. */
-export function normalizeEvents(raw: unknown): EventItem[] {
-  const list = Array.isArray(raw) ? raw : isRecord(raw) && Array.isArray(raw.items) ? raw.items : [];
-  return list.map(normalizeEvent).sort((a, b) => b.occurred_at.localeCompare(a.occurred_at));
-}
-
-const EVENTS_PAGE_SIZE = 200;
 
 export const eventsKey = (day: IsoDate) => ["/events", day] as const;
 
+/** Journal du jour, du plus récent au plus ancien (ordre du serveur), toutes pages réunies. */
 export function useEvents(day: IsoDate) {
-  return useQuery<EventItem[], ApiError>({
+  return useQuery<EventOut[], ApiError>({
     queryKey: eventsKey(day),
-    queryFn: async ({ signal }) => {
-      const items: EventItem[] = [];
-      for (let offset = 0; ;) {
-        const raw = await api<unknown>("/events", {
-          query: { day, limit: EVENTS_PAGE_SIZE, offset },
-          signal,
-        });
-        const batch = normalizeEvents(raw);
-        items.push(...batch);
-        offset += batch.length;
-        const total = isRecord(raw) ? num(raw.total) : null;
-        if (batch.length === 0 || total === null || offset >= total) break;
-      }
-      return items.sort((a, b) => b.occurred_at.localeCompare(a.occurred_at));
-    },
+    queryFn: ({ signal }) => fetchAll<EventOut>("/events", { day }, signal),
   });
 }
 
-/* ------------------------------------------------------------------ options de remplacement (supposé) */
+/* ------------------------------------------------------------------ options de remplacement */
 
-export type IncidentKind = "truck" | "driver";
-
-export interface ReplacementTruck {
-  id: UUID;
+export interface ReasonOut {
+  rule_code?: string | null;
+  message: string;
+}
+export interface TripBriefOut {
+  trip_id: UUID;
+  source_trip_id: UUID;
+  plan_id: UUID;
+  plan_version: number;
+  plan_status: PlanStatus;
+  seq: number;
+  status: TripStatus;
+  truck_id: UUID;
+  truck_plate?: string | null;
+  driver_id?: UUID | null;
+  driver_name?: string | null;
+  depot_id: UUID;
+  depot_code?: string | null;
+  pending_stops: number;
+  delivered_stops: number;
+  skipped_stops: number;
+  pending_l: number;
+  pending_station_codes: string[];
+  can_replace_truck: boolean;
+  can_replace_driver: boolean;
+  blocked_reason?: string | null;
+}
+export interface TruckOptionOut {
+  truck_id: UUID;
   plate: string;
-  size: string | null;
-  total_capacity_l: number | null;
-  carrier_name: string | null;
-  /** Faux : proposé pour information mais non affectable (`reason` dit pourquoi). */
-  suitable: boolean;
-  reason: string | null;
+  size: TruckSize;
+  carrier_name?: string | null;
+  total_capacity_l: number;
+  assigned_driver_id?: UUID | null;
+  assigned_driver_name?: string | null;
+  other_trip_seqs: number[];
+  eligible: boolean;
+  reasons: ReasonOut[];
+  suggested_driver_id?: UUID | null;
+  suggested_driver_name?: string | null;
+  driver_required: boolean;
 }
-export interface ReplacementDriver {
-  id: UUID;
+export interface DriverOptionOut {
+  driver_id: UUID;
   full_name: string;
-  phone: string | null;
-  suitable: boolean;
-  reason: string | null;
+  phone?: string | null;
+  carrier_name?: string | null;
+  assigned_truck_id?: UUID | null;
+  assigned_truck_plate?: string | null;
+  other_trip_seqs: number[];
+  is_current: boolean;
+  eligible: boolean;
+  reasons: ReasonOut[];
 }
-export interface ReplacementOptions {
-  trucks: ReplacementTruck[];
-  drivers: ReplacementDriver[];
-}
-
-export function normalizeReplacementOptions(raw: unknown): ReplacementOptions {
-  const source = isRecord(raw) ? raw : {};
-  const list = (value: unknown): Raw[] => (Array.isArray(value) ? value.filter(isRecord) : []);
-  return {
-    trucks: list(source.trucks).map((row) => ({
-      id: String(row.id ?? row.truck_id),
-      plate: String(row.plate ?? row.truck_plate ?? ""),
-      size: str(row.size),
-      total_capacity_l: num(row.total_capacity_l),
-      carrier_name: str(row.carrier_name),
-      suitable: row.suitable !== false,
-      reason: str(row.reason),
-    })),
-    drivers: list(source.drivers).map((row) => ({
-      id: String(row.id ?? row.driver_id),
-      full_name: String(row.full_name ?? row.driver_name ?? ""),
-      phone: str(row.phone),
-      suitable: row.suitable !== false,
-      reason: str(row.reason),
-    })),
-  };
+export interface ReplacementOptionsOut {
+  trip: TripBriefOut;
+  occurred_at: IsoDateTime;
+  drivers_evaluated_for_truck_id: UUID;
+  trucks: TruckOptionOut[];
+  drivers: DriverOptionOut[];
 }
 
-/** Supposé : `GET /events/replacement-options?trip_id=&kind=` → `{trucks[], drivers[]}`. */
-export function useReplacementOptions(tripId: UUID | null, kind: IncidentKind, enabled = true) {
-  return useQuery<ReplacementOptions, ApiError>({
-    queryKey: ["/events/replacement-options", tripId, kind],
+/**
+ * Camions et chauffeurs possibles pour une tournée. Les chauffeurs sont évalués pour la tournée telle
+ * quelle (F6.2) ou, si `replacementTruckId` est donné, pour la tournée de remplacement de ce camion (F6.1).
+ */
+export function useReplacementOptions(tripId: UUID | null, replacementTruckId: UUID | null, enabled = true) {
+  return useQuery<ReplacementOptionsOut, ApiError>({
+    queryKey: ["/events/replacement-options", tripId, replacementTruckId],
     enabled: enabled && !!tripId,
-    queryFn: async ({ signal }) =>
-      normalizeReplacementOptions(
-        await api<unknown>("/events/replacement-options", { query: { trip_id: tripId, kind }, signal }),
-      ),
+    queryFn: ({ signal }) =>
+      api<ReplacementOptionsOut>("/events/replacement-options", {
+        query: { trip_id: tripId, replacement_truck_id: replacementTruckId ?? undefined },
+        signal,
+      }),
     staleTime: 0,
   });
 }
 
-/* ------------------------------------------------------------------ réaffectation (corps : spec §9) */
+/* ------------------------------------------------------------------ réaffectation */
 
-export interface TruckBreakdownInput {
+/** Corps de la spec §9 ; `reason` est un ajout facultatif du lot L10 (L10-A6). */
+export interface TruckBreakdownIn {
   trip_id: UUID;
   replacement_truck_id: UUID;
   replacement_driver_id?: UUID;
+  reason?: string;
 }
-export interface DriverUnavailableInput {
+export interface DriverUnavailableIn {
   trip_id: UUID;
   replacement_driver_id: UUID;
+  reason?: string;
 }
 
-/** Résultat d'une réaffectation, réduit à ce dont l'écran a besoin. */
-export interface ReassignmentResult {
-  /** Nouvelle version du plan (F6.1 : « nouvelle version du plan »). */
-  plan_id: UUID | null;
-  plan_version: number | null;
-  transferred_stop_count: number | null;
+export interface RuleIssueOut {
+  rule_code: string;
+  severity: Severity;
+  message: string;
+  trip_id?: UUID | null;
+  trip_seq?: number | null;
 }
-
-/**
- * Formes acceptées : `{plan: {id, version}, …}`, `{plan_id, plan_version, …}`, `{event: {plan_id, payload}}`,
- * ou directement un plan complet (`PlanOut`, comme les routes d'édition du lot L5).
- */
-export function normalizeReassignment(raw: unknown): ReassignmentResult {
-  const source = isRecord(raw) ? raw : {};
-  const plan = isRecord(source.plan) ? source.plan : Array.isArray(source.trips) ? source : {};
-  const event = isRecord(source.event) ? source.event : {};
-  const payload = isRecord(event.payload) ? event.payload : {};
-  return {
-    plan_id:
-      str(plan.id) ??
-      str(source.new_plan_id) ??
-      str(source.plan_id) ??
-      str(payload.new_plan_id) ??
-      str(event.plan_id),
-    plan_version:
-      num(plan.version) ??
-      num(source.plan_version) ??
-      num(payload.new_plan_version) ??
-      num(payload.plan_version),
-    transferred_stop_count:
-      num(source.transferred_stop_count) ??
-      num(payload.transferred_stop_count) ??
-      (Array.isArray(source.transferred_stop_ids) ? source.transferred_stop_ids.length : null),
-  };
+/** `PlanResultOut` : état de la version du plan après un événement (RM-18). */
+export interface PlanResultOut {
+  plan_id: UUID;
+  plan_version: number;
+  plan_status: PlanStatus;
+  published: boolean;
+  version_created: boolean;
+  previous_plan_id?: UUID | null;
+  previous_plan_version?: number | null;
+  previous_plan_status?: PlanStatus | null;
+  blocking_count: number;
+  warning_count: number;
+  violations: RuleIssueOut[];
+  plan: PlanOut;
+}
+export interface OtherTripOut {
+  trip_id: UUID;
+  seq: number;
+  status: TripStatus;
+  pending_stops: number;
+}
+export interface EventResultOut extends PlanResultOut {
+  event: EventOut;
+  source_trip_id: UUID;
+  origin_trip_id?: UUID | null;
+  new_trip_id?: UUID | null;
+  trip_id: UUID;
+  truck_id: UUID;
+  driver_id?: UUID | null;
+  transferred_stop_ids: UUID[];
+  kept_stop_ids: UUID[];
+  other_impacted_trips: OtherTripOut[];
 }
 
 function useAfterEvent() {
   const client = useQueryClient();
   return () =>
-    Promise.all([
-      client.invalidateQueries({ queryKey: ["/events"] }),
-      client.invalidateQueries({ queryKey: ["/plans"] }),
-      client.invalidateQueries({ queryKey: ["/loadings"] }),
-    ]);
+    Promise.all(
+      ["/events", "/plans", "/loadings", "/events/replacement-options"].map((key) =>
+        client.invalidateQueries({ queryKey: [key] }),
+      ),
+    );
 }
 
 export function useTruckBreakdown() {
   const after = useAfterEvent();
-  return useMutation<ReassignmentResult, ApiError, TruckBreakdownInput>({
-    mutationFn: async (body) =>
-      normalizeReassignment(await api<unknown>("/events/truck-breakdown", { method: "POST", body })),
+  return useMutation<EventResultOut, ApiError, TruckBreakdownIn>({
+    mutationFn: (body) => api<EventResultOut>("/events/truck-breakdown", { method: "POST", body }),
     onSuccess: after,
   });
 }
 
 export function useDriverUnavailable() {
   const after = useAfterEvent();
-  return useMutation<ReassignmentResult, ApiError, DriverUnavailableInput>({
-    mutationFn: async (body) =>
-      normalizeReassignment(await api<unknown>("/events/driver-unavailable", { method: "POST", body })),
+  return useMutation<EventResultOut, ApiError, DriverUnavailableIn>({
+    mutationFn: (body) => api<EventResultOut>("/events/driver-unavailable", { method: "POST", body }),
     onSuccess: after,
   });
 }
 
-/* ------------------------------------------------------------------ pénurie produit (corps : spec §9) */
+/* ------------------------------------------------------------------ pénurie produit (F6.3) */
 
-export interface ProductShortageInput {
+/**
+ * Corps de la spec §9, plus `day` (ajout facultatif L10-A6) : sans lui le serveur prend « aujourd'hui »,
+ * alors que l'écran travaille sur le jour J choisi.
+ */
+export interface ProductShortageIn {
   depot_id: UUID;
   product_id: UUID;
   new_available_l: number;
+  day?: IsoDate;
 }
 
-/** Tournée impactée (F6.3 : volume prévu > stock restant). */
-export interface ImpactedTrip {
+export type ShortageAction = "reduce" | "postpone" | "change_depot";
+export type ShortageStatus = "open" | "resolved" | "no_impact";
+
+export interface ShortageOrderOut {
+  order_id: UUID;
+  stop_id: UUID;
+  station_code?: string | null;
+  station_name?: string | null;
+  planned_l: number;
+  requested_l?: number | null;
+  priority?: string | null;
+}
+export interface AlternativeDepotOut {
+  depot_id: UUID;
+  code: string;
+  name: string;
+  available_l?: number | null;
+  planned_l: number;
+  remaining_l?: number | null;
+  sufficient?: boolean | null;
+}
+export interface ImpactedTripOut {
+  plan_id: UUID;
+  plan_version: number;
+  plan_status: PlanStatus;
   trip_id: UUID;
-  plan_id: UUID | null;
-  trip_seq: number | null;
-  truck_plate: string | null;
-  driver_name: string | null;
-  /** Volume du produit prévu au chargement de la tournée. */
-  planned_l: number | null;
-  /** Volume manquant pour cette tournée, si le serveur le calcule. */
-  shortfall_l: number | null;
+  trip_seq: number;
+  status: TripStatus;
+  truck_plate?: string | null;
+  driver_name?: string | null;
+  planned_start_at?: IsoDateTime | null;
+  planned_l: number;
+  covered_l: number;
+  shortfall_l: number;
+  options: ShortageAction[];
+  orders: ShortageOrderOut[];
+  alternative_depots: AlternativeDepotOut[];
+  resolution?: Record<string, unknown> | null;
 }
-export interface ShortageResult {
-  available_l: number | null;
-  impacted_trips: ImpactedTrip[];
+export interface ShortageOut {
+  event: EventOut;
+  status: ShortageStatus;
+  day: IsoDate;
+  depot_id: UUID;
+  depot_code: string;
+  product_id: UUID;
+  product_code: string;
+  previous_available_l?: number | null;
+  new_available_l: number;
+  loaded_l: number;
+  remaining_l: number;
+  planned_unloaded_l: number;
+  shortfall_l: number;
+  impacted_trips: ImpactedTripOut[];
 }
 
-/** Formes acceptées : `{impacted_trips: […]}` à la racine, ou dans `event.payload`. */
-export function normalizeShortage(raw: unknown): ShortageResult {
-  const source = isRecord(raw) ? raw : {};
-  const event = isRecord(source.event) ? source.event : {};
-  const payload = isRecord(event.payload) ? event.payload : isRecord(source.payload) ? source.payload : {};
-  const list = Array.isArray(source.impacted_trips)
-    ? source.impacted_trips
-    : Array.isArray(payload.impacted_trips)
-      ? payload.impacted_trips
-      : [];
-  return {
-    available_l: num(source.available_l) ?? num(source.new_available_l) ?? num(payload.new_available_l),
-    impacted_trips: list.filter(isRecord).map((row) => ({
-      trip_id: String(row.trip_id ?? row.id),
-      plan_id: str(row.plan_id),
-      trip_seq: num(row.trip_seq) ?? num(row.seq),
-      truck_plate: str(row.truck_plate),
-      driver_name: str(row.driver_name),
-      planned_l: num(row.planned_l),
-      shortfall_l: num(row.shortfall_l),
-    })),
-  };
+/** Décision du dispatcher pour une tournée. Les volumes (`reduce`) et commandes (`postpone`) par défaut sont ceux du serveur. */
+export interface ShortageResolutionIn {
+  trip_id: UUID;
+  action: ShortageAction;
+  depot_id?: UUID;
+}
+export interface ResolveIn {
+  resolutions: ShortageResolutionIn[];
+}
+export interface ResolveOut extends ShortageOut {
+  results: PlanResultOut[];
 }
 
 export function useProductShortage() {
   const after = useAfterEvent();
-  return useMutation<ShortageResult, ApiError, ProductShortageInput>({
-    mutationFn: async (body) =>
-      normalizeShortage(await api<unknown>("/events/product-shortage", { method: "POST", body })),
+  return useMutation<ShortageOut, ApiError, ProductShortageIn>({
+    mutationFn: (body) => api<ShortageOut>("/events/product-shortage", { method: "POST", body }),
+    onSuccess: after,
+  });
+}
+
+/** Tournées encore impactées par une pénurie déclarée, options à jour. */
+export function useShortageImpact(eventId: UUID | null, enabled = true) {
+  return useQuery<ShortageOut, ApiError>({
+    queryKey: ["/events", "impact", eventId],
+    enabled: enabled && !!eventId,
+    queryFn: ({ signal }) => api<ShortageOut>(`/events/${eventId}/impact`, { signal }),
+    staleTime: 0,
+  });
+}
+
+export function useResolveShortage(eventId: UUID | null) {
+  const after = useAfterEvent();
+  return useMutation<ResolveOut, ApiError, ResolveIn>({
+    mutationFn: (body) => api<ResolveOut>(`/events/${eventId}/resolve`, { method: "POST", body }),
     onSuccess: after,
   });
 }
