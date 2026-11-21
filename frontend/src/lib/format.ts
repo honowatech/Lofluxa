@@ -48,10 +48,14 @@ export function formatKm(meters: Maybe<number>): string {
   return `${formatNumber(km, Math.abs(km) < 100 ? 1 : 0)}${NBSP}km`;
 }
 
-/** Durée en **secondes** → `45 min`, `2 h 05`. */
-export function formatDuration(seconds: Maybe<number>): string {
+/**
+ * Durée en **secondes** → `45 min`, `2 h 05`.
+ * `{ seconds: true }` : sous la minute, affiche les secondes (`42 s`) au lieu d'arrondir à `1 min` / `0 min`.
+ */
+export function formatDuration(seconds: Maybe<number>, options: { seconds?: boolean } = {}): string {
   if (missing(seconds)) return EMPTY;
   const sign = seconds < 0 ? "−" : "";
+  if (options.seconds && Math.abs(seconds) < 60) return `${sign}${Math.round(Math.abs(seconds))}${NBSP}s`;
   const minutes = Math.round(Math.abs(seconds) / 60);
   if (minutes < 60) return `${sign}${minutes}${NBSP}min`;
   return `${sign}${Math.floor(minutes / 60)}${NBSP}h${NBSP}${String(minutes % 60).padStart(2, "0")}`;

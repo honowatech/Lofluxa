@@ -16,14 +16,14 @@ pnpm dev            # http://localhost:5173 — proxy /api → http://localhost:
 L'API : `./scripts/dev_setup.sh` puis `cd backend && uv run uvicorn app.main:app_instance --port 8000`
 (compte du seed : `admin@honowa.tech` / `admin-dev-only`).
 
-| Commande        | Rôle                                                                                                                                                                                                                                                                                                           |
-| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pnpm dev`      | serveur de développement                                                                                                                                                                                                                                                                                       |
-| `pnpm build`    | contrôle des types + site statique dans `dist/` (servi par Caddy)                                                                                                                                                                                                                                              |
-| `pnpm lint`     | ESLint (zéro avertissement) + Prettier                                                                                                                                                                                                                                                                         |
-| `pnpm test`     | Vitest + Testing Library + MSW                                                                                                                                                                                                                                                                                 |
-| `pnpm e2e`      | Playwright, **contre la vraie API, sans doublure** : connexion → coquille → rafraîchissement du jeton → déconnexion ; créer un dépôt et une station → carte ; importer `data/templates/stations.xlsx` → prévisualiser → appliquer ; paramètre modifié → audit. Rejouable (les données créées sont supprimées). |
-| `pnpm captures` | régénère `docs/captures/*.png` (doublures complètes, aucun back-end requis)                                                                                                                                                                                                                                    |
+| Commande        | Rôle                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm dev`      | serveur de développement                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `pnpm build`    | contrôle des types + site statique dans `dist/` (servi par Caddy)                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `pnpm lint`     | ESLint (zéro avertissement) + Prettier                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `pnpm test`     | Vitest + Testing Library + MSW                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `pnpm e2e`      | Playwright, **contre la vraie API, sans doublure** (prérequis : `./scripts/dev_setup.sh`, l'API, et un worker Celery pour les parcours Plan et Comparaison). Socle : connexion → coquille → rafraîchissement du jeton → déconnexion ; dépôt + station → carte ; import de `data/templates/stations.xlsx` ; paramètre → audit. La suite complète dépasse 10 connexions par minute : les parcours du socle attendent le délai annoncé par le serveur sur un 429 (`e2e/l9-auth.ts`). |
+| `pnpm captures` | régénère `docs/captures/*.png` (doublures complètes, aucun back-end requis)                                                                                                                                                                                                                                                                                                                                                                                                       |
 
 ### Variables d'environnement (`.env.example`)
 
@@ -161,7 +161,8 @@ await api("/plans/compute", { method: "POST", body: { day } });
   (`navigator.locks` + relecture du stockage) ;
 - toute erreur est une `ApiError` : `status`, `code`, `message` (français, affichable), `details`,
   `rule_code` / `ruleCodes` (RM-xx), `violations` (prêtes pour `ViolationsPanel`), `fieldErrors` (422 et 409
-  `duplicate` → champs), `retryAfter` (429 `rate_limited`, secondes) ;
+  `duplicate` → champs), `retryAfter` (429 `rate_limited`, secondes), `body` (corps brut de la réponse, pour les
+  champs hors enveloppe : `(error.body as { warnings?: … })?.warnings`) ;
 - `createResource<T, TInput>(path)` → `useList(query)`, `useAll()`, `useOne(id)`, `useCreate()`, `useUpdate()`,
   `useRemove()`, `useRemoveMany()` (les écritures invalident les listes). `PUT` = mise à jour **partielle** ;
   les sous-listes (cuves, compartiments) partent avec leur parent ;
@@ -187,7 +188,7 @@ jour courant à Douala, transmis par les liens de navigation. `withDay(path, day
 | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
 | `formatLiters(12000)`                                                                                | litres → `12 000 L`                                                                              |
 | `formatKm(12400)`                                                                                    | **mètres** → `12,4 km`                                                                           |
-| `formatDuration(7500)`                                                                               | **secondes** → `2 h 05`                                                                          |
+| `formatDuration(7500)`                                                                               | **secondes** → `2 h 05` ; `formatDuration(42, { seconds: true })` → `42 s` (sous la minute)      |
 | `formatLocalTime("2027-01-12T06:30:00Z")`                                                            | horodatage UTC → `07:30` (Africa/Douala, RM-20)                                                  |
 | `formatDate("2027-01-12")`                                                                           | → `12/01/2027` ; `formatDateLong` → `mar. 12 janv. 2027` ; `formatDateTime` → `12/01/2027 07:30` |
 | `formatNumber`, `formatPercent`                                                                      | nombres en notation française                                                                    |
@@ -284,6 +285,22 @@ Repli : sans `VITE_TILES_URL` ou si les tuiles ne répondent pas, fond uni et me
 (ou `renderer="schematic"`), vue schématique SVG avec les mêmes données. Aucun test ne dépend du réseau.
 `path` accepte une géométrie routière (liste de points) quand le serveur en fournit une.
 
+Ajouts pour les écrans Plan et Comparaison (tous facultatifs, comportement par défaut inchangé) :
+
+```tsx
+const bounds = boundsOf([...pointsA, ...pointsB], [...routesA, ...routesB]);   // même cadrage, même échelle
+<MapView bounds={bounds} points={pointsA} routes={routesA} />
+<MapView bounds={bounds} points={pointsB} routes={routesB} />
+
+<MapView routes={routes} focusRouteId={selectedTripId}                // recadre sur la tournée ; null = tout
+  onRouteClick={(id) => selectTrip(id)} onRouteHover={(id) => setHoveredTrip(id)}   // clic / survol du TRACÉ
+  points={[{ id, kind: "station", variant: "unserved", lat, lon, label }]} />        // losange pointillé « non servie »
+```
+
+`dimmed` sur une tournée atténue aussi ses arrêts. `routeColor(i)` ne boucle qu'après 30 tournées ; les
+10 premières couleurs sont figées (le PDF de comparaison les reprend). `routeBounds(route)` donne l'emprise
+d'une tournée.
+
 ### `ViolationsPanel`
 
 ```tsx
@@ -292,6 +309,9 @@ Repli : sans `VITE_TILES_URL` ou si les tuiles ne répondent pas, fond uni et me
 ```
 
 Rouge = bloquant, orange = avertissement, code RM-xx en tête, bloquantes d'abord, compteurs dans l'en-tête.
+
+`maxListHeight` (`"40vh"`, `240`, `"none"`) règle la hauteur de la liste avant défilement (défaut : 16 rem).
+Une violation peut porter un `id` (clé stable de la ligne).
 
 ### `ConfirmDialog` / `useConfirm`
 
@@ -351,14 +371,22 @@ const schema = z.object({
 ```
 
 - champs : `TextField`, `TextAreaField`, `NumberField` (unité, virgule ou point), `LitersField` (milliers
-  groupés), `TimeField` (`630` → `06:30`), `DateField`, `SelectField`, `SwitchField`, `ColorField`,
+  groupés), `TimeField` (`630` → `06:30`), `DateField` (affiché et saisi en `jj/mm/aaaa`), `SelectField`, `SwitchField`, `ColorField`,
   `OpeningHoursField` (continu, ou plages par jour), `CoordinatesField` (latitude / longitude + mini-carte,
-  clic pour placer, collage de « lat, lon ») ; saisies nues : `NumberInput`, `TimeInput`, `ChipsInput`,
+  clic pour placer, collage de « lat, lon ») ; saisies nues : `NumberInput`, `TimeInput`, `DateInput`, `ChipsInput`,
   `OpeningHoursInput` ;
 - zod : `zText`, `zCode`, `zOptionalText`, `zNumber`, `zOptionalNumber`, `zLiters`, `zTimeHM`, `zOptionalDay`, `zLat`,
   `zLon`, `zColor`, `zOptionalEmail`, `zOpeningHours` ; vide → `null` pour tout champ facultatif ;
 - `EntityFormDialog` gère la validation, l'attente, les erreurs 422 / 409 reportées sur les champs
   (`applyApiErrors`) et la confirmation avant d'abandonner une saisie ; `useZodForm` pour un formulaire hors boîte.
+
+`DateInput` remplace le champ natif `type="date"`, dont le format suit la langue du navigateur : affichage
+`jj/mm/aaaa` partout, saisie libre (`12/01/2027`, `12012027`, `12/1/27`, `2027-01-12`), flèches haut / bas
+= jour suivant / précédent, bouton calendrier ouvrant le sélecteur natif. Valeur : `YYYY-MM-DD` ou `null`.
+
+```tsx
+<DateInput aria-label="Du" value={from} onChange={setFrom} />
+```
 
 ### `SortableList` (dnd-kit)
 
@@ -377,6 +405,26 @@ const schema = z.object({
 ```
 
 Glisser-déposer à la souris, et au clavier (Espace pour saisir, flèches, Espace pour poser).
+
+Entre deux listes : `context="parent"` inscrit la liste dans le `<DndContext>` du parent, qui traite alors
+`onDragEnd` (`onReorder` n'est pas appelé).
+
+```tsx
+const sensors = useSortableSensors(); // mêmes capteurs que la liste autonome
+<DndContext sensors={sensors} onDragEnd={moveStop}>
+  {trips.map((trip) => (
+    <SortableList
+      key={trip.id}
+      context="parent"
+      id={trip.id}
+      items={trip.stops}
+      getId={(s) => s.id}
+      onReorder={() => {}}
+      renderItem={(stop, handle) => <StopRow stop={stop} handle={handle} />}
+    />
+  ))}
+</DndContext>;
+```
 
 ### Statuts, états, notifications, PDF
 

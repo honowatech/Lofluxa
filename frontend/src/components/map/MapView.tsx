@@ -20,9 +20,16 @@ import { TILES_URL } from "@/lib/config";
 import { cn } from "@/lib/utils";
 
 import { Spinner } from "../states";
-import { fitSignatureOf, webglAvailable } from "./geometry";
+import {
+  allPositions,
+  boundsSignature,
+  computeBounds,
+  fitSignatureOf,
+  routeBounds,
+  webglAvailable,
+} from "./geometry";
 import { SchematicMap } from "./SchematicMap";
-import type { LatLon, MapPoint, MapRoute } from "./types";
+import type { Bounds, LatLon, MapPoint, MapRoute } from "./types";
 
 const MapLibreMap = lazy(() => import("./MapLibreMap"));
 
@@ -34,6 +41,17 @@ export interface MapViewProps {
   onSelect?: (id: string, kind: "depot" | "station" | "stop") => void;
   /** Clic sur le fond (saisie de coordonnées). */
   onMapClick?: (position: LatLon) => void;
+  /** Clic sur le TRACÉ d'une tournée (en plus de `onSelect` sur ses arrêts). */
+  onRouteClick?: (id: string) => void;
+  /** Survol du tracé d'une tournée ; `null` quand le pointeur le quitte. */
+  onRouteHover?: (id: string | null) => void;
+  /**
+   * Emprise imposée : la carte cadre dessus et non sur son contenu. Deux cartes recevant la même emprise
+   * (`boundsOf(points, routes)`) ont le même cadrage et la même échelle.
+   */
+  bounds?: Bounds;
+  /** Recadre sur cette tournée (tracé + arrêts) ; `null` ou absent = tout le contenu. Sans effet si `bounds` est fourni. */
+  focusRouteId?: string | null;
   /** Force la vue schématique (aperçus, impression). */
   renderer?: "auto" | "schematic";
   /** Légende dépôt / station sous la carte. */
@@ -56,7 +74,29 @@ export const ROUTE_COLORS = [
   "#0e7490",
   "#6b4a2e",
   "#525f6b",
+  // 11 à 30 : mêmes familles, autres valeurs — une journée de 30 tournées ne réutilise aucune couleur.
+  "#5aa0dc",
+  "#3bb5a3",
+  "#a384dc",
+  "#d46aa6",
+  "#7fae4a",
+  "#6f86cf",
+  "#b89a3e",
+  "#3aa3bd",
+  "#9a7a5c",
+  "#8794a0",
+  "#0b3f6e",
+  "#07564c",
+  "#4a2a85",
+  "#701a4c",
+  "#2c4d0c",
+  "#16285e",
+  "#57420a",
+  "#07495a",
+  "#402a18",
+  "#2f3840",
 ];
+/** Couleur de la tournée de rang `index` (0 = première). Les 10 premières sont celles du PDF de comparaison. */
 export const routeColor = (index: number): string => ROUTE_COLORS[index % ROUTE_COLORS.length];
 
 export function MapView({
@@ -65,6 +105,10 @@ export function MapView({
   selectedId,
   onSelect,
   onMapClick,
+  onRouteClick,
+  onRouteHover,
+  bounds,
+  focusRouteId,
   renderer = "auto",
   legend,
   label = fr.map.label,
@@ -72,9 +116,27 @@ export function MapView({
 }: MapViewProps) {
   const [tilesFailed, setTilesFailed] = useState(false);
   const useGl = useMemo(() => renderer === "auto" && webglAvailable(), [renderer]);
-  const fitSignature = useMemo(() => fitSignatureOf(points, routes), [points, routes]);
-  const isEmpty = fitSignature === "";
-  const rendererProps = { points, routes, selectedId, onSelect, onMapClick, fitSignature };
+  const isEmpty = useMemo(() => fitSignatureOf(points, routes) === "", [points, routes]);
+  // Cadrage : emprise imposée, sinon tournée ciblée, sinon tout le contenu.
+  const fitBounds = useMemo(
+    () =>
+      bounds ??
+      (focusRouteId ? routeBounds(routes.find((route) => route.id === focusRouteId)) : null) ??
+      computeBounds(allPositions(points, routes)),
+    [bounds, focusRouteId, points, routes],
+  );
+  const fitSignature = boundsSignature(fitBounds);
+  const rendererProps = {
+    points,
+    routes,
+    selectedId,
+    onSelect,
+    onMapClick,
+    onRouteClick,
+    onRouteHover,
+    fitSignature,
+    fitBounds,
+  };
 
   const notice = !useGl
     ? fr.map.schematic

@@ -1,13 +1,8 @@
 import { DEFAULT_MAP_CENTER } from "@/lib/config";
 
-import type { LatLon, MapPoint, MapRoute } from "./types";
+import type { Bounds, LatLon, MapPoint, MapRoute } from "./types";
 
-export interface Bounds {
-  minLat: number;
-  maxLat: number;
-  minLon: number;
-  maxLon: number;
-}
+export type { Bounds };
 
 export const isValidPosition = (p: Partial<LatLon> | null | undefined): p is LatLon =>
   !!p &&
@@ -88,3 +83,22 @@ export function webglAvailable(): boolean {
     return false;
   }
 }
+
+/**
+ * Emprise commune à plusieurs cartes (ex. comparaison A / B au même cadrage) :
+ *   const bounds = boundsOf([...pointsA, ...pointsB], [...routesA, ...routesB]);
+ *   <MapView bounds={bounds} … />  <MapView bounds={bounds} … />
+ */
+export function boundsOf(points: MapPoint[] = [], routes: MapRoute[] = []): Bounds {
+  return computeBounds(allPositions(points, routes));
+}
+
+/** Emprise d'une tournée (tracé + arrêts), ou `null` si elle n'a aucune position. */
+export function routeBounds(route: MapRoute | undefined): Bounds | null {
+  if (!route) return null;
+  const positions = [...route.path, ...(route.stops ?? [])].filter(isValidPosition);
+  return positions.length > 0 ? computeBounds(positions) : null;
+}
+
+export const boundsSignature = (b: Bounds): string =>
+  [b.minLat, b.maxLat, b.minLon, b.maxLon].map((v) => v.toFixed(5)).join(",");

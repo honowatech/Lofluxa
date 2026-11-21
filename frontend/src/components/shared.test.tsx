@@ -1,3 +1,4 @@
+import { DndContext } from "@dnd-kit/core";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
@@ -12,7 +13,7 @@ import { loginAs, renderWithProviders } from "@/test/utils";
 
 import { ConfirmDialog, ConfirmProvider, useConfirm } from "./ConfirmDialog";
 import { PdfButton } from "./PdfButton";
-import { SortableList } from "./SortableList";
+import { SortableList, useSortableSensors } from "./SortableList";
 import { EmptyState, ErrorState, LoadingState } from "./states";
 import { ExpiryBadge, expiryState, StatusBadge } from "./StatusBadge";
 import { sortViolations, ViolationsPanel } from "./ViolationsPanel";
@@ -65,6 +66,27 @@ describe("ViolationsPanel", () => {
     render(<ViolationsPanel violations={VIOLATIONS} onSelect={onSelect} />);
     await user.click(screen.getByRole("button", { name: /RM-05/ }));
     expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ rule_code: "RM-05", trip_id: "t1" }));
+  });
+});
+
+describe("ViolationsPanel — ajouts", () => {
+  it("hauteur de liste réglable ; sans prop, la hauteur par défaut est conservée", () => {
+    const { rerender } = render(<ViolationsPanel violations={VIOLATIONS} />);
+    expect(screen.getByRole("list")).toHaveClass("max-h-64");
+    rerender(<ViolationsPanel violations={VIOLATIONS} maxListHeight="40vh" />);
+    expect(screen.getByRole("list")).not.toHaveClass("max-h-64");
+    expect(screen.getByRole("list")).toHaveStyle({ maxHeight: "40vh" });
+    rerender(<ViolationsPanel violations={VIOLATIONS} maxListHeight={120} />);
+    expect(screen.getByRole("list")).toHaveStyle({ maxHeight: "120px" });
+  });
+
+  it("accepte un `id` par violation (deux violations de même règle et même message restent distinctes)", () => {
+    const twins: Violation[] = [
+      { id: "v1", rule_code: "RM-05", severity: "blocking", message: "Compartiment en surcharge" },
+      { id: "v2", rule_code: "RM-05", severity: "blocking", message: "Compartiment en surcharge" },
+    ];
+    render(<ViolationsPanel violations={twins} />);
+    expect(screen.getAllByRole("listitem")).toHaveLength(2);
   });
 });
 
@@ -262,6 +284,47 @@ describe("PdfButton", () => {
     await user.click(screen.getByRole("button", { name: "Télécharger le PDF" }));
     expect(await screen.findByText("Tournée introuvable.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Télécharger le PDF" })).toBeEnabled();
+  });
+});
+
+describe("SortableList — dans le DndContext du parent", () => {
+  it("deux listes sous un même contexte : pas de contexte propre, poignées présentes, `onReorder` laissé au parent", async () => {
+    const user = userEvent.setup();
+    const onReorder = vi.fn();
+    const onDragEnd = vi.fn();
+    function Board() {
+      const sensors = useSortableSensors();
+      const list = (id: string, names: string[]) => (
+        <SortableList
+          context="parent"
+          id={id}
+          items={names.map((name) => ({ id: `${id}-${name}`, name }))}
+          getId={(item) => item.id}
+          handleLabel={(item) => `Déplacer ${item.name}`}
+          onReorder={onReorder}
+          renderItem={(item, handle) => (
+            <div>
+              {handle}
+              {item.name}
+            </div>
+          )}
+        />
+      );
+      return (
+        <DndContext sensors={sensors} onDragEnd={onDragEnd}>
+          {list("t1", ["Akwa", "Bali"])}
+          {list("t2", ["Deido"])}
+        </DndContext>
+      );
+    }
+    render(<Board />);
+    expect(screen.getAllByRole("list")).toHaveLength(2);
+    expect(screen.getAllByRole("button", { name: /^Déplacer/ })).toHaveLength(3);
+    // Saisie puis annulation au clavier : c'est le contexte du parent qui reçoit l'événement.
+    screen.getByRole("button", { name: "Déplacer Akwa" }).focus();
+    await user.keyboard(" ");
+    await user.keyboard("{Escape}");
+    expect(onReorder).not.toHaveBeenCalled();
   });
 });
 

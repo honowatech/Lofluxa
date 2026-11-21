@@ -1,3 +1,3 @@
 export * from "./MapView";
 export * from "./types";
-export { isValidPosition } from "./geometry";
+export { boundsOf, isValidPosition, routeBounds } from "./geometry";

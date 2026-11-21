@@ -94,7 +94,7 @@ export function ImportDialog({ kind, open, onOpenChange, onApplied, fields }: Im
   const rows = useMemo(() => (batch ? importReportRows(batch) : []), [batch]);
   const summary = batch?.report.summary;
   const toWrite = summary ? summary.created + summary.updated : 0;
-  const canApply = !!batch && batch.can_apply;
+  const canApply = !!batch && batch.can_apply && toWrite > 0;
   const visibleRows = onlyErrors ? rows.filter((row) => row.status !== "ok") : rows;
 
   const pick = (next: File | null | undefined) => {
@@ -354,7 +354,13 @@ export function ImportDialog({ kind, open, onOpenChange, onApplied, fields }: Im
           {batch ? (
             <Button disabled={!canApply || busy} onClick={() => void runApply()}>
               {phase === "applying" && <Spinner className="text-current" />}
-              {phase === "applying" ? t.applying : canApply ? t.applyCount(toWrite) : t.apply}
+              {phase === "applying"
+                ? t.applying
+                : canApply
+                  ? t.applyCount(toWrite)
+                  : batch.error_count > 0
+                    ? t.blockedByErrors(batch.error_count)
+                    : t.nothingToApplyShort}
             </Button>
           ) : (
             <Button disabled={!file || busy} onClick={() => void runPreview()}>

@@ -47,6 +47,15 @@ describe("formatage", () => {
     expect(formatDuration(null)).toBe(EMPTY);
   });
 
+  it("formatDuration : secondes sous la minute sur option (défaut inchangé)", () => {
+    expect(formatDuration(42)).toBe(nbsp("1 min"));
+    expect(formatDuration(42, { seconds: true })).toBe(nbsp("42 s"));
+    expect(formatDuration(-8, { seconds: true })).toBe(nbsp("−8 s"));
+    expect(formatDuration(0, { seconds: true })).toBe(nbsp("0 s"));
+    expect(formatDuration(60, { seconds: true })).toBe(nbsp("1 min"));
+    expect(formatDuration(7500, { seconds: true })).toBe(nbsp("2 h 05"));
+  });
+
   it("formatLocalTime : HH:mm en heure de Douala (UTC+1), RM-20", () => {
     expect(formatLocalTime("2027-01-12T06:30:00Z")).toBe("07:30");
     expect(formatLocalTime("2027-01-12T23:45:00Z")).toBe("00:45");

@@ -91,6 +91,35 @@ describe("client API", () => {
     expect(error.violations[2].severity).toBe("blocking");
   });
 
+  it("corps brut conservé : champs hors enveloppe lisibles (ex. avertissements d'un import rejeté)", async () => {
+    loginAs("admin");
+    server.use(
+      http.post(`${API}/reference-days/import`, () =>
+        HttpResponse.json(
+          {
+            code: "invalid_file",
+            message: "Fichier rejeté.",
+            details: [{ field: "Tournées", message: "Camion inconnu" }],
+            warnings: [{ sheet: "Arrêts", row: 4, column: "Heure", message: "Heure absente" }],
+          },
+          { status: 422 },
+        ),
+      ),
+      http.get(`${API}/broken-html`, () => new HttpResponse("<html>502</html>", { status: 502 })),
+    );
+    const error = await caught(api("/reference-days/import", { method: "POST", body: {} }));
+    expect(error.details).toHaveLength(1);
+    expect((error.body as { warnings: { row: number }[] }).warnings).toEqual([
+      { sheet: "Arrêts", row: 4, column: "Heure", message: "Heure absente" },
+    ]);
+    expect((await caught(api("/broken-html"))).body).toBeNull();
+    // Construite à la main (tests, doublures) : le corps est celui fourni.
+    expect(new ApiError(409, { code: "conflict", message: "x" }).body).toEqual({
+      code: "conflict",
+      message: "x",
+    });
+  });
+
   it("204 → undefined ; réponse non JSON et panne réseau → messages en français", async () => {
     loginAs("admin");
     server.use(

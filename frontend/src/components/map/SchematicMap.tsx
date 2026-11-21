@@ -4,7 +4,7 @@ import { useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from "rea
 import { fr } from "@/i18n/fr";
 import { cn } from "@/lib/utils";
 
-import { allPositions, computeBounds, fitProjection, isValidPosition } from "./geometry";
+import { fitProjection, isValidPosition } from "./geometry";
 import type { MapRendererProps } from "./types";
 
 interface Hover {
@@ -15,7 +15,16 @@ interface Hover {
   detail: string[];
 }
 
-export function SchematicMap({ points, routes, selectedId, onSelect, onMapClick }: MapRendererProps) {
+export function SchematicMap({
+  points,
+  routes,
+  selectedId,
+  onSelect,
+  onMapClick,
+  onRouteClick,
+  onRouteHover,
+  fitBounds,
+}: MapRendererProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ width: 800, height: 480 });
   const [hover, setHover] = useState<Hover | null>(null);
@@ -31,10 +40,7 @@ export function SchematicMap({ points, routes, selectedId, onSelect, onMapClick 
     return () => observer.disconnect();
   }, []);
 
-  const projection = useMemo(
-    () => fitProjection(computeBounds(allPositions(points, routes)), size.width, size.height),
-    [points, routes, size],
-  );
+  const projection = useMemo(() => fitProjection(fitBounds, size.width, size.height), [fitBounds, size]);
 
   const handleBackgroundClick = (event: MouseEvent<SVGSVGElement>) => {
     if (!onMapClick) return;
@@ -100,6 +106,32 @@ export function SchematicMap({ points, routes, selectedId, onSelect, onMapClick 
                 strokeLinejoin="round"
                 strokeLinecap="round"
               />
+              {(onRouteClick || onRouteHover) && (
+                <path
+                  d={d}
+                  data-route-hit={route.id}
+                  fill="none"
+                  stroke="transparent"
+                  strokeWidth={16}
+                  role={onRouteClick ? "button" : undefined}
+                  tabIndex={onRouteClick ? 0 : undefined}
+                  aria-label={route.label}
+                  className={cn("outline-none", onRouteClick && "cursor-pointer")}
+                  onClick={(event) => {
+                    if (!onRouteClick) return;
+                    event.stopPropagation();
+                    onRouteClick(route.id);
+                  }}
+                  onKeyDown={(event) => {
+                    if (onRouteClick && (event.key === "Enter" || event.key === " ")) {
+                      event.preventDefault();
+                      onRouteClick(route.id);
+                    }
+                  }}
+                  onMouseEnter={() => onRouteHover?.(route.id)}
+                  onMouseLeave={() => onRouteHover?.(null)}
+                />
+              )}
             </g>
           );
         })}
@@ -107,12 +139,18 @@ export function SchematicMap({ points, routes, selectedId, onSelect, onMapClick 
         {points.filter(isValidPosition).map((point) => {
           const { x, y } = projection.project(point);
           const selected = selectedId === point.id;
-          const kindLabel = point.kind === "depot" ? fr.map.depot : fr.map.station;
+          const kindLabel =
+            point.variant === "unserved"
+              ? fr.map.unserved
+              : point.kind === "depot"
+                ? fr.map.depot
+                : fr.map.station;
           return (
             <g
               key={point.id}
               data-point={point.id}
               data-kind={point.kind}
+              data-variant={point.variant}
               data-selected={selected || undefined}
               transform={`translate(${x.toFixed(1)} ${y.toFixed(1)})`}
               opacity={point.inactive ? 0.45 : 1}
@@ -128,7 +166,19 @@ export function SchematicMap({ points, routes, selectedId, onSelect, onMapClick 
               {...interactive(point.id, point.kind, `${kindLabel} ${point.label}`)}
             >
               {selected && <circle r={13} fill="none" stroke="hsl(var(--signal))" strokeWidth={3} />}
-              {point.kind === "depot" ? (
+              {point.variant === "unserved" ? (
+                <rect
+                  x={-6}
+                  y={-6}
+                  width={12}
+                  height={12}
+                  transform="rotate(45)"
+                  fill="#fff"
+                  stroke="hsl(var(--foreground))"
+                  strokeWidth={2}
+                  strokeDasharray="3 2"
+                />
+              ) : point.kind === "depot" ? (
                 <rect
                   x={-8}
                   y={-8}

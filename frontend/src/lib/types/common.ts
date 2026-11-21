@@ -49,6 +49,8 @@ export type Severity = (typeof SEVERITIES)[number];
 
 /** Violation d'une règle métier, telle que renvoyée dans un plan ou dans `details[]` d'une erreur. */
 export interface Violation {
+  /** Identifiant, quand le serveur en fournit un (clé stable de la ligne). */
+  id?: string | null;
   rule_code: string;
   severity: Severity;
   message: string;

@@ -9,8 +9,10 @@ import path from "node:path";
 
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 
-const API = "http://localhost:8000/api/v1";
-const ADMIN = { email: "admin@honowa.tech", password: "admin-dev-only" };
+import { ADMIN, API, apiLogin, PATIENT_TIMEOUT, type Tokens } from "./l9-auth";
+
+test.setTimeout(PATIENT_TIMEOUT);
+
 // Les tests sont lancés depuis `frontend/` (pnpm e2e).
 const TEMPLATE = path.resolve(process.cwd(), "../data/templates/stations.xlsx");
 const suffix = Date.now().toString(36).toUpperCase().slice(-5);
@@ -21,14 +23,10 @@ const STATION = { code: `E2E-S-${suffix}`, name: `Station de test ${suffix}` };
  * Une seule connexion pour tout le fichier : le serveur limite les connexions à 10 par minute et par adresse.
  * Les pages reçoivent ces jetons dans leur stockage local, comme après une connexion à l'écran.
  */
-let session: { access_token: string; refresh_token: string } | null = null;
+let session: Tokens | null = null;
 async function getSession(request: APIRequestContext) {
-  if (!session) {
-    const response = await request.post(`${API}/auth/login`, { data: ADMIN });
-    expect(response.status(), "connexion par l'API (limitation de débit ?)").toBe(200);
-    session = await response.json();
-  }
-  return session as { access_token: string; refresh_token: string };
+  session ??= await apiLogin(request);
+  return session;
 }
 
 /** Supprime par l'API les lignes dont le code est dans la liste (nettoyage). */
