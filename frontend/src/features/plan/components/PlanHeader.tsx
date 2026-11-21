@@ -115,16 +115,26 @@ function Metric({ label, value }: { label: string; value: string }) {
   );
 }
 
+/**
+ * Indicateurs du plan : les agrégats calculés par le serveur (`metrics`). Pendant une modification optimiste
+ * — ou si le plan n'a pas d'agrégats —, ils sont déduits des tournées affichées pour rester cohérents avec la liste.
+ */
 export function PlanMetrics({ plan }: { plan: Plan }) {
-  const distance = plan.trips.reduce((sum, trip) => sum + trip.distance_m, 0);
-  const duration = plan.trips.reduce((sum, trip) => sum + trip.duration_s, 0);
-  const planned = plan.trips.reduce((sum, trip) => sum + trip.planned_l, 0);
+  const pending = usePlanStore((state) => state.pendingOp !== null);
+  const metrics = pending ? null : plan.metrics;
   const rates = plan.trips
     .map((trip) => trip.fill_rate)
     .filter((rate): rate is number => typeof rate === "number");
-  const fill = rates.length ? (rates.reduce((sum, rate) => sum + rate, 0) / rates.length) * 100 : null;
+  const distance = metrics?.total_distance_m ?? plan.trips.reduce((sum, trip) => sum + trip.distance_m, 0);
+  const duration = metrics?.total_duration_s ?? plan.trips.reduce((sum, trip) => sum + trip.duration_s, 0);
+  const planned = metrics?.planned_l ?? plan.trips.reduce((sum, trip) => sum + trip.planned_l, 0);
+  const rate =
+    metrics?.avg_fill_rate ??
+    (rates.length ? rates.reduce((sum, value) => sum + value, 0) / rates.length : null);
+  const fill = rate === null || rate === undefined ? null : rate * 100;
   const total = plan.metrics?.orders_total ?? null;
-  const open = plan.unserved.length;
+  const served =
+    plan.metrics?.orders_served ?? (total === null ? null : Math.max(0, total - plan.unserved.length));
   return (
     <dl className="flex flex-wrap items-baseline gap-x-5 gap-y-0.5">
       <Metric label={t.trips.title} value={String(plan.trips.length)} />
@@ -132,8 +142,8 @@ export function PlanMetrics({ plan }: { plan: Plan }) {
       <Metric label={t.metrics.duration} value={formatDuration(duration)} />
       <Metric label={t.metrics.fill} value={formatPercent(fill)} />
       <Metric label={t.metrics.volume} value={formatLiters(planned)} />
-      {total !== null && (
-        <Metric label={t.metrics.served} value={t.metrics.servedValue(Math.max(0, total - open), total)} />
+      {total !== null && served !== null && (
+        <Metric label={t.metrics.served} value={t.metrics.servedValue(served, total)} />
       )}
     </dl>
   );
