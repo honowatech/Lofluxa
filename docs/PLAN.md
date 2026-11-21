@@ -85,3 +85,44 @@ Chaque lot ne modifie que les fichiers listés (chemins relatifs à `backend/app
 |---|---|
 | 21/11/2026 | Vague 0 faite. Vague 1 : lots L1 à L8 livrés et fusionnés (règles, moteur, référentiels et imports, commandes et disponibilité, service de plans, chargement, comparaison, administration et infrastructure). Calcul réel de bout en bout vérifié (`tests/integration/planning/test_real_engine.py`). L9 (socle de l'interface) en cours. Vague 2 : L10 (événements) et L15 (démonstration de bout en bout) lancés ; les écrans (L11 à L14) partent à la livraison de L9. |
 | 21/11/2026 | Vague 1 terminée (L1 à L9). Vague 2 livrée et fusionnée : L10 (événements), L11 à L14 (les onze écrans de la spec), L15 (jeux de démonstration, scénario complet, preuve A/B sur une journée fabriquée). Les défauts d'intégration trouvés par L15 et par les écrans sont corrigés. Vague 3 en cours : adoption des composants partagés, parcours de navigateur rejouables sur une même base, questions consolidées dans `docs/QUESTIONS.md`. Reste hors de portée ici : construction et lancement Docker, serveur de routage réel, restauration chronométrée (voir `docs/EXPLOITATION.md` §12 et `docs/DEMO.md`). |
+
+## 8. État à la suspension du 21/11/2026
+
+Le projet a été mis en pause à la demande du responsable. Chaque sous-session a terminé son étape en cours,
+poussé sa branche et arrêté ses serveurs ; aucune n'a laissé de commit « WIP ». Rien de ce qui suit n'est
+fusionné dans la branche d'intégration `claude/charming-wright-yri5q4`, qui reste à l'état vérifié `6fe5803`
+(plus ce document). Pour reprendre : écrire « reprise » à chaque sous-session concernée, ou repartir des branches.
+
+### Branches à fusionner à la reprise (dans cet ordre)
+
+| Branche | Tête | Contenu non fusionné | État annoncé par le lot |
+|---|---|---|---|
+| `claude/tourneo-l7-comparaison` | `7eb2df5` | Tableau de bord : champ `pending_draft` et alerte « version en attente de publication » | 768 tests verts hors tests lents |
+| `claude/tourneo-l15-demo` | `07e23ba` | `docs/DEMO.md` réécrit et remesuré, journée perturbée (pénurie, panne, arrêt sauté, second plan), critère 4 par l'API, `run_day.py --shortage --breakdown` | 771 verts, 1 ignoré, 1 échec attendu (défaut D8 ci-dessous) |
+| `claude/tourneo-l9-frontend` | `9e2a5e3` | Droits par rôle alignés sur l'API, session robuste aux coupures, catalogue complété, contrôle préalable et aide de connexion des parcours, doublures des écrans Chargement / Suivi / Journal | lint, 307 tests, build verts ; une passe complète des parcours verte sur base vierge |
+| `claude/tourneo-l11-ecrans-journee` | `eb06841` | Avertissements de cuve du serveur, effacement d'un stock, derniers événements et alertes cliquables sur l'accueil | lint, 281 tests, build verts |
+| `claude/tourneo-l12-ecran-plan` | `9929900` | 4 commits, compte rendu non reçu avant la pause : à relire avant fusion | inconnu |
+| `claude/tourneo-l13-ecrans-execution` | `b392554` | Explication de RM-13, version du plan dans les listes, pénurie résolue dans n'importe quel ordre, données d'essai préfixées | lint, 288 tests, build verts |
+| `claude/tourneo-l14-ecran-comparaison` | `798fdb7` | Cadrage commun des cartes, couleurs du serveur, scénario de panne, données d'essai préfixées | lint, 288 tests, build verts |
+
+Après fusion : `uv run alembic upgrade heads`, `./scripts/gen_api_types.sh` (nouveaux champs `pending_draft`,
+`source: "plan"`, `details[].severity`), suite back-end complète, `pnpm lint && pnpm test && pnpm build`.
+Vérifier que `dump.rdb` ne revient pas dans le dépôt.
+
+### Travail restant
+
+| Lot | Reste à faire |
+|---|---|
+| L4, L5, L6 | **Défaut D8** (trouvé par L15, test en échec attendu dans `backend/tests/e2e/`) : la livraison d'une commande planifiée en partie est refusée (409 `invalid_order_transition`, « confirmée » → « livrée »). Touche toute livraison partielle. |
+| L9 | Bulle de la carte rognée près des bords ; `SortableList` (ligne libre, élément figé seul, repère d'insertion) ; captures du mode démonstration ; double passe de la suite complète des parcours sans vider la base. |
+| L11 | Adopter les ajouts de `DataTable`, `Notice`, `Badge`, `SelectField` ; vérifier que l'import des commandes impose le jour J ; préfixer les données d'essai (`e2e/l11-seed.ts`). |
+| L12 | Relire ses 4 commits ; préfixer les données d'essai si ce n'est pas fait ; afficher la nature d'un plan (référence, rejeu) dans le sélecteur ; choisir le plan ouvert par défaut quand deux plans sont publiés le même jour. |
+| L13 | Assistant de réaffectation : enchaîner sur les autres tournées du camion en panne, version restée en brouillon clairement signalée ; retirer le contournement des droits une fois L9 fusionné (`useCan("events.shortage.write")`) ; corriger à la source l'import des dépôts de son jeu d'essai. |
+| L14 | Rien d'ouvert. |
+| Intégration | Diagnostiquer trois parcours en échec sur une base non vierge (`l12-plan` bandeau des non servies, `l13-evenements` déclaration refusée, `l13-execution` retard 14 / 15 min) ; faire afficher l'alerte `pending_draft` par les écrans Journée et Journal ; renommer les schémas en double de l'OpenAPI (`PlanSummaryOut`, `StopOut`, `UnservedOut`) ; écarts d'interface relevés par L15 (`docs/DEMO.md` §6). |
+
+### Hors de portée dans cet environnement
+
+Construction et lancement des images Docker, serveur de routage OSRM réel sur la carte du Cameroun, certificat
+HTTPS, restauration chronométrée (critère d'acceptation 6), formation d'un dispatcher (critère 4). Voir
+`docs/EXPLOITATION.md` §12 et `docs/DEMO.md`.
