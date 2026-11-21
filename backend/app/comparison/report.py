@@ -61,6 +61,18 @@ def _rows(deltas: list[MetricDelta]) -> list[dict[str, Any]]:
     ]
 
 
+def _legend(routes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        {
+            "seq": route["seq"],
+            "truck_plate": route["truck_plate"],
+            "distance_m": route["distance_m"],
+            "swatch": Markup(maps.legend_swatch(route["color"], maps.route_dash(index))),
+        }
+        for index, route in enumerate(routes)
+    ]
+
+
 def build_context(comparison: dict[str, Any], settings: dict[str, Any]) -> dict[str, Any]:
     bounds = maps.common_bounds(comparison["routes_a"], comparison["routes_b"])
     verdict = comparison["verdict"]
@@ -80,12 +92,14 @@ def build_context(comparison: dict[str, Any], settings: dict[str, Any]) -> dict[
                 "letter": "A",
                 "summary": comparison["plan_a"],
                 "routes": comparison["routes_a"],
+                "legend": _legend(comparison["routes_a"]),
                 "unserved": comparison["unserved_a"],
             },
             {
                 "letter": "B",
                 "summary": comparison["plan_b"],
                 "routes": comparison["routes_b"],
+                "legend": _legend(comparison["routes_b"]),
                 "unserved": comparison["unserved_b"],
             },
         ],

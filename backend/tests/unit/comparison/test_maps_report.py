@@ -2,7 +2,7 @@
 
 import re
 
-from app.comparison.maps import common_bounds, render_map_svg
+from app.comparison.maps import common_bounds, legend_swatch, render_map_svg, route_dash
 from app.comparison.report import format_pct, format_value
 
 
@@ -58,6 +58,37 @@ def test_carte_sans_tournee_ou_point_unique():
         }
     ]
     assert "<rect" in render_map_svg(single)  # emprise nulle : pas de division par zéro
+
+
+def test_palette_qui_boucle_style_de_trait_distinct():
+    """Au-delà de dix tournées les couleurs se répètent : le style du trait distingue les tournées."""
+    from app.comparison.service import ROUTE_COLORS
+
+    assert len(ROUTE_COLORS) == 10
+    assert [route_dash(i) for i in (0, 9, 10, 19, 20, 29, 30)] == [
+        None,
+        None,
+        "7 3",
+        "7 3",
+        "2 3",
+        "2 3",
+        None,
+    ]
+    routes = [_route(ROUTE_COLORS[i % 10], [(4.0 + i * 0.01, 9.8)]) for i in range(28)]
+    svg = render_map_svg(routes)
+    lines = re.findall(r"<polyline[^>]*>", svg)
+    assert len(lines) == 28
+    assert sum("stroke-dasharray" not in line for line in lines) == 10
+    assert sum('stroke-dasharray="7 3"' in line for line in lines) == 10
+    assert sum('stroke-dasharray="2 3"' in line for line in lines) == 8
+    # Les tournées 1, 11 et 21 partagent une couleur mais pas un style de trait.
+    assert {(ROUTE_COLORS[i % 10], route_dash(i)) for i in (0, 10, 20)} == {
+        ("#1d6fb8", None),
+        ("#1d6fb8", "7 3"),
+        ("#1d6fb8", "2 3"),
+    }
+    assert 'stroke-dasharray="7 3"' in legend_swatch("#1d6fb8", "7 3")
+    assert "stroke-dasharray" not in legend_swatch("#1d6fb8", None)
 
 
 def test_mise_en_forme_francaise_des_valeurs():

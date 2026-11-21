@@ -288,7 +288,10 @@ async def test_gabarit_du_rapport_synthese_cartes_annexes(db, plans):
     assert "100,0 km" in html and "80,0 km" in html and "−20,0 km" in html and "−20,0 %" in html
     assert "2 h 00" in html and "38 s" in html  # temps de préparation : saisi contre calculé
     # Deux cartes SVG dessinées côté serveur, sans ressource externe.
-    assert html.count("<svg") == 2 and html.count("<polyline") == 3
+    assert html.count('viewBox="0 0 480 420"') == 2 and html.count("<polyline") == 3
+    # Légende et annexes : un échantillon de trait par tournée, aux couleurs de l'interface.
+    assert html.count('viewBox="0 0 22 8"') == 2 * 3
+    assert 'stroke="#1d6fb8"' in html and 'stroke="#0f8a7a"' in html
     assert "http://" not in html.replace("http://www.w3.org/2000/svg", "") and "https://" not in html
     # Annexes par tournée et commandes non servies du plan A.
     assert "Annexe A" in html and "Annexe B" in html

@@ -195,7 +195,17 @@ def test_ecarts_en_valeur_et_en_pourcentage():
     )
     # Grandeur de contexte : écart donné, mais ni mieux ni moins bien.
     assert (rows["volume_requested_l"].delta, rows["volume_requested_l"].better) == (0, None)
-    # A = 0 : pas de pourcentage.
+    # 0 → 0 : écart nul, 0 % (et non « indéfini »).
+    same = {row.key: row for row in compare(compute_metrics(_computed()), compute_metrics(_computed()))}
+    blocking = same["violations_blocking"]
+    assert (blocking.a, blocking.b, blocking.delta, blocking.delta_pct, blocking.better) == (
+        0,
+        0,
+        0,
+        0.0,
+        "equal",
+    )
+    # A = 0 et B ≠ 0 : pas de pourcentage.
     inverse = {row.key: row for row in compare(compute_metrics(_computed()), compute_metrics(_manual()))}
     assert (inverse["violations_total"].delta, inverse["violations_total"].delta_pct) == (3, None)
     assert inverse["violations_total"].better == "a"
