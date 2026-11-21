@@ -11,7 +11,7 @@ Fonctions réutilisables par les autres lots (lecture seule, aucune ne valide la
         `.assignments` : {driver_id: truck_id}.
     await current_depot_stocks(session, day) -> {(depot_id, product_id): DailyDepotStock}
         Saisie qui fait foi (la plus récente) pour chaque couple renseigné ; couple absent =
-        stock non renseigné (RM-08 : avertissement).
+        stock non renseigné (RM-08 : avertissement). Une saisie effacée compte comme absente.
     await record_depot_stock(session, depot_id=…, product_id=…, day=…, available_l=…, user_id=…)
         Nouvelle saisie de stock (ex. pénurie F6.3) : ajoute une ligne, n'écrase jamais.
 
@@ -193,10 +193,10 @@ async def load_day_resources(session: AsyncSession, day: date) -> DayResources:
 # --- Stocks dépôt ----------------------------------------------------------------------------
 
 
-async def current_depot_stocks(
+async def latest_depot_stock_entries(
     session: AsyncSession, day: date
 ) -> dict[tuple[uuid.UUID, uuid.UUID], DailyDepotStock]:
-    """Saisie qui fait foi (la plus récente) pour chaque (dépôt, produit) renseigné le jour J."""
+    """Dernière saisie de chaque (dépôt, produit) du jour J, effacements compris (`available_l` nul)."""
     rows = (
         (
             await session.execute(
@@ -210,6 +210,17 @@ async def current_depot_stocks(
     )
     # Parcours chronologique : la dernière saisie de chaque couple remplace les précédentes.
     return {(row.depot_id, row.product_id): row for row in rows}
+
+
+async def current_depot_stocks(
+    session: AsyncSession, day: date
+) -> dict[tuple[uuid.UUID, uuid.UUID], DailyDepotStock]:
+    """Saisie qui fait foi (la plus récente) pour chaque (dépôt, produit) renseigné le jour J.
+
+    Un couple jamais saisi, ou dont la dernière saisie a été effacée, est absent du résultat
+    (stock non renseigné, RM-08) : `available_l` n'est donc jamais nul ici."""
+    latest = await latest_depot_stock_entries(session, day)
+    return {key: row for key, row in latest.items() if row.available_l is not None}
 
 
 async def depot_stock_counts(session: AsyncSession, day: date) -> dict[tuple[uuid.UUID, uuid.UUID], int]:
@@ -228,16 +239,16 @@ async def record_depot_stock(
     depot_id: uuid.UUID,
     product_id: uuid.UUID,
     day: date,
-    available_l: Decimal | float,
+    available_l: Decimal | float | None,
     user_id: uuid.UUID | None,
 ) -> DailyDepotStock:
     """Ajoute une saisie de stock (F2.1). Les saisies précédentes sont conservées ; la plus
-    récente fait foi."""
+    récente fait foi. `available_l=None` efface la saisie : le stock redevient « non renseigné »."""
     entry = DailyDepotStock(
         depot_id=depot_id,
         product_id=product_id,
         day=day,
-        available_l=Decimal(str(available_l)),
+        available_l=None if available_l is None else Decimal(str(available_l)),
         entered_at=utcnow(),
         entered_by=user_id,
     )

@@ -20,7 +20,9 @@ Variante synchrone pour les tâches Celery : `set_orders_status_sync(session, or
 Sur un objet déjà chargé : `apply_status(order, target)` (pure, sans accès base).
 Lecture de la table des transitions : `ALLOWED_TRANSITIONS`, `can_transition(current, target)`.
 
-Contrôle F3.4 : `await check_tank_capacity(session, station_id, product_id, requested_l)`.
+Contrôle F3.4 : `await check_tank_capacity(session, station_id, product_id, requested_l)` ;
+avertissements à afficher en lecture : `await order_warnings(session, orders)`
+→ {order_id: [{code, message}]}.
 """
 
 import uuid
@@ -174,18 +176,9 @@ def _fmt_l(value: Decimal | float) -> str:
     return f"{float(value):,.0f}".replace(",", " ")
 
 
-async def check_tank_capacity(
-    session: AsyncSession, station_id: uuid.UUID, product_id: uuid.UUID, requested_l: Decimal | float
-) -> TankCheck:
-    """F3.4 (décision provisoire S1) : volume demandé ≤ capacité de cuve − stock de sécurité si la
-    cuve existe pour (station, produit) ; sinon avertissement non bloquant."""
-    tank = (
-        await session.execute(
-            select(StationTank).where(
-                StationTank.station_id == station_id, StationTank.product_id == product_id
-            )
-        )
-    ).scalar_one_or_none()
+def evaluate_tank(tank: StationTank | None, requested_l: Decimal | float) -> TankCheck:
+    """F3.4 (décision provisoire S1), sans accès base : volume demandé ≤ capacité de cuve − stock de
+    sécurité si la cuve existe pour (station, produit) ; sinon avertissement non bloquant."""
     if tank is None:
         return TankCheck(
             warnings=[
@@ -207,3 +200,51 @@ async def check_tank_capacity(
             max_l=float(max_l),
         )
     return TankCheck(max_l=float(max_l))
+
+
+async def check_tank_capacity(
+    session: AsyncSession, station_id: uuid.UUID, product_id: uuid.UUID, requested_l: Decimal | float
+) -> TankCheck:
+    """Contrôle F3.4 d'une commande (voir `evaluate_tank`)."""
+    tank = (
+        await session.execute(
+            select(StationTank).where(
+                StationTank.station_id == station_id, StationTank.product_id == product_id
+            )
+        )
+    ).scalar_one_or_none()
+    return evaluate_tank(tank, requested_l)
+
+
+def tank_warnings(order: Order, tanks: Iterable[StationTank]) -> list[dict[str, str]]:
+    """Avertissements F3.4 d'une commande à afficher en lecture, à partir des cuves de sa station.
+    Vide hors `draft` / `confirmed`.
+
+    `tank_unknown` : cuve non renseignée ; `exceeds_tank_capacity` : volume supérieur au volume
+    recevable (la confirmation sera refusée)."""
+    if order.status not in EDITABLE_STATUSES:
+        return []
+    tank = next((t for t in tanks if t.product_id == order.product_id), None)
+    check = evaluate_tank(tank, order.requested_l)
+    if check.blocking:
+        return [{"code": "exceeds_tank_capacity", "message": check.blocking}]
+    return check.warnings
+
+
+async def order_warnings(
+    session: AsyncSession, orders: Iterable[Order]
+) -> dict[uuid.UUID, list[dict[str, str]]]:
+    """`tank_warnings` pour un lot de commandes : les cuves sont lues en une seule requête.
+    Seules les commandes avec avertissement figurent."""
+    concerned = [order for order in orders if order.status in EDITABLE_STATUSES]
+    if not concerned:
+        return {}
+    tanks: dict[uuid.UUID, list[StationTank]] = {}
+    for tank in (
+        await session.execute(
+            select(StationTank).where(StationTank.station_id.in_({o.station_id for o in concerned}))
+        )
+    ).scalars():
+        tanks.setdefault(tank.station_id, []).append(tank)
+    result = {order.id: tank_warnings(order, tanks.get(order.station_id, [])) for order in concerned}
+    return {order_id: warnings for order_id, warnings in result.items() if warnings}
