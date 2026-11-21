@@ -41,6 +41,7 @@ class ProductShortageIn(BaseModel):
     product_id: uuid.UUID
     new_available_l: float = Field(ge=0)
     day: date | None = Field(None, description="Jour J (défaut : aujourd'hui, heure locale).")
+    occurred_at: UtcDatetime | None = Field(None, description="Heure du constat (défaut : maintenant).")
     comment: str | None = Field(None, max_length=500)
 
 
@@ -66,6 +67,7 @@ class ShortageResolutionIn(BaseModel):
 class ResolveIn(BaseModel):
     resolutions: list[ShortageResolutionIn] = Field(min_length=1)
     publish: bool | None = None
+    occurred_at: UtcDatetime | None = Field(None, description="Heure de la décision (défaut : maintenant).")
 
 
 # --------------------------------------------------------------------------- sorties

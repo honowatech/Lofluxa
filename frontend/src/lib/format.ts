@@ -61,6 +61,12 @@ export function formatDuration(seconds: Maybe<number>, options: { seconds?: bool
   return `${sign}${Math.floor(minutes / 60)}${NBSP}h${NBSP}${String(minutes % 60).padStart(2, "0")}`;
 }
 
+/** Durée courte en **secondes** → `5,3 s` (temps de calcul, de réponse) ; `fractionDigits` décimales (1 par défaut). */
+export function formatSeconds(seconds: Maybe<number>, fractionDigits = 1): string {
+  if (missing(seconds)) return EMPTY;
+  return `${formatNumber(seconds, fractionDigits)}${NBSP}s`;
+}
+
 export function formatPercent(value: Maybe<number>, fractionDigits = 0): string {
   if (missing(value)) return EMPTY;
   return `${formatNumber(value, fractionDigits)}${NBSP}%`;

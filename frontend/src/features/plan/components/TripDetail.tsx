@@ -3,21 +3,23 @@
  * réordonnables avec heures estimées et livraisons par produit, plan de chargement par compartiment.
  */
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
-import { MousePointerClick } from "lucide-react";
+import { Fuel, MousePointerClick, PackageCheck } from "lucide-react";
 import { useId, useMemo } from "react";
+import { Link } from "react-router-dom";
 
-import { EmptyState, PdfButton, StatusBadge } from "@/components";
+import { Button, EmptyState, PdfButton, StatusBadge } from "@/components";
 import { NativeSelect } from "@/components/ui/input";
 import { fr } from "@/i18n/fr";
 import { formatDuration, formatKm, formatLiters, formatLocalTime, formatPercent } from "@/lib/format";
-import { useDay } from "@/lib/useDay";
+import { useCanSee } from "@/lib/auth";
+import { useDay, withDay } from "@/lib/useDay";
 import { cn } from "@/lib/utils";
 
 import { useDriverDays, useTruckDays } from "../api";
 import { tripColor, usePlanUi } from "../context";
 import { isTripEditable } from "../edits";
 import { usePlanStore } from "../store";
-import type { Load, PlanViolation, Stop, Trip } from "../types";
+import type { PlanViolation, Stop, Trip } from "../types";
 import { dropTargetClass, stopDndId, useStopSortable, useTripDroppable } from "./dnd";
 import { DeliveryChips, StopMoveMenu, useStopRow, ViolationMarks } from "./stopParts";
 import { LockButton } from "./TripList";
@@ -79,86 +81,136 @@ function DetailStop({ trip, stop, violations }: { trip: Trip; stop: Stop; violat
   );
 }
 
-/** Plan de chargement : une jauge par compartiment, à la couleur du produit. */
+type Compartment = NonNullable<Trip["compartments"]>[number];
+
+/** Compartiments du camion, vides compris, dans l'ordre des positions (à défaut : les seuls compartiments chargés). */
+export function compartmentsOf(trip: Trip): Compartment[] {
+  const all: Compartment[] =
+    trip.compartments && trip.compartments.length > 0
+      ? trip.compartments
+      : trip.loads.map((load) => ({
+          compartment_id: load.compartment_id,
+          compartment_position: load.compartment_position ?? 0,
+          capacity_l: load.capacity_l ?? load.planned_l,
+          product_id: load.product_id,
+          product_code: load.product_code,
+          product_label: load.product_label,
+          product_color: load.product_color,
+          planned_l: load.planned_l,
+        }));
+  return [...all].sort((a, b) => a.compartment_position - b.compartment_position);
+}
+
+/**
+ * Plan de chargement : le camion entier (une cuve par compartiment, largeur proportionnelle à la capacité,
+ * niveau à la couleur du produit), puis le détail compartiment par compartiment, vides compris.
+ */
 export function LoadPlan({ trip, pending }: { trip: Trip; pending: boolean }) {
-  const loads = useMemo(
-    () => [...trip.loads].sort((a, b) => (a.compartment_position ?? 0) - (b.compartment_position ?? 0)),
-    [trip.loads],
-  );
-  if (loads.length === 0) {
+  const compartments = useMemo(() => compartmentsOf(trip), [trip]);
+  const loaded = compartments.some((compartment) => compartment.planned_l > 0);
+  if (compartments.length === 0) {
     return (
       <p className={cn("px-3 py-2 text-xs", pending ? "text-muted-foreground" : "text-blocking")}>
         {pending ? t.detail.loadsPending : t.detail.noLoads}
       </p>
     );
   }
-  const usedCapacity = loads.reduce((sum, load) => sum + (load.capacity_l ?? 0), 0);
-  const unused = (trip.truck_capacity_l ?? 0) - usedCapacity;
   return (
     <div className="px-3 py-2">
-      <ul className="flex flex-col gap-1.5">
-        {loads.map((load) => (
-          <CompartmentGauge key={load.id} load={load} />
-        ))}
-      </ul>
-      {unused > 0.5 && (
-        <p className="mt-1.5 text-xs text-muted-foreground">
-          {t.detail.unusedCapacity(formatLiters(unused))}
+      {!loaded && trip.planned_l > 0 && (
+        <p className={cn("mb-1.5 text-xs", pending ? "text-muted-foreground" : "text-blocking")}>
+          {pending ? t.detail.loadsPending : t.detail.noLoads}
         </p>
       )}
+      <div
+        className="mb-2 flex h-9 gap-px overflow-hidden rounded-md border bg-border"
+        aria-hidden
+        data-testid="truck-tank"
+      >
+        {compartments.map((compartment) => {
+          const ratio = compartment.capacity_l ? compartment.planned_l / compartment.capacity_l : 0;
+          return (
+            <div
+              key={compartment.compartment_id}
+              className="relative min-w-0 bg-muted"
+              style={{ flexGrow: Math.max(1, compartment.capacity_l), flexBasis: 0 }}
+            >
+              <span
+                className="absolute inset-x-0 bottom-0"
+                style={{
+                  height: `${Math.min(100, ratio * 100)}%`,
+                  backgroundColor: compartment.product_color ?? "hsl(var(--primary))",
+                  opacity: 0.85,
+                }}
+              />
+              <span className="num absolute inset-0 grid place-items-center text-2xs font-semibold text-foreground/80">
+                {t.detail.compartment(compartment.compartment_position)}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+      <ul className="flex flex-col gap-1">
+        {compartments.map((compartment) => (
+          <CompartmentRow key={compartment.compartment_id} compartment={compartment} />
+        ))}
+      </ul>
     </div>
   );
 }
 
-function CompartmentGauge({ load }: { load: Load }) {
-  const ratio = load.capacity_l ? load.planned_l / load.capacity_l : 0;
+function CompartmentRow({ compartment }: { compartment: Compartment }) {
+  const empty = compartment.planned_l <= 0 || !compartment.product_id;
+  const ratio = compartment.capacity_l ? compartment.planned_l / compartment.capacity_l : 0;
   const over = ratio > 1;
   return (
     <li
-      className="text-xs"
-      aria-label={t.detail.compartmentLabel(
-        load.compartment_position,
-        load.product_label ?? load.product_code ?? "",
-        formatLiters(load.planned_l),
-        formatLiters(load.capacity_l),
-      )}
+      data-empty={empty || undefined}
+      className={cn("flex items-baseline gap-2 text-xs", empty && "text-muted-foreground")}
+      aria-label={
+        empty
+          ? t.detail.emptyCompartmentLabel(
+              compartment.compartment_position,
+              formatLiters(compartment.capacity_l),
+            )
+          : t.detail.compartmentLabel(
+              compartment.compartment_position,
+              compartment.product_label ?? compartment.product_code ?? "",
+              formatLiters(compartment.planned_l),
+              formatLiters(compartment.capacity_l),
+            )
+      }
     >
-      <div className="flex items-baseline gap-2">
-        <span className="num w-6 shrink-0 font-semibold text-foreground/70">
-          {t.detail.compartment(load.compartment_position)}
-        </span>
-        <span className="min-w-0 flex-1 truncate" title={load.product_label ?? undefined}>
-          {load.product_label ?? load.product_code}
-        </span>
-        <span className="num shrink-0">
-          {formatLiters(load.planned_l)}
-          <span className="text-muted-foreground"> / {formatLiters(load.capacity_l)}</span>
-        </span>
-        <span
-          className={cn(
-            "num w-10 shrink-0 text-right",
-            over ? "font-semibold text-blocking" : "text-muted-foreground",
-          )}
-        >
-          {formatPercent(ratio * 100)}
-        </span>
-      </div>
-      <div
-        className={cn(
-          "relative ml-8 mt-0.5 h-2 overflow-hidden rounded-sm border bg-muted",
-          over && "border-blocking",
+      <span className="num w-6 shrink-0 font-semibold text-foreground/70">
+        {t.detail.compartment(compartment.compartment_position)}
+      </span>
+      <span className="flex min-w-0 flex-1 items-center gap-1.5 truncate">
+        {!empty && (
+          <span
+            className="size-2 shrink-0 rounded-full"
+            style={{ backgroundColor: compartment.product_color ?? "currentColor" }}
+            aria-hidden
+          />
         )}
-        aria-hidden
+        <span className="truncate" title={compartment.product_label ?? undefined}>
+          {empty ? t.detail.emptyCompartment : (compartment.product_label ?? compartment.product_code)}
+        </span>
+      </span>
+      <span className="num shrink-0">
+        {empty ? "" : formatLiters(compartment.planned_l)}
+        <span className="text-muted-foreground">
+          {empty ? "" : " / "}
+          {formatLiters(compartment.capacity_l)}
+        </span>
+      </span>
+      <span
+        className={cn(
+          "num w-10 shrink-0 text-right",
+          over ? "font-semibold text-blocking" : "text-muted-foreground",
+        )}
       >
-        <span
-          className="absolute inset-y-0 left-0"
-          style={{
-            width: `${Math.min(100, ratio * 100)}%`,
-            backgroundColor: load.product_color ?? "hsl(var(--primary))",
-            opacity: 0.85,
-          }}
-        />
-      </div>
+        {empty ? "" : formatPercent(ratio * 100)}
+      </span>
     </li>
   );
 }
@@ -323,6 +375,10 @@ function TripDetailBody({
   showRouteSheets: boolean;
 }) {
   const { setNodeRef, isTarget, accepts } = useTripDroppable(trip, "detail");
+  const { published } = usePlanUi();
+  const { day } = useDay();
+  const canSeeLoading = useCanSee("loading");
+  const canSeeDeliveries = useCanSee("deliveries");
   const ids = trip.stops.map((stop) => stopDndId("detail", stop.id));
   const byStop = useMemo(() => {
     const map = new Map<string, PlanViolation[]>();
@@ -345,19 +401,48 @@ function TripDetailBody({
         <h2 className="text-sm font-semibold">{t.trips.trip(trip.seq)}</h2>
         <StatusBadge kind="trip" value={trip.status} />
         <span className="ml-auto flex items-center gap-1">
-          {showRouteSheets && (
-            <PdfButton
-              path={`/trips/${trip.id}/route-sheet.pdf`}
-              label={t.header.routeSheet}
-              fallbackName={`feuille-de-route-tournee-${trip.seq}.pdf`}
-              size="sm"
-            />
-          )}
           <LockButton trip={trip} />
         </span>
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
+        {(showRouteSheets || published) && (
+          <nav
+            className="flex flex-wrap items-center gap-1.5 border-b px-3 py-1.5"
+            aria-label={t.trips.trip(trip.seq)}
+          >
+            {showRouteSheets && (
+              <PdfButton
+                path={`/trips/${trip.id}/route-sheet.pdf`}
+                label={t.header.routeSheet}
+                fallbackName={`feuille-de-route-tournee-${trip.seq}.pdf`}
+                size="sm"
+              />
+            )}
+            {published && canSeeLoading && (
+              <Button asChild variant="outline" size="sm">
+                <Link
+                  to={`${withDay("/chargement", day)}&trip=${trip.id}`}
+                  aria-label={t.detail.toLoadingLabel(trip.seq)}
+                >
+                  <Fuel aria-hidden />
+                  {t.detail.toLoading}
+                </Link>
+              </Button>
+            )}
+            {published && canSeeDeliveries && (
+              <Button asChild variant="outline" size="sm">
+                <Link
+                  to={`${withDay("/suivi", day)}&trip=${trip.id}`}
+                  aria-label={t.detail.toDeliveriesLabel(trip.seq)}
+                >
+                  <PackageCheck aria-hidden />
+                  {t.detail.toDeliveries}
+                </Link>
+              </Button>
+            )}
+          </nav>
+        )}
         <Assignment trip={trip} />
 
         <dl

@@ -34,6 +34,7 @@ from app.availability.service import (
     current_depot_stocks,
     depot_stock_counts,
     driver_domain,
+    latest_depot_stock_entries,
     load_day_resources,
     record_depot_stock,
     truck_domain,
@@ -98,7 +99,7 @@ async def _user_names(session: AsyncSession, user_ids: set[uuid.UUID | None]) ->
 async def _current_stock_rows(
     session: AsyncSession, day: date, pairs: list[tuple[Depot, Product]]
 ) -> list[DepotStockOut]:
-    current = await current_depot_stocks(session, day)
+    current = await latest_depot_stock_entries(session, day)  # effacements compris
     counts = await depot_stock_counts(session, day)
     names = await _user_names(session, {entry.entered_by for entry in current.values()})
     rows = []
@@ -114,7 +115,7 @@ async def _current_stock_rows(
                 product_id=product.id,
                 product_code=product.code,
                 product_label=product.label,
-                available_l=float(entry.available_l) if entry else None,
+                available_l=float(entry.available_l) if entry and entry.available_l is not None else None,
                 entered_at=entry.entered_at if entry else None,
                 entered_by=entry.entered_by if entry else None,
                 entered_by_name=names.get(entry.entered_by) if entry else None,
@@ -172,7 +173,7 @@ async def depot_stock_history(
             .offset(page.offset)
         )
     ).all()
-    current_ids = {entry.id for entry in (await current_depot_stocks(session, day)).values()}
+    current_ids = {entry.id for entry in (await latest_depot_stock_entries(session, day)).values()}
     names = await _user_names(session, {entry.entered_by for entry, _, _ in rows})
     items = [
         DepotStockEntryOut(
@@ -184,7 +185,7 @@ async def depot_stock_history(
             product_id=product.id,
             product_code=product.code,
             product_label=product.label,
-            available_l=float(entry.available_l),
+            available_l=None if entry.available_l is None else float(entry.available_l),
             entered_at=entry.entered_at,
             entered_by=entry.entered_by,
             entered_by_name=names.get(entry.entered_by),
@@ -204,7 +205,8 @@ async def put_depot_stocks(
     day: date, payload: DepotStocksIn, session: SessionDep, user: CurrentUser
 ) -> list[DepotStockOut]:
     """Saisie Supply. Chaque valeur modifiée ajoute une ligne horodatée et signée ; les saisies
-    précédentes sont conservées. Renvoie la valeur courante des couples saisis."""
+    précédentes sont conservées. `available_l: null` efface la saisie : le stock redevient
+    « non renseigné » (l'historique garde la trace). Renvoie la valeur courante des couples saisis."""
     keys = [(item.depot_id, item.product_id) for item in payload.items]
     if len(set(keys)) != len(keys):
         raise ValidationAppError("Le même couple (dépôt, produit) figure plusieurs fois dans la saisie.")
@@ -219,9 +221,9 @@ async def put_depot_stocks(
         if product is None or product.deleted_at is not None:
             raise NotFoundError("Produit introuvable.", details=[{"product_id": str(item.product_id)}])
         pairs.append((depot, product))
-        value = Decimal(str(item.available_l))
-        previous = current.get((depot.id, product.id))
-        if previous is not None and Decimal(previous.available_l) == value:
+        value = None if item.available_l is None else Decimal(str(item.available_l))
+        previous = current.get((depot.id, product.id))  # None : jamais saisi, ou saisie effacée
+        if value == (Decimal(previous.available_l) if previous is not None else None):
             continue  # valeur inchangée : pas de ligne d'historique supplémentaire
         await record_depot_stock(
             session, depot_id=depot.id, product_id=product.id, day=day, available_l=value, user_id=user.id

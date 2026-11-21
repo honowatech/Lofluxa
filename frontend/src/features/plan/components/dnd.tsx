@@ -3,27 +3,29 @@
  * du détail d'une tournée à une autre tournée de la liste, ou d'une tournée à l'autre dans la vue tableau.
  * Dépôt sur un arrêt = insertion à sa place ; dépôt sur une tournée = ajout en fin de tournée.
  * Au clavier : focus sur la poignée, Espace pour saisir, flèches, Espace pour poser (Échap annule).
+ *
+ * Pourquoi pas `SortableList context="parent"` : ses lignes sont des `<li>` d'un `<ul>` (la vue tableau a de
+ * vraies lignes `<tr>`), sa désactivation vaut pour toute la liste (ici un arrêt livré est figé, pas ses
+ * voisins), et la ligne elle-même doit porter le focus et les raccourcis clavier. On en reprend les capteurs
+ * (`useSortableSensors`) pour un comportement identique.
  */
 import {
   DndContext,
   DragOverlay,
-  KeyboardSensor,
-  PointerSensor,
   closestCenter,
   pointerWithin,
   useDroppable,
-  useSensor,
-  useSensors,
   type Collision,
   type CollisionDetection,
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import { sortableKeyboardCoordinates, useSortable } from "@dnd-kit/sortable";
+import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { GripVertical } from "lucide-react";
 import { useCallback, useState, type ReactNode } from "react";
 
+import { useSortableSensors } from "@/components";
 import { fr } from "@/i18n/fr";
 import { cn } from "@/lib/utils";
 
@@ -61,10 +63,8 @@ const collisionDetection: CollisionDetection = (args) => {
 export function PlanDnd({ children }: { children: ReactNode }) {
   const { edit, canEdit } = usePlanUi();
   const [active, setActive] = useState<StopData | null>(null);
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
-  );
+  // Mêmes capteurs que `SortableList` (souris avec seuil, clavier).
+  const sensors = useSortableSensors();
 
   const onDragStart = useCallback((event: DragStartEvent) => {
     setActive((event.active.data.current as StopData | undefined) ?? null);

@@ -21,7 +21,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import new_id
-from app.core.enums import EventType, OrderStatus, PlanKind, PlanStatus, Severity, TripStatus
+from app.core.enums import EventType, OrderStatus, PlanKind, PlanStatus, Severity, StopStatus, TripStatus
 from app.core.errors import ConflictError, RuleViolationError, ValidationAppError
 from app.core.settings_store import load_params
 from app.core.time import utcnow
@@ -84,7 +84,9 @@ async def build_problem(
     rows = await session.execute(select(Order).where(Order.day == day, Order.status == OrderStatus.CONFIRMED))
     orders = list(rows.scalars())
     requested, orders = await _remainders(session, orders)
-    return await mapping.assemble_problem(session, day, params, orders, requested=requested, **extra)
+    return await mapping.assemble_problem(
+        session, day, params, orders, requested=requested, net_of_published=True, **extra
+    )
 
 
 async def _remainders(
@@ -273,7 +275,14 @@ async def run_recompute(
         extra = set(rows.scalars())
     problem = await checking.plan_problem(session, plan, params_override=override, extra_order_ids=extra)
     if plan.kind == PlanKind.COMPUTED:
-        frozen_orders = {str(d.order_id) for t in frozen for s in t.stops for d in s.deliveries}
+        # Les commandes d'un arrêt sauté ne sont pas servies par la tournée figée : elles restent à planifier.
+        frozen_orders = {
+            str(d.order_id)
+            for t in frozen
+            for s in t.stops
+            if s.status != StopStatus.SKIPPED
+            for d in s.deliveries
+        }
         statuses = dict(
             (
                 await session.execute(select(Order.id, Order.status).where(Order.id.in_(plan_orders | extra)))
@@ -284,7 +293,9 @@ async def run_recompute(
             o for o in problem.orders if o.id in frozen_orders or statuses.get(uuid.UUID(o.id)) in keep
         ]
     tz_name = problem.params.timezone
-    problem.locked_trips = [mapping.trip_to_domain(t, plan.day, tz_name) for t in frozen]
+    problem.locked_trips = mapping.without_skipped(
+        [mapping.trip_to_domain(t, plan.day, tz_name) for t in frozen]
+    )
 
     notify(8, "Calcul des distances")
     matrix = await mapping.build_plan_matrix(session, problem)
@@ -467,6 +478,9 @@ async def publish_plan(session: AsyncSession, plan_id: uuid.UUID) -> Plan:
             code="plan_kind_not_publishable",
         )
 
+    # L'exécution a pu avancer sur la version en vigueur depuis la copie : on la reprend d'abord.
+    await versions.sync_execution_from_published(session, plan)
+    plan = await load_plan(session, plan.id)
     await checking.recheck(session, plan)
     plan = await load_plan(session, plan.id)
     blocking = [v for v in plan.violations if v.severity == Severity.BLOCKING]

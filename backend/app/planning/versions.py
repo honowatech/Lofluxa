@@ -21,11 +21,11 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import new_id
-from app.core.enums import EventType, PlanKind, PlanStatus
+from app.core.enums import EventType, PlanKind, PlanStatus, StopStatus, TripStatus
 from app.core.errors import ConflictError, NotFoundError
 from app.events.models import Event
 from app.loading.models import Loading, LoadingLine
-from app.planning.checking import load_plan, log_event, recheck, root_id
+from app.planning.checking import EXTERNAL_RULE_CODES, load_plan, log_event, recheck, root_id
 from app.planning.models import (
     ConstraintViolation,
     Plan,
@@ -35,6 +35,8 @@ from app.planning.models import (
     TripCompartmentLoad,
     UnservedOrder,
 )
+
+_TRIP_RANK = {status: rank for rank, status in enumerate(TripStatus)}
 
 
 @dataclass
@@ -49,6 +51,14 @@ class IdMap:
 
     def stop(self, stop_id: uuid.UUID) -> uuid.UUID:
         return self.stops.get(stop_id, stop_id)
+
+    def payload(self) -> dict[str, dict[str, str]]:
+        """Forme journalisée avec l'événement de création de la version : c'est elle qui permet,
+        plus tard, de retrouver la tournée d'origine d'une tournée copiée."""
+        return {
+            "trip_ids": {str(old): str(new) for old, new in self.trips.items()},
+            "stop_ids": {str(old): str(new) for old, new in self.stops.items()},
+        }
 
 
 async def lineage(session: AsyncSession, plan: Plan) -> list[Plan]:
@@ -158,6 +168,30 @@ async def copy_plan(session: AsyncSession, source: Plan, *, version: int) -> tup
     return copy, ids
 
 
+def _clone_loading(loading: Loading, trip_id: uuid.UUID) -> Loading:
+    return Loading(
+        trip_id=trip_id,
+        depot_id=loading.depot_id,
+        arrived_at=loading.arrived_at,
+        started_at=loading.started_at,
+        finished_at=loading.finished_at,
+        depot_ticket_no=loading.depot_ticket_no,
+        entered_by=loading.entered_by,
+        lines=[
+            LoadingLine(
+                compartment_id=line.compartment_id,
+                product_id=line.product_id,
+                observed_l=line.observed_l,
+                observed_temp_c=line.observed_temp_c,
+                observed_density=line.observed_density,
+                volume_15_l=line.volume_15_l,
+                planned_l=line.planned_l,
+            )
+            for line in loading.lines
+        ],
+    )
+
+
 async def _copy_loadings(session: AsyncSession, ids: IdMap) -> None:
     """Recopie le chargement réel (lot L6) de chaque tournée sur sa copie : la nouvelle version
     garde ce qui a déjà été chargé (RM-19), l'ancienne version garde son relevé (jamais écrasée)."""
@@ -165,30 +199,120 @@ async def _copy_loadings(session: AsyncSession, ids: IdMap) -> None:
         return
     rows = await session.execute(select(Loading).where(Loading.trip_id.in_(ids.trips)))
     for loading in rows.scalars():
-        session.add(
-            Loading(
-                trip_id=ids.trips[loading.trip_id],
-                depot_id=loading.depot_id,
-                arrived_at=loading.arrived_at,
-                started_at=loading.started_at,
-                finished_at=loading.finished_at,
-                depot_ticket_no=loading.depot_ticket_no,
-                entered_by=loading.entered_by,
-                lines=[
-                    LoadingLine(
-                        compartment_id=line.compartment_id,
-                        product_id=line.product_id,
-                        observed_l=line.observed_l,
-                        observed_temp_c=line.observed_temp_c,
-                        observed_density=line.observed_density,
-                        volume_15_l=line.volume_15_l,
-                        planned_l=line.planned_l,
-                    )
-                    for line in loading.lines
-                ],
-            )
-        )
+        session.add(_clone_loading(loading, ids.trips[loading.trip_id]))
     await session.flush()
+
+
+async def _origins(session: AsyncSession, plans: list[Plan]) -> dict[str, str]:
+    """Identifiant d'origine de chaque tournée et de chaque arrêt copié dans la lignée : on remonte
+    les correspondances journalisées à chaque création de version (`trip_ids`, `stop_ids`)."""
+    parent: dict[str, str] = {}
+    events = await version_events(session, [p.id for p in plans])
+    for rows in events.values():
+        for event in rows:
+            payload = event.payload or {}
+            for key in ("trip_ids", "stop_ids"):
+                for old, new in (payload.get(key) or {}).items():
+                    parent[new] = old
+
+    def origin(item: str) -> str:
+        while item in parent:
+            item = parent[item]
+        return item
+
+    return {item: origin(item) for item in parent}
+
+
+async def sync_execution_from_published(session: AsyncSession, plan: Plan) -> int:
+    """Avant de publier `plan` : reprend l'état d'exécution de la version en vigueur de la lignée.
+
+    Tant qu'un brouillon est en préparation, le terrain continue d'écrire sur la version publiée
+    (statuts, heures et volumes réels, chargement, RM-13). Rien de ce qui a été réalisé ne doit
+    régresser à la publication : pour chaque tournée et chaque arrêt du brouillon issus d'une
+    tournée / d'un arrêt de la version en vigueur, l'état le plus avancé des deux est retenu.
+    Renvoie le nombre de tournées resynchronisées."""
+    plans = await lineage(session, plan)
+    current = next((p for p in plans if p.status == PlanStatus.PUBLISHED and p.id != plan.id), None)
+    if current is None:
+        return 0
+    current = await load_plan(session, current.id)
+    plan = await load_plan(session, plan.id)
+    origins = await _origins(session, plans)
+
+    def origin(item: uuid.UUID) -> str:
+        return origins.get(str(item), str(item))
+
+    old_trips = {origin(t.id): t for t in current.trips}
+    old_stops = {origin(s.id): s for t in current.trips for s in t.stops}
+    pairs: dict[uuid.UUID, Trip] = {}  # ancienne tournée → nouvelle
+    for trip in plan.trips:
+        old = old_trips.get(origin(trip.id))
+        if old is None:
+            continue
+        pairs[old.id] = trip
+        # Le plus avancé des deux états l'emporte : le brouillon peut lui-même avoir fait avancer
+        # la tournée (panne : tournée d'origine close dans la nouvelle version, F6.1).
+        if _TRIP_RANK[TripStatus(old.status)] > _TRIP_RANK[TripStatus(trip.status)]:
+            trip.status = old.status
+        for name in ("actual_depart_at", "actual_return_at", "actual_distance_m"):
+            if getattr(trip, name) is None and getattr(old, name) is not None:
+                setattr(trip, name, getattr(old, name))
+        for stop in trip.stops:
+            old_stop = old_stops.get(origin(stop.id))
+            if old_stop is None:
+                continue
+            if stop.status == StopStatus.PENDING and old_stop.status != StopStatus.PENDING:
+                stop.status = old_stop.status
+                stop.skip_reason = old_stop.skip_reason
+            for name in ("actual_arrival_at", "actual_departure_at"):
+                if getattr(stop, name) is None and getattr(old_stop, name) is not None:
+                    setattr(stop, name, getattr(old_stop, name))
+            actual = {(d.order_id, d.product_id): d.actual_l for d in old_stop.deliveries}
+            for delivery in stop.deliveries:
+                if delivery.actual_l is None:
+                    delivery.actual_l = actual.get((delivery.order_id, delivery.product_id))
+    if not pairs:
+        return 0
+
+    # Chargements : celui de la version en vigueur est repris s'il manque au brouillon, ou s'il a
+    # été saisi ou corrigé après la copie.
+    new_ids = [t.id for t in pairs.values()]
+    mine = {
+        x.trip_id: x
+        for x in (await session.execute(select(Loading).where(Loading.trip_id.in_(new_ids)))).scalars()
+    }
+    theirs = (await session.execute(select(Loading).where(Loading.trip_id.in_(pairs)))).scalars().all()
+    refreshed: dict[uuid.UUID, Loading] = {}
+    for loading in theirs:
+        target = pairs[loading.trip_id].id
+        existing = mine.get(target)
+        if existing is None or loading.updated_at > existing.created_at:
+            refreshed[target] = loading
+            if existing is not None:
+                await session.delete(existing)
+    await session.flush()
+    for target, loading in refreshed.items():
+        session.add(_clone_loading(loading, target))
+
+    # Violations du chargement (RM-13) des tournées dont le chargement vient d'être repris.
+    for row in [v for v in plan.violations if v.rule_code in EXTERNAL_RULE_CODES and v.trip_id in refreshed]:
+        plan.violations.remove(row)
+    for row in current.violations:
+        if (
+            row.rule_code in EXTERNAL_RULE_CODES
+            and row.trip_id in pairs
+            and pairs[row.trip_id].id in refreshed
+        ):
+            plan.violations.append(
+                ConstraintViolation(
+                    trip_id=pairs[row.trip_id].id,
+                    rule_code=row.rule_code,
+                    severity=row.severity,
+                    message=row.message,
+                )
+            )
+    await session.flush()
+    return len(pairs)
 
 
 async def create_version(session: AsyncSession, plan: Plan, *, reason: str) -> tuple[Plan, IdMap]:
@@ -219,6 +343,7 @@ async def create_version(session: AsyncSession, plan: Plan, *, reason: str) -> t
             "reason": reason,
             "from_plan_id": str(plan.id),
             "from_version": plan.version,
+            **ids.payload(),
         },
     )
     await session.flush()
@@ -249,7 +374,7 @@ async def restore_version(session: AsyncSession, plan_id: uuid.UUID, version: in
             other.status = PlanStatus.ARCHIVED  # brouillon abandonné : conservé, jamais supprimé
             abandoned.append(other.version)
     source = await load_plan(session, target.id)
-    copy, _ = await copy_plan(session, source, version=max(p.version for p in versions) + 1)
+    copy, ids = await copy_plan(session, source, version=max(p.version for p in versions) + 1)
     await session.flush()
     log_event(
         session,
@@ -261,6 +386,7 @@ async def restore_version(session: AsyncSession, plan_id: uuid.UUID, version: in
             "restored_version": version,
             "from_plan_id": str(target.id),
             "abandoned_draft_versions": abandoned,
+            **ids.payload(),
         },
     )
     await session.flush()

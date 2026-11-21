@@ -374,3 +374,69 @@ async def test_roles_sur_la_penurie(client, auth_headers, world, published, spar
         headers=headers,
     )
     assert response.status_code == resolve, response.text
+
+
+async def test_reduire_la_premiere_tournee_avant_de_traiter_la_seconde(
+    client, db, auth_headers, world, published, spare
+):
+    """Ce que `/impact` annonce comme couvert est accordé par `/resolve`, quel que soit l'ordre :
+    super à 12 000 L, tournée 1 couverte à 12 000 L sur 16 000, tournée 2 non couverte."""
+    shortage = await _open_shortage(client, auth_headers, world, code="SUPER", liters=12000)
+    headers = await auth_headers("dispatcher")
+    event_id = shortage["event"]["id"]
+    impact = (await client.get(f"/events/{event_id}/impact", headers=headers)).json()
+    by_seq = {t["trip_seq"]: t for t in impact["impacted_trips"]}
+    assert by_seq[1]["covered_l"] == 12000 and "reduce" in by_seq[1]["options"]
+    assert by_seq[2]["covered_l"] == 0
+
+    response = await client.post(
+        f"/events/{event_id}/resolve",
+        json={"resolutions": [{"trip_id": by_seq[1]["trip_id"], "action": "reduce"}]},
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    trip = trip_by_seq(body["results"][0]["plan"], 1)
+    volumes = sorted(
+        d["planned_l"] for s in trip["stops"] for d in s["deliveries"] if d["product_code"] == "SUPER"
+    )
+    assert volumes == [4500, 7500]  # 16 000 L ramenés aux 12 000 L annoncés
+    # La tournée 2 reste à traiter : l'alerte reste ouverte, la version reste en brouillon (RM-08).
+    assert body["status"] == "open" and [t["trip_seq"] for t in body["impacted_trips"]] == [2]
+    assert body["impacted_trips"][0]["covered_l"] == 0 and body["results"][0]["published"] is False
+
+    second = await client.post(
+        f"/events/{event_id}/resolve",
+        json={
+            "resolutions": [{"trip_id": body["impacted_trips"][0]["trip_id"], "action": "postpone"}],
+            "publish": True,
+        },
+        headers=headers,
+    )
+    assert second.status_code == 200, second.text
+    assert second.json()["status"] == "resolved" and second.json()["results"][0]["published"] is True
+    assert await _status(db, world.orders["o5"]) == OrderStatus.POSTPONED
+
+
+async def test_heure_de_la_penurie_et_de_sa_resolution(client, auth_headers, world, published, spare):
+    from tests.integration.events.conftest import at, iso
+
+    shortage = await _open_shortage(client, auth_headers, world, occurred_at=iso(at(9, 15)))
+    assert shortage["event"]["occurred_at"] == iso(at(9, 15))
+    headers = await auth_headers("dispatcher")
+    response = await client.post(
+        f"/events/{shortage['event']['id']}/resolve",
+        json={
+            "resolutions": [{"trip_id": shortage["impacted_trips"][0]["trip_id"], "action": "postpone"}],
+            "occurred_at": iso(at(9, 40)),
+        },
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
+    journal = await client.get(
+        "/events",
+        params={"day": DAY.isoformat(), "type": ["manual_edit", "product_shortage"]},
+        headers=headers,
+    )
+    times = {e["action"]: e["occurred_at"] for e in journal.json()["items"]}
+    assert times["declared"] == iso(at(9, 15)) and times["shortage_resolution"] == iso(at(9, 40))

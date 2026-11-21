@@ -137,14 +137,9 @@ export const fr = {
     contents: "Contenu prévu",
     selectedDay: "Jour sélectionné",
     scope: {
-      day: "Résumé commandes / ressources / stocks, bouton « Calculer le plan », état du dernier calcul, alertes.",
-      orders: "Tableau éditable, import, confirmation en masse, filtres par station / produit / statut.",
-      availability: "Trois onglets (stocks dépôt, camions, chauffeurs) avec saisie rapide.",
-      plan: "Liste des tournées, carte, détail avec arrêts réordonnables et compartiments, bandeau des commandes non servies, verrouiller / recalculer / publier.",
       events: "Panne, réaffectation, pénurie, avec assistant de réaffectation.",
       loading: "Tournées du jour au dépôt, chargement par compartiment, calcul à 15 °C, fiche PDF, statuts.",
       deliveries: "Par tournée : heures et volumes réels, arrêts sautés.",
-      comparison: "Choix de deux plans, indicateurs avec écarts, deux cartes côte à côte, export PDF.",
     },
   },
 

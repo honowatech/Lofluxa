@@ -17,6 +17,9 @@ import type {
   TruckDay,
 } from "./types";
 
+/** Rythme de relecture de la liste des plans du jour. */
+export const PLANS_REFRESH_MS = 60_000;
+
 export const planKeys = {
   all: ["plans"] as const,
   ofDay: (day: IsoDate) => ["plans", "day", day] as const,
@@ -31,6 +34,8 @@ export function usePlansOfDay(day: IsoDate) {
   return useQuery({
     queryKey: planKeys.ofDay(day),
     queryFn: ({ signal }) => fetchAll<PlanSummary>("/plans", { day }, signal),
+    // Un événement du jour (panne, pénurie) peut publier une nouvelle version à tout moment.
+    refetchInterval: PLANS_REFRESH_MS,
   });
 }
 

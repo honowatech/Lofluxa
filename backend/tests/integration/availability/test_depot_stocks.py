@@ -147,3 +147,46 @@ async def test_F2_1_saisies_invalides(client, db, auth_headers, products):
     missing = await client.put(URL, params=PARAMS, json=unknown_product, headers=headers)
     assert (missing.status_code, missing.json()["message"]) == (404, "Produit introuvable.")
     assert (await client.get(f"{URL}/history", params=PARAMS, headers=headers)).json()["total"] == 0
+
+
+async def test_F2_1_effacer_une_saisie_revient_a_non_renseigne(client, db, auth_headers, products):
+    depot = await make_depot(db)
+    super_ = products["SUPER"]
+    supply = await auth_headers("supply")
+    key = (depot.id, super_.id)
+
+    # Effacer un stock jamais saisi est sans effet.
+    noop = await client.put(URL, params=PARAMS, json=_items((depot, super_, None)), headers=supply)
+    assert noop.status_code == 200, noop.text
+    assert (noop.json()[0]["available_l"], noop.json()[0]["history_count"]) == (None, 0)
+
+    await client.put(URL, params=PARAMS, json=_items((depot, super_, 999999)), headers=supply)
+    cleared = await client.put(URL, params=PARAMS, json=_items((depot, super_, None)), headers=supply)
+    assert cleared.status_code == 200, cleared.text
+    row = cleared.json()[0]
+    assert row["available_l"] is None
+    assert row["history_count"] == 2  # la saisie erronée et son effacement sont conservés
+    assert row["entered_by_name"] == "Test supply" and row["entered_at"].endswith("Z")
+    # Effacer deux fois n'ajoute rien.
+    again = await client.put(URL, params=PARAMS, json=_items((depot, super_, None)), headers=supply)
+    assert again.json()[0]["history_count"] == 2
+
+    grid = (await client.get(URL, params=PARAMS, headers=supply)).json()["items"]
+    assert next(r for r in grid if r["product_code"] == "SUPER")["available_l"] is None
+    history = (await client.get(f"{URL}/history", params=PARAMS, headers=supply)).json()["items"]
+    assert [(e["available_l"], e["is_current"]) for e in history] == [(None, True), (999999.0, False)]
+
+    # Pour le service de plans (RM-08) : un stock effacé est une clé absente, pas une valeur nulle.
+    assert key not in await service.current_depot_stocks(db, DAY)
+    summary = (await client.get("/availability/summary", params=PARAMS, headers=supply)).json()
+    assert (summary["depot_stocks"]["entered"], summary["depot_stocks"]["missing"]) == (0, 3)
+    assert summary["depot_stocks"]["last_entered_at"] is None
+
+    # Une nouvelle saisie après effacement fait de nouveau foi ; 0 L reste une valeur renseignée.
+    back = await client.put(URL, params=PARAMS, json=_items((depot, super_, 0)), headers=supply)
+    assert (back.json()[0]["available_l"], back.json()[0]["history_count"]) == (0.0, 3)
+    assert float((await service.current_depot_stocks(db, DAY))[key].available_l) == 0.0
+
+    # Le champ reste obligatoire : l'omettre n'efface rien.
+    omitted = {"items": [{"depot_id": str(depot.id), "product_id": str(super_.id)}]}
+    assert (await client.put(URL, params=PARAMS, json=omitted, headers=supply)).status_code == 422

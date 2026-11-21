@@ -39,7 +39,7 @@ export interface ImportDialogProps {
   onOpenChange: (open: boolean) => void;
   /** Appelé après application réussie (rafraîchir les listes). */
   onApplied?: (batch: ImportBatch) => void;
-  /** Champs supplémentaires envoyés avec le fichier (ex. `{ day }` pour les commandes). */
+  /** Options de l'import, transmises en paramètres de requête de la prévisualisation (ex. `{ day }` pour les commandes). */
   fields?: Record<string, string>;
 }
 

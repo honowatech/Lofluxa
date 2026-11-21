@@ -116,7 +116,6 @@ function Metric({ label, value }: { label: string; value: string }) {
 }
 
 export function PlanMetrics({ plan }: { plan: Plan }) {
-  const metrics = plan.metrics ?? {};
   const distance = plan.trips.reduce((sum, trip) => sum + trip.distance_m, 0);
   const duration = plan.trips.reduce((sum, trip) => sum + trip.duration_s, 0);
   const planned = plan.trips.reduce((sum, trip) => sum + trip.planned_l, 0);
@@ -124,7 +123,7 @@ export function PlanMetrics({ plan }: { plan: Plan }) {
     .map((trip) => trip.fill_rate)
     .filter((rate): rate is number => typeof rate === "number");
   const fill = rates.length ? (rates.reduce((sum, rate) => sum + rate, 0) / rates.length) * 100 : null;
-  const total = typeof metrics.orders_total === "number" ? metrics.orders_total : null;
+  const total = plan.metrics?.orders_total ?? null;
   const open = plan.unserved.length;
   return (
     <dl className="flex flex-wrap items-baseline gap-x-5 gap-y-0.5">
@@ -237,7 +236,14 @@ export function PlanHeader({
       <div className="flex flex-wrap items-center gap-x-5 gap-y-1">
         <PlanMetrics plan={plan} />
         <span className="text-xs text-muted-foreground">
-          {plan.computed_at && t.header.computedAt(formatLocalTime(plan.computed_at), plan.engine_version)}
+          {plan.computed_at &&
+            t.header.computedAt(
+              formatLocalTime(plan.computed_at),
+              typeof plan.computed_in_ms === "number"
+                ? formatDuration(plan.computed_in_ms / 1000, { seconds: true })
+                : null,
+              plan.engine_version,
+            )}
           {plan.created_by_name && ` · ${t.header.createdBy(plan.created_by_name)}`}
         </span>
         {showPublish && access.publishBlockedReason && (

@@ -14,6 +14,8 @@ export interface PlanAccess {
   draftOfLineage: PlanSummary | null;
   /** Version publiée de la même lignée, quand le plan affiché est un brouillon. */
   publishedOfLineage: PlanSummary | null;
+  /** Version en vigueur (publiée) de la lignée, quand la version affichée est archivée : elle a été remplacée. */
+  supersededBy: PlanSummary | null;
   canPublish: boolean;
   /** Explication du bouton Publier désactivé. */
   publishBlockedReason: string | null;
@@ -33,9 +35,13 @@ export function planAccess(
   const publishedOfLineage =
     plan.status === "draft" ? (lineage.find((other) => other.status === "published") ?? null) : null;
 
+  const supersededBy =
+    plan.status === "archived" ? (lineage.find((other) => other.status === "published") ?? null) : null;
+
   let readOnlyReason: string | null = null;
   if (!canWrite) readOnlyReason = t.readOnly.role;
   else if (plan.kind === "manual_reference") readOnlyReason = t.readOnly.reference;
+  else if (supersededBy) readOnlyReason = t.readOnly.superseded(supersededBy.version);
   else if (plan.status === "archived") readOnlyReason = t.readOnly.archived;
   else if (draftOfLineage) readOnlyReason = t.readOnly.publishedWithDraft(draftOfLineage.version);
 
@@ -50,6 +56,7 @@ export function planAccess(
     readOnlyReason,
     draftOfLineage,
     publishedOfLineage,
+    supersededBy,
     canPublish: canWrite && publishBlockedReason === null && !busy,
     publishBlockedReason: canWrite ? publishBlockedReason : null,
   };

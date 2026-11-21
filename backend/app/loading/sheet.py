@@ -149,6 +149,7 @@ async def build_sheet_context(session: AsyncSession, ctx: TripContext) -> dict[s
         },
         "tolerance": _num(result.tolerance_pct, 2, "%"),
         "rm_13_message": result.message,
+        "rm_13_explanation": result.explanation,
         "stops": stops,
         "compartments": compartments,
         "astm_note": ASTM_NOTE,
