@@ -1,7 +1,17 @@
+import { availabilityTexts } from "./screens/availability";
+import { comparisonTexts } from "./screens/comparison";
+import { dayTexts } from "./screens/day";
+import { deliveriesTexts } from "./screens/deliveries";
+import { eventsTexts } from "./screens/events";
+import { loadingTexts } from "./screens/loading";
+import { ordersTexts } from "./screens/orders";
+import { planTexts } from "./screens/plan";
+
 /**
  * Tous les textes de l'interface, en français (spec §8.4).
  * Aucun texte affiché ne doit être écrit en dur dans un composant : ajouter une clé ici.
- * Les écrans de vague 2 ajoutent leur propre section (`orders`, `plan`, …) sans toucher aux autres.
+ * Les écrans de vague 2 écrivent leurs textes dans `src/i18n/screens/<écran>.ts` (un fichier par écran,
+ * pour éviter les conflits de fusion) ; ils sont exposés ici sous `fr.screens.<écran>`.
  * Fonctions pour les textes à variables : `fr.table.selected(3)`.
  */
 export const fr = {
@@ -648,6 +658,18 @@ export const fr = {
       selectHint: "Sélectionnez une écriture pour voir le détail avant → après.",
       absent: "absent",
     },
+  },
+
+  /** Écrans de vague 2 : un fichier par écran dans `./screens/`. */
+  screens: {
+    day: dayTexts,
+    orders: ordersTexts,
+    availability: availabilityTexts,
+    plan: planTexts,
+    events: eventsTexts,
+    loading: loadingTexts,
+    deliveries: deliveriesTexts,
+    comparison: comparisonTexts,
   },
 } as const;
 
