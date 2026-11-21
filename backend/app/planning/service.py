@@ -12,6 +12,7 @@ tests les remplacent par des doublures tant que les lots L1 et L2 ne sont pas in
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterable
 from dataclasses import asdict, fields
 from datetime import date
 from typing import Any
@@ -57,21 +58,33 @@ async def build_problem(
     *,
     params_override: dict[str, Any] | None = None,
     order_ids: list[uuid.UUID] | None = None,
+    extra_depot_ids: Iterable[uuid.UUID] = (),
+    extra_truck_ids: Iterable[uuid.UUID] = (),
+    extra_driver_ids: Iterable[uuid.UUID] = (),
 ) -> PlanningProblem:
     """Construit le problème du jour J depuis la base (commandes `confirmed` par défaut,
     ou `order_ids` imposés pour un rejeu), ressources, stocks dépôt et paramètres.
 
     Par défaut, le volume demandé d'une commande `confirmed` déjà planifiée en partie dans un plan
-    publié est son reliquat (RM-16) ; avec `order_ids`, les volumes demandés sont pris tels quels."""
+    publié est son reliquat (RM-16) ; avec `order_ids`, les volumes demandés sont pris tels quels.
+
+    `extra_depot_ids`, `extra_truck_ids`, `extra_driver_ids` : ressources à inclure même si elles ont
+    été désactivées ou supprimées depuis (rejeu ou journée de référence d'un jour passé). Les stations
+    des commandes sont toujours incluses, quel que soit leur état."""
+    extra = {
+        "extra_depot_ids": extra_depot_ids,
+        "extra_truck_ids": extra_truck_ids,
+        "extra_driver_ids": extra_driver_ids,
+    }
     params = await load_params(session, validate_params_override(params_override))
     if order_ids is not None:
         orders = list((await session.execute(select(Order).where(Order.id.in_(order_ids)))).scalars())
-        return await mapping.assemble_problem(session, day, params, orders)
+        return await mapping.assemble_problem(session, day, params, orders, **extra)
 
     rows = await session.execute(select(Order).where(Order.day == day, Order.status == OrderStatus.CONFIRMED))
     orders = list(rows.scalars())
     requested, orders = await _remainders(session, orders)
-    return await mapping.assemble_problem(session, day, params, orders, requested=requested)
+    return await mapping.assemble_problem(session, day, params, orders, requested=requested, **extra)
 
 
 async def _remainders(
@@ -237,14 +250,16 @@ async def run_recompute(
     """F5.3 « Recalculer en conservant » : relance le moteur en figeant les tournées verrouillées
     (RM-17). Les tournées figées ne sont pas réécrites ; les autres sont remplacées.
 
-    Sont figées : les tournées `locked`, et celles dont l'exécution a commencé (statut ≠ `planned`).
+    Sont figées : les tournées `locked`, celles dont l'exécution a commencé (statut ≠ `planned`) et
+    celles qui ont un chargement enregistré.
     Un plan publié n'est pas modifié : le recalcul produit une nouvelle version (RM-18)."""
     notify = progress or (lambda pct, message: None)
     override = validate_params_override(params_override)
     plan, _ = await editing.open_for_edit(
         session, plan_id, reason="Recalcul en conservant les tournées verrouillées"
     )
-    frozen = [t for t in plan.trips if t.locked or t.status != TripStatus.PLANNED]
+    loaded = await checking.loaded_trip_ids(session, plan)
+    frozen = [t for t in plan.trips if t.locked or t.status != TripStatus.PLANNED or t.id in loaded]
     frozen_ids = {str(t.id) for t in frozen}
 
     notify(2, "Lecture des commandes, des ressources et des stocks")

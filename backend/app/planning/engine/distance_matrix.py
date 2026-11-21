@@ -113,7 +113,7 @@ def build_matrix(
         coords = [(lat, lon) for _, lat, lon in nodes]
         try:
             distances, durations = client.table(coords, sources=missing_rows)
-        except OsrmError as exc:
+        except (OsrmError, OSError) as exc:  # ne jamais faire échouer le calcul pour la matrice
             logger.warning("Repli haversine pour la matrice de distances : %s", exc)
             return haversine_matrix(nodes, params)
         fresh: dict[tuple[str, str], tuple[int, int]] = {}

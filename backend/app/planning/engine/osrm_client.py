@@ -8,7 +8,8 @@ from __future__ import annotations
 
 import httpx
 
-DEFAULT_TIMEOUT_S = 20.0
+# Délai court : le calcul ne doit pas attendre un OSRM lent, le repli haversine prend le relais.
+DEFAULT_TIMEOUT_S = 5.0
 
 
 class OsrmError(RuntimeError):
@@ -55,7 +56,7 @@ class OsrmClient:
                 response = client.get(url, params=query)
                 response.raise_for_status()
                 payload = response.json()
-        except (httpx.HTTPError, ValueError) as exc:
+        except (httpx.HTTPError, httpx.InvalidURL, ValueError) as exc:
             raise OsrmError(f"OSRM injoignable ou réponse invalide : {exc}") from exc
 
         if not isinstance(payload, dict) or payload.get("code") != "Ok":
