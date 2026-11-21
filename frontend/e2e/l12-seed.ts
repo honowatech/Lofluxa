@@ -5,9 +5,12 @@
  * Depuis un test Playwright :   const { planId } = await seedPlan({ fixture: "demo_douala", day });
  * En ligne de commande :        node --experimental-strip-types e2e/l12-seed.ts demo_douala 2027-01-12
  *
- * Tout ce que ce script crée est préfixé `L12-` (codes de dépôts et de stations, immatriculations, numéros de
- * permis, noms de chauffeurs et de transporteurs) : les jeux d'essai des autres lots, dans la même base, ne
- * réutilisent ni ne modifient ces lignes, et réciproquement.
+ * Tout ce que ce script crée est préfixé `ZL12` (codes de dépôts et de stations, immatriculations, numéros de
+ * permis, noms de stations, de dépôts, de chauffeurs et de transporteurs) : les jeux d'essai des autres lots,
+ * dans la même base, ne réutilisent ni ne modifient ces lignes, et réciproquement. Le « Z » les classe en fin
+ * de toute liste triée par code ou par nom : un parcours d'un autre lot qui prend « la première station » (ou
+ * le premier camion) ne tombe jamais sur une ligne de ce lot.
+ * Les dépôts des autres lots reçoivent un stock nul pour le jour d'essai : le plan ne charge qu'aux dépôts du jeu.
  * Rejouable sur une base déjà remplie : les référentiels sont retrouvés par code / immatriculation / nom ; les
  * commandes et le plan sont créés à chaque appel, pour un jour encore vierge (`freshDay()` : ni commande ni
  * plan, pris dans une plage d'années réservée à ce lot).
@@ -97,8 +100,9 @@ export interface SeedResult {
   driverIds: Record<string, string>;
 }
 
-/** Préfixe de tout ce que ce lot crée dans la base partagée par les parcours des autres lots. */
-export const TAG = "L12-";
+/** Préfixes de tout ce que ce lot crée dans la base partagée par les parcours des autres lots (codes, noms). */
+export const TAG = "ZL12-";
+export const NAME_TAG = "ZL12 ";
 /** Permis et habilitations des chauffeurs du jeu : valables sur toute la plage de jours du lot. */
 const DOCUMENTS_EXPIRY = "2039-12-31";
 
@@ -210,7 +214,7 @@ export async function seedPlan(options: SeedOptions): Promise<SeedResult> {
   const carrierIds: Record<string, string> = {};
   for (const key of new Set([...problem.trucks, ...problem.drivers].map((x) => x.carrier_id))) {
     if (!key) continue;
-    const name = `${TAG}${key}`;
+    const name = `${NAME_TAG}${key}`;
     const existing = carriers.find((c) => c.name === name);
     carrierIds[key] = existing?.id ?? (await api.call<Named>("POST", "/carriers", { name })).id;
   }
@@ -226,7 +230,7 @@ export async function seedPlan(options: SeedOptions): Promise<SeedResult> {
       (
         await api.call<Named>("POST", "/depots", {
           code,
-          name: depot.name,
+          name: `${NAME_TAG}${depot.name}`,
           lat: depot.lat,
           lon: depot.lon,
           opening_hours: openingHours(depot.windows),
@@ -247,7 +251,7 @@ export async function seedPlan(options: SeedOptions): Promise<SeedResult> {
       (
         await api.call<Named>("POST", "/stations", {
           code,
-          name: station.name,
+          name: `${NAME_TAG}${station.name}`,
           lat: station.lat,
           lon: station.lon,
           opening_hours: openingHours(station.windows),
@@ -284,7 +288,7 @@ export async function seedPlan(options: SeedOptions): Promise<SeedResult> {
   const drivers = await api.all("/drivers");
   const driverIds: Record<string, string> = {};
   for (const driver of problem.drivers) {
-    const fullName = `${TAG}${driver.full_name}`;
+    const fullName = `${NAME_TAG}${driver.full_name}`;
     const existing = drivers.find((d) => d.full_name === fullName);
     driverIds[driver.id] =
       existing?.id ??
@@ -322,13 +326,21 @@ export async function seedPlan(options: SeedOptions): Promise<SeedResult> {
     })),
   });
 
-  // Stocks du jour
+  // Stocks du jour : ceux du jeu pour ses dépôts ; zéro partout ailleurs, pour que le plan ne charge pas au
+  // dépôt d'un autre lot (un stock non renseigné n'est qu'un avertissement, RM-08).
+  const ownDepots = new Set(Object.values(depotIds));
+  const foreignDepots = (await api.all("/depots")).filter((depot) => !ownDepots.has(depot.id));
   await api.call("PUT", `/availability/depot-stocks?day=${day}`, {
-    items: problem.depot_stocks.map((s) => ({
-      depot_id: depotIds[s.depot_id],
-      product_id: productId(s.product_id),
-      available_l: options.stocks?.[s.product_id] ?? s.available_l,
-    })),
+    items: [
+      ...problem.depot_stocks.map((s) => ({
+        depot_id: depotIds[s.depot_id],
+        product_id: productId(s.product_id),
+        available_l: options.stocks?.[s.product_id] ?? s.available_l,
+      })),
+      ...foreignDepots.flatMap((depot) =>
+        products.map((product) => ({ depot_id: depot.id, product_id: product.id, available_l: 0 })),
+      ),
+    ],
   });
 
   // Commandes du jour, puis confirmation en masse
