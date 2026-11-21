@@ -7,6 +7,11 @@ Retard = heure réelle − heure prévue (positif = en retard) :
   retour au dépôt une fois la tournée terminée) ; `None` tant qu'aucune heure réelle n'est saisie.
 Alertes : violations du plan publié + événements de panne, d'indisponibilité chauffeur et de
 pénurie produit enregistrés ce jour-là dans `events`.
+
+Version en attente (`pending_draft`) : quand un événement ou une modification a créé une nouvelle
+version du plan publié et que celle-ci est restée en brouillon (par exemple parce qu'elle garde une
+violation bloquante), le terrain continue de suivre la version publiée. Le tableau de bord le dit :
+champ `pending_draft` et alerte en tête de liste, tant que le brouillon n'est pas publié.
 """
 
 from __future__ import annotations
@@ -14,14 +19,15 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.comparison import service as comparison_service
 from app.core.enums import EventType, PlanStatus, Severity, StopStatus, TripStatus
 from app.core.time import utcnow
 from app.events.models import Event
-from app.planning.models import Plan
+from app.planning.models import ConstraintViolation, Plan
+from app.users.models import User
 
 ALERT_EVENT_TYPES = (EventType.TRUCK_BREAKDOWN, EventType.DRIVER_UNAVAILABLE, EventType.PRODUCT_SHORTAGE)
 SHORTAGE_INACTIVE = ("resolved", "no_impact")
@@ -54,6 +60,79 @@ async def published_plan(session: AsyncSession, day: date) -> Plan | None:
     )
 
 
+def _plural(count: int, singular: str, plural: str) -> str:
+    return f"{count} {singular if count == 1 else plural}"
+
+
+async def pending_draft(session: AsyncSession, plan: Plan) -> dict[str, Any] | None:
+    """Version brouillon la plus récente de la lignée du plan publié (lecture seule), ou `None`."""
+    root = plan.root_plan_id or plan.id
+    draft = (
+        (
+            await session.execute(
+                select(Plan)
+                .where(
+                    Plan.status == PlanStatus.DRAFT,
+                    Plan.id != plan.id,
+                    func.coalesce(Plan.root_plan_id, Plan.id) == root,
+                )
+                .order_by(Plan.version.desc(), Plan.created_at.desc(), Plan.id.desc())
+                .limit(1)
+            )
+        )
+        .scalars()
+        .first()
+    )
+    if draft is None:
+        return None
+
+    counts = dict(
+        (
+            await session.execute(
+                select(ConstraintViolation.severity, func.count())
+                .where(ConstraintViolation.plan_id == draft.id)
+                .group_by(ConstraintViolation.severity)
+            )
+        ).all()
+    )
+    blocking = int(counts.get(Severity.BLOCKING, 0))
+    warning = int(counts.get(Severity.WARNING, 0))
+
+    # Raison : résumé de l'incident (panne, chauffeur, pénurie) rattaché à ce brouillon s'il y en a
+    # un, sinon de la première modification qui l'a créé.
+    events = (
+        (
+            await session.execute(
+                select(Event).where(Event.plan_id == draft.id).order_by(Event.occurred_at, Event.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    with_summary = [e for e in events if (e.payload or {}).get("summary")]
+    origin = next((e for e in with_summary if e.type in ALERT_EVENT_TYPES), None) or next(
+        iter(with_summary), None
+    )
+    author = await session.get(User, draft.created_by) if draft.created_by else None
+
+    if blocking:
+        state = _plural(blocking, "violation bloquante", "violations bloquantes") + " à corriger"
+    elif warning:
+        state = "aucune violation bloquante, " + _plural(warning, "avertissement", "avertissements")
+    else:
+        state = "aucune violation"
+    return {
+        "plan_id": draft.id,
+        "version": draft.version,
+        "created_at": draft.created_at,
+        "created_by_name": author.full_name if author else None,
+        "blocking_count": blocking,
+        "warning_count": warning,
+        "reason": origin.payload["summary"] if origin else None,
+        "message": f"Version {draft.version} en attente de publication : {state}.",
+    }
+
+
 async def build_dashboard(session: AsyncSession, day: date) -> dict[str, Any]:
     plan = await published_plan(session, day)
 
@@ -70,8 +149,25 @@ async def build_dashboard(session: AsyncSession, day: date) -> dict[str, Any]:
         "volume_delivered_l": 0.0,
     }
     plan_out = None
+    pending = None
 
     if plan is not None:
+        pending = await pending_draft(session, plan)
+        if pending is not None:
+            alerts.append(
+                {
+                    "source": "plan",
+                    "severity": Severity.BLOCKING if pending["blocking_count"] else Severity.WARNING,
+                    "code": "pending_draft",
+                    "message": pending["message"],
+                    "trip_id": None,
+                    "trip_seq": None,
+                    "event_id": None,
+                    "event_type": None,
+                    "occurred_at": pending["created_at"],
+                    "payload": {"plan_id": str(pending["plan_id"]), "version": pending["version"]},
+                }
+            )
         bundle = await comparison_service.load_bundle(session, plan.id)
         plan_out = comparison_service.plan_summary(bundle)
         trip_seq = {trip.id: trip.seq for trip in bundle.trips}
@@ -80,7 +176,7 @@ async def build_dashboard(session: AsyncSession, day: date) -> dict[str, Any]:
             stops = route["stops"]
             delivered = [s for s in stops if s["status"] == StopStatus.DELIVERED]
             skipped = [s for s in stops if s["status"] == StopStatus.SKIPPED]
-            pending = [s for s in stops if s["status"] == StopStatus.PENDING]
+            waiting = [s for s in stops if s["status"] == StopStatus.PENDING]
             volume_planned = sum(d["planned_l"] for s in stops for d in s["deliveries"])
             volume_delivered = sum(d["actual_l"] or 0.0 for s in stops for d in s["deliveries"])
 
@@ -110,7 +206,7 @@ async def build_dashboard(session: AsyncSession, day: date) -> dict[str, Any]:
             if return_delay is not None:
                 trip_delay = return_delay
 
-            next_stop = pending[0] if pending and route["status"] != TripStatus.COMPLETED else None
+            next_stop = waiting[0] if waiting and route["status"] != TripStatus.COMPLETED else None
             trips.append(
                 {
                     "trip_id": route["trip_id"],
@@ -122,7 +218,7 @@ async def build_dashboard(session: AsyncSession, day: date) -> dict[str, Any]:
                     "stops_total": len(stops),
                     "stops_delivered": len(delivered),
                     "stops_skipped": len(skipped),
-                    "stops_pending": len(pending),
+                    "stops_pending": len(waiting),
                     "volume_planned_l": round(volume_planned, 2),
                     "volume_delivered_l": round(volume_delivered, 2),
                     "planned_depart_at": route["planned_depart_at"],
@@ -143,7 +239,7 @@ async def build_dashboard(session: AsyncSession, day: date) -> dict[str, Any]:
             totals["stops_total"] += len(stops)
             totals["stops_delivered"] += len(delivered)
             totals["stops_skipped"] += len(skipped)
-            totals["stops_pending"] += len(pending)
+            totals["stops_pending"] += len(waiting)
             totals["volume_planned_l"] += volume_planned
             totals["volume_delivered_l"] += volume_delivered
 
@@ -203,6 +299,7 @@ async def build_dashboard(session: AsyncSession, day: date) -> dict[str, Any]:
         "day": day,
         "generated_at": utcnow(),
         "plan": plan_out,
+        "pending_draft": pending,
         "summary": {
             "trips_total": len(trips),
             "trips_by_status": by_status,

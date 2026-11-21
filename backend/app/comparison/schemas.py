@@ -251,9 +251,9 @@ class DashboardDelayOut(_Out):
 
 
 class DashboardAlertOut(_Out):
-    source: str  # violation | event
+    source: str  # plan (version en attente, toujours en tête) | violation | event
     severity: Severity
-    code: str  # RM-xx ou type d'événement
+    code: str  # RM-xx, type d'événement, ou `pending_draft`
     message: str
     trip_id: uuid.UUID | None
     trip_seq: int | None
@@ -263,10 +263,24 @@ class DashboardAlertOut(_Out):
     payload: dict[str, Any] | None
 
 
+class PendingDraftOut(_Out):
+    """Version brouillon en attente de publication dans la lignée du plan publié du jour."""
+
+    plan_id: uuid.UUID
+    version: int
+    created_at: UtcDatetime
+    created_by_name: str | None
+    blocking_count: int
+    warning_count: int
+    reason: str | None  # résumé de l'événement ou de la modification qui a créé cette version
+    message: str  # phrase prête à afficher (c'est aussi le message de l'alerte)
+
+
 class DashboardOut(_Out):
     day: date
     generated_at: UtcDatetime
     plan: PlanSummaryOut | None  # plan publié du jour, None s'il n'y en a pas
+    pending_draft: PendingDraftOut | None  # None le plus souvent
     summary: DashboardSummaryOut
     trips: list[DashboardTripOut]
     delays: list[DashboardDelayOut]
