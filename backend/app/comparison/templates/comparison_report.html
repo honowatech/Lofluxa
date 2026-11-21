@@ -1,0 +1,135 @@
+{% extends "core/templates/pdf_base.html" %}
+{% block title %}Rapport comparatif A/B — {{ plan_a.day | date_fr }}{% endblock %}
+{% block page_size %}A4 landscape{% endblock %}
+{% block extra_css %}
+  .verdict { border: 2px solid #555; padding: 8px 12px; margin: 6px 0 10px; }
+  .verdict.ok { border-color: #1b7a2f; background: #eef8ef; }
+  .verdict.ko { border-color: #a40000; background: #fbeeee; }
+  .verdict .headline { font-size: 12pt; font-weight: 700; }
+  .verdict ul { margin: 4px 0 0 16px; padding: 0; }
+  .plans { display: flex; gap: 16px; margin-bottom: 6px; }
+  .plans > div { flex: 1; border: 1px solid #999; padding: 5px 8px; }
+  .plans .letter { font-weight: 700; font-size: 11pt; }
+  table.kpi { font-size: 8.5pt; }
+  table.kpi th, table.kpi td { padding: 1px 5px; }
+  td.better { font-weight: 700; color: #1b7a2f; }
+  .maps { display: flex; gap: 12px; }
+  .maps > div { flex: 1; }
+  .maps svg { width: 100%; height: auto; }
+  .legend { font-size: 8pt; margin-top: 4px; }
+  .legend span.swatch { display: inline-block; width: 9px; height: 9px; margin-right: 3px; vertical-align: middle; }
+  .legend span.item { margin-right: 10px; white-space: nowrap; }
+  .trip { page-break-inside: avoid; margin-bottom: 8px; }
+  .trip h3 { font-size: 9.5pt; margin: 8px 0 2px; }
+  .trip .swatch { display: inline-block; width: 9px; height: 9px; margin-right: 4px; }
+{% endblock %}
+{% block doc_title %}Rapport comparatif A / B{% endblock %}
+{% block doc_sub %}Journée du {{ plan_a.day | date_fr }}{% if plan_b.day != plan_a.day %} et du {{ plan_b.day | date_fr }}{% endif %}{% endblock %}
+
+{% block content %}
+<div class="plans">
+  {% for p in plans %}
+  <div>
+    <span class="letter">Plan {{ p.letter }}</span> — {{ p.summary.title }}<br>
+    <span class="note">Journée du {{ p.summary.day | date_fr }} · version {{ p.summary.version }}
+    {%- if p.summary.approximate %} · distances approximatives (à vol d'oiseau corrigé, OSRM indisponible){% endif %}</span>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="verdict {% if verdict.success %}ok{% elif verdict.success is not none %}ko{% endif %}">
+  <div class="headline">{{ verdict.message }}</div>
+  <ul>
+    <li>Gain kilométrique du plan B sur le plan A (km estimés sur la même matrice) : <strong>{{ gain_pct }}</strong> ({{ gain_km }}) — seuil convenu : {{ threshold_pct }}.</li>
+    {% if verdict.gain_vs_actual_pct is not none %}<li>Par rapport aux kilomètres réellement parcourus du plan A : {{ gain_vs_actual_pct }}.</li>{% endif %}
+    <li>Plan B sans violation bloquante : <strong>{{ "oui" if verdict.no_blocking_violation else "non" }}</strong>.</li>
+    <li>Plan B servant au moins autant de commandes que le plan A : <strong>{{ "oui" if verdict.orders_served_ok else "non" }}</strong>.</li>
+  </ul>
+</div>
+
+<h2>Indicateurs</h2>
+<table class="kpi">
+  <thead>
+    <tr><th>Indicateur</th><th class="num">Plan A</th><th class="num">Plan B</th><th class="num">Écart (B − A)</th><th class="num">Écart en %</th></tr>
+  </thead>
+  <tbody>
+    {% for row in rows %}
+    <tr>
+      <td>{{ row.label }}</td>
+      <td class="num{% if row.better == 'a' %} better{% endif %}">{{ row.a }}</td>
+      <td class="num{% if row.better == 'b' %} better{% endif %}">{{ row.b }}</td>
+      <td class="num">{{ row.delta }}</td>
+      <td class="num">{{ row.delta_pct }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+<p class="note">En vert : le meilleur des deux plans pour l'indicateur. « — » : valeur non renseignée
+(kilomètres, heures ou volumes réels non saisis). Les kilomètres estimés des deux plans sont calculés
+sur la même matrice de distances.</p>
+
+<div class="page-break"></div>
+<h2>Cartes des tournées</h2>
+<div class="maps">
+  {% for p in plans %}
+  <div>
+    <strong>Plan {{ p.letter }}</strong> — {{ p.summary.title }}
+    {{ map_a if p.letter == "A" else map_b }}
+    <div class="legend">
+      {% for route in p.routes %}
+      <span class="item"><span class="swatch" style="background: {{ route.color }}"></span>T{{ route.seq }} {{ route.truck_plate or "—" }} ({{ route.distance_m | km }})</span>
+      {% endfor %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+<p class="note">Carré noir : dépôt. Pastille : station, numérotée dans l'ordre de passage de sa tournée.
+Tracés schématiques (segments droits), les deux cartes sont à la même échelle.</p>
+
+{% for p in plans %}
+<div class="page-break"></div>
+<h2>Annexe {{ p.letter }} — tournées du plan {{ p.letter }} ({{ p.summary.title }})</h2>
+{% for route in p.routes %}
+<div class="trip">
+  <h3><span class="swatch" style="background: {{ route.color }}"></span>Tournée {{ route.seq }} — camion {{ route.truck_plate or "—" }}, chauffeur {{ route.driver_name or "non renseigné" }}, dépôt {{ route.depot_code or "—" }}</h3>
+  <div class="meta">
+    <div><span>Départ prévu :</span> {{ route.planned_depart_at | hm }}</div>
+    <div><span>Retour prévu :</span> {{ route.planned_return_at | hm }}</div>
+    {% if route.actual_depart_at or route.actual_return_at %}<div><span>Départ / retour réels :</span> {{ route.actual_depart_at | hm }} / {{ route.actual_return_at | hm }}</div>{% endif %}
+    <div><span>Km estimés :</span> {{ route.distance_m | km }}</div>
+    <div><span>Km réels :</span> {{ route.actual_distance_m | km }}</div>
+    <div><span>Durée de service :</span> {{ route.duration_s | duration }}</div>
+    <div><span>Remplissage :</span> {% if route.fill_rate_pct is not none %}{{ "%.0f" | format(route.fill_rate_pct) }} %{% else %}—{% endif %}</div>
+  </div>
+  <table>
+    <thead><tr><th class="num">Ordre</th><th>Station</th><th>Produits et volumes</th><th class="num">Arrivée prévue</th><th class="num">Arrivée réelle</th><th class="num">Depuis l'arrêt précédent</th></tr></thead>
+    <tbody>
+      {% for stop in route.stops %}
+      <tr>
+        <td class="num">{{ stop.seq }}</td>
+        <td>{{ stop.station_code }} — {{ stop.station_name }}</td>
+        <td>{% for d in stop.deliveries %}{{ d.product_code }} {{ d.planned_l | liters }}{% if not loop.last %}, {% endif %}{% endfor %}</td>
+        <td class="num">{{ stop.planned_arrival_at | hm }}</td>
+        <td class="num">{{ stop.actual_arrival_at | hm }}</td>
+        <td class="num">{{ stop.distance_from_prev_m | km }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<p>Aucune tournée dans ce plan.</p>
+{% endfor %}
+{% if p.unserved %}
+<h3>Commandes non servies</h3>
+<table>
+  <thead><tr><th>Station</th><th>Produit</th><th class="num">Volume demandé</th><th>Raison</th></tr></thead>
+  <tbody>
+    {% for u in p.unserved %}
+    <tr><td>{{ u.station_code }} — {{ u.station_name }}</td><td>{{ u.product_code }}</td><td class="num">{{ u.requested_l | liters }}</td><td>{{ u.reason_text or u.reason_code }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% endfor %}
+{% endblock %}
