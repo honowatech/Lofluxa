@@ -28,8 +28,9 @@ ses livraisons + commandes non servies (`unserved_orders`).
 - `service_duration_actual_s` : somme des (retour réel − départ réel) des tournées où les deux
   heures sont connues ; `None` si aucune.
 - `fill_rate_avg_pct` : moyenne simple, sur les tournées, de
-  (volume planifié de la tournée ÷ capacité totale du camion) × 100 ; les tournées dont le camion
-  n'a pas de capacité connue sont exclues ; `None` s'il n'en reste aucune.
+  (volume planifié de la tournée ÷ capacité du camion) × 100, la capacité étant la somme de ses
+  compartiments ; les tournées dont le camion n'a pas de capacité connue sont exclues ; `None`
+  s'il n'en reste aucune.
 - `violations_blocking` / `violations_warning` / `violations_total` : lignes de `constraint_violations`.
 - `prep_time_s` : `plans.prep_time_s` s'il est saisi (plan manuel), sinon `computed_in_ms` arrondi
   à la seconde (plan calculé) ; `prep_time_source` vaut `manual`, `computed` ou `None`.

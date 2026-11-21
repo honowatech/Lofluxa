@@ -1,19 +1,14 @@
-"""Fabrique de données et doublures du lot L7 (plans, tournées, commandes créés par l'ORM).
+"""Fabrique de données du lot L7 : référentiels, commandes et plans créés par l'ORM.
 
-Les lots L2 (matrice, compartiments) et L5 (service de plans) ne sont pas livrés dans cette branche :
-`fake_build_problem`, `fake_build_matrix` et `fake_assign_compartments` les remplacent dans les tests.
-Les règles (`rules.check_plan`, lot L1) sont livrées : ce sont les vraies qui s'exécutent.
 Les codes du monde de test sont ceux de l'exemple du fichier modèle `reference_day.xlsx`.
 """
 
 from __future__ import annotations
 
-import uuid
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.enums import (
@@ -26,23 +21,9 @@ from app.core.enums import (
     TruckSize,
     UnservedReason,
 )
-from app.core.geo import haversine_m, latlon, point
-from app.core.settings_store import load_params
-from app.core.time import opening_windows, seconds_to_utc
+from app.core.geo import haversine_m, point
+from app.core.time import seconds_to_utc
 from app.orders.models import Order
-from app.planning.domain import (
-    CompartmentD,
-    CompartmentLoadD,
-    DepotD,
-    DriverD,
-    Matrix,
-    OrderD,
-    Params,
-    PlanningProblem,
-    ProductD,
-    StationD,
-    TruckD,
-)
 from app.planning.models import ConstraintViolation, Plan, Stop, StopDelivery, Trip, UnservedOrder
 from app.referentials.models import Carrier, Depot, Driver, Product, Station, Truck, TruckCompartment
 
@@ -208,76 +189,6 @@ async def make_plan(
     return plan
 
 
-# --------------------------------------------------------------------------- doublures L1 / L2 / L5
-
-
-async def fake_build_problem(
-    session: AsyncSession,
-    day: date,
-    *,
-    params_override: dict | None = None,
-    order_ids: list[uuid.UUID] | None = None,
-) -> PlanningProblem:
-    """Doublure de `app.planning.service.build_problem` (lot L5) : base → domaine, sans filtrage."""
-
-    async def _all(model):
-        return (await session.execute(select(model))).scalars().all()
-
-    orders = [o for o in await _all(Order) if o.day == day and (order_ids is None or o.id in order_ids)]
-    return PlanningProblem(
-        day=day,
-        products=[ProductD(str(p.id), p.code, p.label) for p in await _all(Product)],
-        depots=[
-            DepotD(str(d.id), d.code, *latlon(d.location), windows=opening_windows(d.opening_hours, day))
-            for d in await _all(Depot)
-        ],
-        stations=[
-            StationD(str(s.id), s.code, *latlon(s.location), windows=opening_windows(s.opening_hours, day))
-            for s in await _all(Station)
-        ],
-        trucks=[
-            TruckD(
-                str(t.id),
-                t.plate,
-                t.size,
-                tuple(CompartmentD(str(c.id), c.position, float(c.capacity_l)) for c in t.compartments),
-            )
-            for t in await _all(Truck)
-        ],
-        drivers=[DriverD(str(d.id), d.full_name) for d in await _all(Driver)],
-        orders=[
-            OrderD(str(o.id), str(o.station_id), str(o.product_id), float(o.requested_l)) for o in orders
-        ],
-        params=await load_params(session, params_override),
-    )
-
-
-def fake_build_matrix(nodes, params: Params, *, osrm_url=None, cache=None) -> Matrix:
-    """Doublure de `build_matrix` (lot L2) : repli haversine × coefficient, vitesse par défaut."""
-    speed_ms = params.default_avg_speed_kmh / 3.6
-    distances = [
-        [round(haversine_m(a[1], a[2], b[1], b[2]) * params.haversine_factor) for b in nodes] for a in nodes
-    ]
-    durations = [[round(d / speed_ms) for d in row] for row in distances]
-    return Matrix(tuple(n[0] for n in nodes), distances, durations, approximate=True)
-
-
-def fake_assign_compartments(truck, volumes_by_product, safety_margin_pct):
-    """Doublure de `assign_compartments` (lot L2) : glouton, plus gros volume → plus gros compartiment
-    libre, un seul produit par compartiment, marge de sécurité déduite. `None` si rien ne tient."""
-    free = sorted(truck.compartments, key=lambda c: -c.capacity_l)
-    loads = []
-    for product_id, volume in sorted(volumes_by_product.items(), key=lambda item: -item[1]):
-        while volume > 1e-6:
-            compartment = next((c for c in free if c.accepts(product_id)), None)
-            if compartment is None:
-                return None
-            free.remove(compartment)
-            part = min(volume, compartment.capacity_l * (1 - safety_margin_pct / 100))
-            loads.append(CompartmentLoadD(compartment.id, product_id, part))
-            volume -= part
-    return loads
-
-
 def leg_m(a: tuple[float, float], b: tuple[float, float], factor: float = 1.3) -> int:
-    return round(haversine_m(a[0], a[1], b[0], b[1]) * factor)
+    """Distance attendue entre deux points avec la doublure de matrice du lot L5."""
+    return int(haversine_m(a[0], a[1], b[0], b[1]) * factor)

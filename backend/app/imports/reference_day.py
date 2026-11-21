@@ -36,6 +36,11 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, PatternFill
 from openpyxl.utils.exceptions import InvalidFileException
 
+from app.core.enums import ImportKind, Role
+from app.imports.registry import KindHandler, PreviewResult, UploadedFile, register_kind
+from app.imports.schemas import ImportItem, ImportSummary
+from app.imports.schemas import RowIssue as ImportRowIssue
+
 SHEET_README = "Lisez-moi"
 SHEET_DAY = "Journée"
 SHEET_ORDERS = "Commandes"
@@ -145,6 +150,26 @@ class ReferenceDayData:
         data = asdict(self)
         data["day"] = self.day.isoformat() if self.day else None
         return data
+
+    @classmethod
+    def from_dict(cls, raw: dict[str, Any]) -> ReferenceDayData:
+        """Relit les données normalisées d'un lot prévisualisé (anomalies exclues : elles sont
+        recalculées au moment d'appliquer)."""
+        trips = []
+        for trip in raw.get("trips", []):
+            stops = [
+                RefStop(**{**stop, "deliveries": [RefDelivery(**d) for d in stop.get("deliveries", [])]})
+                for stop in trip.get("stops", [])
+            ]
+            trips.append(RefTrip(**{**trip, "stops": stops}))
+        return cls(
+            day=date.fromisoformat(raw["day"]) if raw.get("day") else None,
+            prep_time_min=raw.get("prep_time_min"),
+            label=raw.get("label"),
+            orders=[RefOrder(**order) for order in raw.get("orders", [])],
+            trips=trips,
+            row_count=raw.get("row_count", 0),
+        )
 
 
 # --------------------------------------------------------------------------- normalisation
@@ -728,3 +753,154 @@ def build_template() -> bytes:
         trips=TEMPLATE_TRIPS,
         readme=TEMPLATE_README,
     )
+
+
+# --------------------------------------------------------------------------- registre des imports (lot L3)
+#
+# Cycle prévisualiser / appliquer commun à tous les imports :
+#   POST /imports/reference_day/preview?day=&prep_time_min=&label=&replace=   → lot + rapport
+#   POST /imports/{batch_id}/apply                                            → plan `manual_reference`
+#   GET  /imports/templates/reference_day                                     → fichier modèle
+# La route en une étape de la spec §9 (`POST /reference-days/import`) passe par les mêmes fonctions
+# de `app.comparison.reference_day`, importé tardivement pour éviter une dépendance circulaire.
+
+
+def to_import_issues(data: ReferenceDayData) -> list[ImportRowIssue]:
+    """Anomalies au format du rapport d'import commun (la feuille est rappelée dans la colonne)."""
+
+    def convert(issue: RowIssue, severity: str) -> ImportRowIssue:
+        column = " › ".join(part for part in (issue.sheet, issue.column) if part) or None
+        return ImportRowIssue(row=issue.row, column=column, message=issue.message, severity=severity)
+
+    return [convert(i, "error") for i in data.errors] + [convert(i, "warning") for i in data.warnings]
+
+
+def preview_items(data: ReferenceDayData, label: str | None = None) -> list[ImportItem]:
+    """Effets annoncés : un plan, ses tournées, ses commandes — toujours des créations."""
+    if not data.trips:
+        return []
+    items = [ImportItem(key="plan", label=label or data.label or "Journée de référence", action="create")]
+    for trip in data.trips:
+        volume = sum(d.volume_l for stop in trip.stops for d in stop.deliveries)
+        items.append(
+            ImportItem(
+                row=trip.row,
+                key=f"trip:{trip.key}",
+                label=f"Tournée {trip.key} — {trip.truck_plate}, {len(trip.stops)} arrêt(s), {volume:g} L",
+                action="create",
+            )
+        )
+    for order in data.orders:
+        items.append(
+            ImportItem(
+                row=order.row,
+                key=f"order:{order.station_code}:{order.product_code}",
+                label=f"Commande {order.station_code} — {order.product_code}, {order.requested_l:g} L",
+                action="create",
+            )
+        )
+    return items
+
+
+def report_options(
+    day: date | None, prep_time_min: float | None, label: str | None, replace: bool
+) -> dict[str, Any]:
+    return {
+        "day": day.isoformat() if day else None,
+        "prep_time_min": prep_time_min,
+        "label": label,
+        "replace": bool(replace),
+    }
+
+
+def build_report(data: ReferenceDayData, options: dict[str, Any]) -> dict[str, Any]:
+    """Rapport d'un lot `import_batches`, au format commun à tous les imports."""
+    issues = to_import_issues(data)
+    items = [] if data.errors else preview_items(data, options.get("label"))
+    return {
+        "summary": ImportSummary(
+            created=len(items), errors=len(data.errors), warnings=len(data.warnings)
+        ).model_dump(),
+        "issues": [issue.model_dump() for issue in issues],
+        "items": [item.model_dump(mode="json") for item in items],
+        "data": [data.to_dict()],
+        "options": options,
+    }
+
+
+def _flag(value: str | None) -> bool:
+    return normalize_key(value) in ("1", "true", "oui", "yes", "on")
+
+
+async def _preview(session: Any, file: UploadedFile, options: dict[str, str]) -> PreviewResult:
+    from app.comparison import reference_day as service
+
+    data = read_reference_day(file.content)
+    day = prep_time_min = None
+    try:
+        day = _date(options.get("day"))
+    except ValueError:
+        data.errors.append(RowIssue("", None, "day", "Paramètre `day` invalide : AAAA-MM-JJ attendu."))
+    try:
+        prep_time_min = _number(options.get("prep_time_min"))
+    except ValueError:
+        data.errors.append(RowIssue("", None, "prep_time_min", "Paramètre `prep_time_min` invalide."))
+    replace = _flag(options.get("replace"))
+
+    checked = await service.check_reference_day(
+        session, data, day=day, prep_time_min=prep_time_min, label=options.get("label") or None
+    )
+    if checked.existing and not replace and not data.errors:
+        data.errors.append(
+            RowIssue(
+                SHEET_DAY,
+                None,
+                "Date",
+                "Une journée de référence existe déjà pour cette date : prévisualiser de nouveau avec "
+                "`replace=true` pour la remplacer.",
+            )
+        )
+    kept = report_options(checked.day, checked.prep_time_min, checked.label, replace)
+    return PreviewResult(
+        row_count=data.row_count,
+        issues=to_import_issues(data),
+        items=[] if data.errors else preview_items(data, checked.label),
+        data=[data.to_dict()],
+        options=kept,
+    )
+
+
+async def _apply(session: Any, batch: Any) -> dict[str, Any]:
+    from app.comparison import reference_day as service
+    from app.core.errors import ConflictError
+
+    report = batch.report or {}
+    options = report.get("options") or {}
+    data = ReferenceDayData.from_dict((report.get("data") or [{}])[0])
+    checked = await service.check_reference_day(
+        session,
+        data,
+        day=date.fromisoformat(options["day"]) if options.get("day") else None,
+        prep_time_min=options.get("prep_time_min"),
+        label=options.get("label"),
+    )
+    if data.errors:
+        raise ConflictError(
+            "Les référentiels ont changé depuis la prévisualisation : prévisualisez de nouveau le fichier.",
+            code="stale_preview",
+            details=[issue.model_dump() for issue in to_import_issues(data) if issue.severity == "error"],
+        )
+    plan = await service.create_reference_plan(session, checked, batch, replace=bool(options.get("replace")))
+    return {"plan_id": str(plan.id), **checked.summary}
+
+
+register_kind(
+    KindHandler(
+        kind=ImportKind.REFERENCE_DAY,
+        label="Journée de référence",
+        roles=(Role.DISPATCHER,),
+        preview=_preview,
+        apply=_apply,
+        template=build_template,
+    )
+)

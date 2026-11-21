@@ -29,6 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.comparison import service as comparison_service
 from app.core.config import get_config
+from app.core.db import new_id
 from app.core.enums import (
     ImportKind,
     ImportStatus,
@@ -41,15 +42,17 @@ from app.core.enums import (
     TripStatus,
     UnservedReason,
 )
-from app.core.errors import AppError, ConflictError
+from app.core.errors import ConflictError
 from app.core.settings_store import get_setting
-from app.core.time import seconds_to_utc
+from app.core.time import seconds_to_utc, utcnow
 from app.imports import reference_day as reader
 from app.imports.models import ImportBatch
 from app.imports.reference_day import SHEET_DAY, SHEET_ORDERS, SHEET_TRIPS, ReferenceDayData, RowIssue
 from app.orders.models import Order
+from app.planning import checking as plan_checking
 from app.planning import service as plan_service
 from app.planning import timing
+from app.planning.distance_cache import DbDistanceCache
 from app.planning.domain import DeliveryD, PlanningProblem, StopD, TripD, UnservedD
 from app.planning.engine import compartments, distance_matrix
 from app.planning.models import (
@@ -80,6 +83,20 @@ class ImportOutcome:
     @property
     def status(self) -> ImportStatus:
         return self.batch.status
+
+
+@dataclass(slots=True)
+class Checked:
+    """Journée lue et contrôlée, prête à être créée s'il n'y a aucune erreur."""
+
+    data: ReferenceDayData
+    day: date | None
+    prep_time_min: float | None
+    label: str | None
+    refs: _Referentials
+    drivers: dict[int, Driver | None]
+    existing: list[Plan]  # journées de référence déjà présentes pour cette date
+    summary: dict[str, Any]
 
 
 @dataclass(slots=True)
@@ -234,6 +251,61 @@ class _Clock:
         return seconds_to_utc(self.day, seconds, self.tz_name)
 
 
+def summarize(data: ReferenceDayData) -> dict[str, Any]:
+    return {
+        "orders": len(data.orders),
+        "trips": len(data.trips),
+        "stops": sum(len(t.stops) for t in data.trips),
+        "volume_delivered_l": round(
+            sum(d.volume_l for t in data.trips for s in t.stops for d in s.deliveries), 2
+        ),
+        "trips_with_actual_km": sum(1 for t in data.trips if t.actual_km is not None),
+    }
+
+
+async def check_reference_day(
+    session: AsyncSession,
+    data: ReferenceDayData,
+    *,
+    day: date | None = None,
+    prep_time_min: float | None = None,
+    label: str | None = None,
+) -> Checked:
+    """Contrôle en lecture seule d'une journée lue par `read_reference_day` : résolution des codes
+    dans les référentiels (erreurs ajoutées à `data.errors`), journée de référence déjà présente.
+
+    `day`, `prep_time_min` et `label` priment sur les valeurs de la feuille « Journée »."""
+    day = day or data.day
+    if prep_time_min is None:
+        prep_time_min = data.prep_time_min
+    if day is None and not any(issue.sheet == SHEET_DAY for issue in data.errors) and data.trips:
+        data.errors.append(RowIssue(SHEET_DAY, None, "Date", "Date de la journée obligatoire."))
+
+    refs = await _load_referentials(session)
+    drivers = _resolve(data, refs)
+    data.errors.sort(key=_issue_sort)
+    data.warnings.sort(key=_issue_sort)
+    return Checked(
+        data=data,
+        day=day,
+        prep_time_min=prep_time_min,
+        label=label or data.label,
+        refs=refs,
+        drivers=drivers,
+        existing=await _existing_references(session, day) if day else [],
+        summary=summarize(data),
+    )
+
+
+def existing_conflict(checked: Checked) -> ConflictError:
+    return ConflictError(
+        f"Une journée de référence existe déjà pour le {checked.day:%d/%m/%Y}. "
+        "Relancer l'import en demandant son remplacement.",
+        code="reference_day_exists",
+        details=[{"plan_id": str(plan.id)} for plan in checked.existing],
+    )
+
+
 async def import_reference_day(
     session: AsyncSession,
     *,
@@ -245,28 +317,22 @@ async def import_reference_day(
     dry_run: bool = False,
     replace: bool = False,
 ) -> ImportOutcome:
-    """Importe une journée réellement effectuée et la stocke comme plan `manual_reference`.
+    """Import en une étape (`POST /reference-days/import`, spec §9) : lit, contrôle et, s'il n'y a
+    aucune erreur, crée le plan `manual_reference`. Le lot `import_batches` a le même format que
+    ceux du cycle prévisualiser / appliquer (`/imports/reference_day/preview`, `/imports/{id}/apply`),
+    qui passe par les mêmes fonctions.
 
-    `day`, `prep_time_min` et `label` priment sur les valeurs de la feuille « Journée ».
-    `dry_run` : contrôle seul (lot `previewed`, rien n'est créé). `replace` : remplace la journée
-    de référence déjà importée pour cette date (ancien plan archivé).
-    En cas d'erreur dans le fichier : lot `rejected`, aucun plan.
+    `dry_run` : contrôle seul (lot `previewed`, rien n'est créé, applicable ensuite par
+    `/imports/{batch_id}/apply`). `replace` : remplace la journée de référence déjà importée pour
+    cette date (ancien plan archivé). En cas d'erreur dans le fichier : lot `rejected`, aucun plan.
     """
     data = reader.read_reference_day(content)
-    day = day or data.day
-    if prep_time_min is None:
-        prep_time_min = data.prep_time_min
-    if day is None and not any(issue.sheet == SHEET_DAY for issue in data.errors) and data.trips:
-        data.errors.append(RowIssue(SHEET_DAY, None, "Date", "Date de la journée obligatoire."))
+    checked = await check_reference_day(session, data, day=day, prep_time_min=prep_time_min, label=label)
 
-    refs = await _load_referentials(session)
-    drivers = _resolve(data, refs)
-    data.errors.sort(key=_issue_sort)
-    data.warnings.sort(key=_issue_sort)
-
-    existing = await _existing_references(session, day) if day else []
-    if existing and not data.errors:
-        if dry_run:
+    if checked.existing and not data.errors:
+        if not replace and not dry_run:
+            raise existing_conflict(checked)
+        if not replace:
             data.warnings.append(
                 RowIssue(
                     SHEET_DAY,
@@ -275,53 +341,59 @@ async def import_reference_day(
                     "Une journée de référence existe déjà pour cette date : l'import devra la remplacer.",
                 )
             )
-        elif not replace:
-            raise ConflictError(
-                f"Une journée de référence existe déjà pour le {day:%d/%m/%Y}. "
-                "Relancer l'import en demandant son remplacement.",
-                code="reference_day_exists",
-                details=[{"plan_id": str(plan.id)} for plan in existing],
-            )
 
-    summary = {
-        "orders": len(data.orders),
-        "trips": len(data.trips),
-        "stops": sum(len(t.stops) for t in data.trips),
-        "volume_delivered_l": round(
-            sum(d.volume_l for t in data.trips for s in t.stops for d in s.deliveries), 2
-        ),
-        "trips_with_actual_km": sum(1 for t in data.trips if t.actual_km is not None),
-    }
     if data.errors:
         status = ImportStatus.REJECTED
     elif dry_run:
         status = ImportStatus.PREVIEWED
     else:
         status = ImportStatus.APPLIED
+    options = reader.report_options(checked.day, checked.prep_time_min, checked.label, replace)
     batch = ImportBatch(
         kind=ImportKind.REFERENCE_DAY,
         filename=filename[:255],
         status=status,
         row_count=data.row_count,
         error_count=len(data.errors),
-        report={
-            "day": day.isoformat() if day else None,
-            "errors": [issue.to_dict() for issue in data.errors],
-            "warnings": [issue.to_dict() for issue in data.warnings],
-            "summary": summary,
-            "data": data.to_dict(),
-            "plan_id": None,
-        },
+        report=reader.build_report(data, options),
     )
     session.add(batch)
     await session.flush()
     outcome = ImportOutcome(
-        batch=batch, plan=None, day=day, errors=data.errors, warnings=data.warnings, summary=summary
+        batch=batch,
+        plan=None,
+        day=checked.day,
+        errors=data.errors,
+        warnings=data.warnings,
+        summary=checked.summary,
     )
     if status != ImportStatus.APPLIED:
         return outcome
 
-    for old in existing:
+    outcome.plan = await create_reference_plan(session, checked, batch, replace=replace)
+    batch.report = {
+        **batch.report,
+        "applied": {"plan_id": str(outcome.plan.id), **checked.summary, "applied_at": utcnow().isoformat()},
+    }
+    await session.flush()
+    return outcome
+
+
+async def create_reference_plan(
+    session: AsyncSession, checked: Checked, batch: ImportBatch, *, replace: bool = False
+) -> Plan:
+    """Crée les commandes, le plan `manual_reference`, ses tournées, arrêts et livraisons à partir
+    d'une journée contrôlée sans erreur, puis en estime les kilomètres, horaires et violations.
+
+    Lève `ConflictError` si une journée de référence existe déjà pour la date et que `replace` est faux."""
+    data, day, refs = checked.data, checked.day, checked.refs
+    if data.errors or day is None:
+        raise ConflictError(
+            "Le fichier contient des erreurs : aucune donnée créée.", code="import_has_errors"
+        )
+    if checked.existing and not replace:
+        raise existing_conflict(checked)
+    for old in checked.existing:
         await _archive_reference(session, old)
 
     tz_name = str(await get_setting(session, "timezone"))
@@ -355,20 +427,23 @@ async def import_reference_day(
     await session.flush()
 
     # ----- plan, tournées, arrêts, livraisons
+    plan_id = new_id()
     plan = Plan(
+        id=plan_id,
+        root_plan_id=plan_id,  # version 1 de sa propre lignée, comme un plan calculé
         day=day,
         kind=PlanKind.MANUAL_REFERENCE,
         status=PlanStatus.DRAFT,
         version=1,
-        label=(label or data.label or f"Journée de référence du {day:%d/%m/%Y}")[:160],
-        prep_time_s=round(prep_time_min * 60) if prep_time_min is not None else None,
+        label=(checked.label or f"Journée de référence du {day:%d/%m/%Y}")[:160],
+        prep_time_s=round(checked.prep_time_min * 60) if checked.prep_time_min is not None else None,
         # Collections initialisées : pas de chargement paresseux (interdit en session asynchrone).
         trips=[],
         unserved=[],
     )
     for seq, ref_trip in enumerate(data.trips, start=1):
         clock = _Clock(day, tz_name)
-        driver = drivers[seq - 1]
+        driver = checked.drivers[seq - 1]
         trip = Trip(
             seq=seq,
             truck_id=refs.trucks[key(ref_trip.truck_plate)].id,
@@ -407,13 +482,16 @@ async def import_reference_day(
 
     await estimate_plan(session, plan, [order.id for order in orders.values()], tz_name)
 
+    # Métriques du plan : même forme que celles des plans calculés (lot L5), complétées par les
+    # indicateurs du tableau comparatif sous la clé `comparison`.
     bundle = await comparison_service.load_bundle(session, plan.id)
-    plan.metrics = comparison_service.plan_metrics(bundle).to_dict()
-    summary["orders_unserved"] = len(plan.unserved)
-    batch.report = {**batch.report, "plan_id": str(plan.id), "summary": summary}
+    comparison = comparison_service.plan_metrics(bundle).to_dict()
+    await plan_checking.refresh_metrics(
+        session, await plan_checking.load_plan(session, plan.id), extra={"comparison": comparison}
+    )
+    checked.summary["orders_unserved"] = len(plan.unserved)
     await session.flush()
-    outcome.plan = plan
-    return outcome
+    return plan
 
 
 async def estimate_plan(session: AsyncSession, plan: Plan, order_ids: list[uuid.UUID], tz_name: str) -> None:
@@ -426,23 +504,35 @@ async def estimate_plan(session: AsyncSession, plan: Plan, order_ids: list[uuid.
     depots = {d.id: d for d in problem.depots}
     stations = {s.id: s for s in problem.stations}
     nodes: dict[str, tuple[str, float, float]] = {}
+    missing: set[str] = set()
     for trip in plan.trips:
         for node_id, known in [(str(trip.depot_id), depots)] + [
             (str(s.station_id), stations) for s in trip.stops
         ]:
             node = known.get(node_id)
             if node is None:
-                raise AppError(
-                    "Le problème construit pour la journée de référence ne contient pas tous les dépôts "
-                    "et stations de ses tournées.",
-                    code="reference_day_inconsistent",
-                    status_code=500,
-                )
-            nodes[node_id] = (node_id, node.lat, node.lon)
+                missing.add(node_id)
+            else:
+                nodes[node_id] = (node_id, node.lat, node.lon)
+    if missing:
+        raise ConflictError(
+            "Journée de référence inexploitable : un dépôt ou une station de ses tournées est absent du "
+            "problème du jour (dépôt désactivé ou supprimé ?).",
+            code="reference_day_inconsistent",
+            details=[{"node_id": node_id} for node_id in sorted(missing)],
+        )
 
+    # Même matrice que le moteur, avec le cache de distances en base (lot L5).
+    cache = DbDistanceCache()
+    await cache.preload(session, [distance_matrix.coord_hash(lat, lon) for _, lat, lon in nodes.values()])
     matrix = await asyncio.to_thread(
-        distance_matrix.build_matrix, list(nodes.values()), problem.params, osrm_url=get_config().osrm_url
+        distance_matrix.build_matrix,
+        list(nodes.values()),
+        problem.params,
+        osrm_url=get_config().osrm_url or None,
+        cache=cache,
     )
+    await cache.flush(session)
 
     trips_d: list[TripD] = []
     last_return: dict[str, int] = {}
