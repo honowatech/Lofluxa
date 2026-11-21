@@ -40,7 +40,7 @@ describe("Suivi des livraisons — écran", () => {
     // Le premier arrêt à livrer est ouvert, volumes planifiés proposés ; le suivant s'ouvre à la demande.
     const first = await stopCard(1);
     expect(within(first).getAllByRole("textbox", { name: /Volume livré .*, arrêt 1/ })[0]).toHaveValue(
-      "12 000",
+      "12\u00a0000",
     );
     expect(
       within(await stopCard(2)).getByRole("button", { name: "Saisir la livraison" }),
