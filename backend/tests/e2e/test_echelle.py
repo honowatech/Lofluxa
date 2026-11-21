@@ -12,17 +12,9 @@ import time
 
 import pytest
 
-from tests.e2e.conftest import artifacts_dir, load
+from tests.e2e.conftest import artifacts_dir, load, timed_compute
 
 LIMIT_S = 60.0  # F4.5 : calcul < 60 s pour 70 stations, 25 camions, 120 commandes
-
-# Étapes de `service.run_compute`, repérées par le pourcentage de progression qu'il annonce.
-STEPS = (
-    (2, 8, "construction du problème (lecture de la base)"),
-    (8, 15, "matrice de distances"),
-    (15, 92, "calcul des tournées (moteur)"),
-    (92, 100, "enregistrement du plan"),
-)
 
 
 @pytest.mark.slow
@@ -45,16 +37,10 @@ async def test_demo_scale_importe_par_les_fichiers_puis_calcule_en_moins_de_60_s
     # Le jeu contient un chauffeur en congé et un chauffeur au permis expiré (RM-03).
     assert day_summary["drivers"]["assignable"] == 26 and day_summary["drivers"]["blocked_rm03"] == 1
 
-    task_id = await api.start_compute(summary.day, summary.compute_params)
-    started = time.perf_counter()
-    computed = await tasks.run(db, task_id)
-    compute_s = time.perf_counter() - started
-
-    marks = {pct: at for at, pct, _ in tasks.progress if pct in {2, 8, 15, 92, 100}}
-    steps = {label: marks[end] - marks[begin] for begin, end, label in STEPS}
+    plan, compute_s, steps = await timed_compute(api, db, tasks, summary)
 
     started = time.perf_counter()
-    plan = (await api.call("GET", f"/plans/{computed.id}", "dispatcher")).json()
+    plan = (await api.call("GET", f"/plans/{plan['id']}", "dispatcher")).json()
     read_s = time.perf_counter() - started
 
     served = {d["order_id"] for t in plan["trips"] for s in t["stops"] for d in s["deliveries"]}

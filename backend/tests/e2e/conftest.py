@@ -187,3 +187,27 @@ def loading_payload(trip: dict[str, Any], temperature: float = 27.0) -> dict[str
             for line in trip["loads"]
         ],
     }
+
+
+# Étapes de `service.run_compute`, repérées par le pourcentage de progression qu'il annonce.
+COMPUTE_STEPS = (
+    (2, 8, "construction du problème (lecture de la base)"),
+    (8, 15, "matrice de distances"),
+    (15, 92, "calcul des tournées (moteur)"),
+    (92, 100, "enregistrement du plan"),
+)
+
+
+async def timed_compute(
+    api: load_demo.DemoApi, db: Any, tasks: TaskBox, summary: load_demo.LoadSummary
+) -> tuple[dict[str, Any], float, dict[str, float]]:
+    """Calcul du jour par le service réel, chronométré. Renvoie (plan lu par l'API, durée totale de
+    `run_compute` en secondes, durée de chaque étape)."""
+    task_id = await api.start_compute(summary.day, summary.compute_params)
+    tasks.progress.clear()
+    started = time.perf_counter()
+    computed = await tasks.run(db, task_id)
+    total_s = time.perf_counter() - started
+    marks = {pct: at for at, pct, _ in tasks.progress if pct in {2, 8, 15, 92, 100}}
+    steps = {label: marks[end] - marks[begin] for begin, end, label in COMPUTE_STEPS}
+    return await get_plan(api, str(computed.id)), total_s, steps

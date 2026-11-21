@@ -13,8 +13,9 @@ from collections import Counter
 from datetime import datetime, timedelta
 
 import pytest
+import run_day
 
-from tests.e2e.conftest import load
+from tests.e2e.conftest import artifacts_dir, load
 
 SUPER_COEFF, GASOIL_COEFF, PETROLE_COEFF = 0.00120, 0.00085, 0.00095
 COEFF = {"SUPER": SUPER_COEFF, "GASOIL": GASOIL_COEFF, "PETROLE": PETROLE_COEFF}
@@ -45,49 +46,40 @@ def _signature(trip: dict) -> tuple:
     return (trip["truck_id"], trip["driver_id"], tuple(s["station_id"] for s in trip["stops"]))
 
 
-async def _move_one_stop(api, plan: dict) -> tuple[dict, dict]:
-    """Déplace un arrêt d'une tournée vers une autre, en gardant un plan publiable.
+async def _blocked_move_is_reported_and_blocks_publication(api, plan: dict) -> None:
+    """F5.2 : un déplacement qui viole une règle est enregistré, signalé, et bloque la publication.
 
-    Essaie les déplacements possibles dans l'ordre ; un déplacement qui crée une violation bloquante
-    est annulé (l'arrêt est remis à sa place) et le suivant est essayé. Renvoie le plan après le
-    déplacement retenu et sa description. Les déplacements refusés par les règles sont comptés :
-    le recontrôle immédiat (F5.2) est ainsi vérifié dans les deux sens."""
-    rejected = 0
-    for source in plan["trips"]:
-        if len(source["stops"]) < 2:
-            continue  # déplacer l'unique arrêt supprimerait la tournée : on garde un cas simple
-        for stop in source["stops"]:
-            for target in plan["trips"]:
-                if target["id"] == source["id"]:
-                    continue
-                moved = (
-                    await api.call(
-                        "POST",
-                        f"/plans/{plan['id']}/trips/{source['id']}/move-stop",
-                        "dispatcher",
-                        json={"stop_id": stop["id"], "to_trip_id": target["id"], "to_seq": 1},
-                    )
-                ).json()
-                if moved["blocking_count"] == 0:
-                    return moved, {
-                        "stop_id": stop["id"],
-                        "station_code": stop["station_code"],
-                        "from_trip": source["id"],
-                        "to_trip": target["id"],
-                        "rejected_before": rejected,
-                    }
-                rejected += 1
-                assert moved["publishable"] is False
-                back = (
-                    await api.call(
-                        "POST",
-                        f"/plans/{plan['id']}/trips/{target['id']}/move-stop",
-                        "dispatcher",
-                        json={"stop_id": stop["id"], "to_trip_id": source["id"], "to_seq": stop["seq"]},
-                    )
-                ).json()
-                assert back["blocking_count"] == 0, back["violations"]
-    raise AssertionError("Aucun déplacement d'arrêt ne laisse le plan sans violation bloquante.")
+    DLA12 n'accepte que les petits camions (RM-09) : on la déplace sur un camion moyen, on constate
+    la violation bloquante et le refus de publier (409, `rule_code`), puis on la remet à sa place."""
+    source, stop = next((t, s) for t in plan["trips"] for s in t["stops"] if s["station_code"] == "DLA12")
+    target = next(t for t in plan["trips"] if t["truck_size"] == "medium")
+    assert source["truck_size"] == "small"
+    moved = (
+        await api.call(
+            "POST",
+            f"/plans/{plan['id']}/trips/{source['id']}/move-stop",
+            "dispatcher",
+            json={"stop_id": stop["id"], "to_trip_id": target["id"], "to_seq": 1},
+        )
+    ).json()
+    blocking = [v for v in moved["violations"] if v["severity"] == "blocking"]
+    assert "RM-09" in {v["rule_code"] for v in blocking} and moved["publishable"] is False
+    assert all(v["message"] and v["trip_id"] for v in blocking)
+    refused = (await api.call("POST", f"/plans/{plan['id']}/publish", "dispatcher", expected=(409,))).json()
+    assert refused["code"] == "rule_violation"
+    assert "RM-09" in {d["rule_code"] for d in refused["details"]}
+    # La tournée d'origine a pu disparaître (elle n'avait peut-être que cet arrêt) : on revient en
+    # arrière par le chemin inverse seulement si elle existe encore.
+    if any(t["id"] == source["id"] for t in moved["trips"]):
+        back = (
+            await api.call(
+                "POST",
+                f"/plans/{plan['id']}/trips/{target['id']}/move-stop",
+                "dispatcher",
+                json={"stop_id": stop["id"], "to_trip_id": source["id"], "to_seq": stop["seq"]},
+            )
+        ).json()
+        assert back["blocking_count"] == 0 and back["publishable"] is True, back["violations"]
 
 
 async def test_journee_complete_de_l_import_a_la_livraison(api, db, tasks):
@@ -130,10 +122,16 @@ async def test_journee_complete_de_l_import_a_la_livraison(api, db, tasks):
     assert await _order_statuses(api, day) == {"confirmed": 20}  # un brouillon ne change rien aux commandes
 
     # ------------------------------------------------------------------ déplacement d'un arrêt (F5.1, F5.2)
+    multi = any(
+        len(t["stops"]) > 1 and s["station_code"] == "DLA12" for t in plan["trips"] for s in t["stops"]
+    )
+    if multi:
+        await _blocked_move_is_reported_and_blocks_publication(api, plan)
+        plan = await _plan(api, plan["id"])
     distance_before = sum(t["distance_m"] for t in plan["trips"])
-    plan, move = await _move_one_stop(api, plan)
-    target = next(t for t in plan["trips"] if t["id"] == move["to_trip"])
-    assert target["stops"][0]["id"] == move["stop_id"]
+    # Même déplacement que la démonstration scriptée (`scripts/demo/run_day.py`).
+    plan, target_id = await run_day.move_one_stop(api, plan)
+    target = next(t for t in plan["trips"] if t["id"] == target_id)
     assert [s["seq"] for s in target["stops"]] == list(range(1, len(target["stops"]) + 1))
     assert sum(t["distance_m"] for t in plan["trips"]) != distance_before  # distances recalculées
     assert _served(plan) == all_orders and plan["blocking_count"] == 0
@@ -180,6 +178,8 @@ async def test_journee_complete_de_l_import_a_la_livraison(api, db, tasks):
     trips = sorted(published["trips"], key=lambda t: t["planned_depart_at"])
     one = await api.call("GET", f"/trips/{trips[0]['id']}/route-sheet.pdf", "fleet")
     assert one.content.startswith(b"%PDF") and len(one.content) < len(sheets.content)
+    if (target := artifacts_dir()) is not None:
+        (target / "feuilles_de_route_demo_douala.pdf").write_bytes(sheets.content)
 
     # ------------------------------------------------------------------ dépôt, chargement, livraisons (F7)
     skipped_stop_id = None
@@ -247,6 +247,8 @@ async def test_journee_complete_de_l_import_a_la_livraison(api, db, tasks):
 
         sheet = await api.call("GET", f"/trips/{trip_id}/loading-sheet.pdf", "fleet")
         assert sheet.headers["content-type"] == "application/pdf" and sheet.content.startswith(b"%PDF")
+        if trip_id == hot_trip_id and (target := artifacts_dir()) is not None:
+            (target / "fiche_de_chargement_demo_douala.pdf").write_bytes(sheet.content)
 
         loaded = (
             await api.call("PUT", f"/trips/{trip_id}/status", "fleet", json={"status": "loaded"})
