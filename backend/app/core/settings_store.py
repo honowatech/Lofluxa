@@ -38,6 +38,7 @@ DEFAULTS: dict[str, tuple[Any, str]] = {
     "solver_seed": (42, "Graine du solveur (reproductibilité)"),
     "haversine_factor": (1.3, "Coefficient appliqué à la distance à vol d'oiseau si OSRM est indisponible"),
     "ab_success_threshold_pct": (10.0, "Seuil de réussite du test A/B : gain kilométrique minimal (%)"),
+    "import_max_file_mb": (10, "Taille maximale d'un fichier d'import (Mo)"),
     "company_name": ("OLA Energy Cameroun", "Nom affiché en en-tête des documents PDF"),
     "pdf_logo_url": (None, "Logo des documents PDF (URL ou chemin de fichier ; vide = nom en texte)"),
 }
