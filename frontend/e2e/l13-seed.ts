@@ -2,7 +2,7 @@
  * Mise en données du lot L13 contre la vraie API : référentiels (fichiers modèles), comptes `fleet`,
  * `dispatcher` et `supply`, stocks, commandes confirmées, plan calculé puis publié pour le jour demandé.
  *
- * Depuis un test Playwright : `const seed = await seedPublishedPlan("2031-03-04")`.
+ * Depuis un test Playwright : `const seed = await seedPublishedPlan()` (jour vierge choisi automatiquement).
  * En ligne de commande      : `node --experimental-strip-types e2e/l13-seed.ts 2031-03-04`
  * Prérequis : API sur :8000 et un worker Celery (le calcul du plan est une tâche de fond).
  */
@@ -34,7 +34,7 @@ interface Named {
   code: string;
 }
 
-async function call<T>(
+export async function call<T>(
   path: string,
   {
     method = "GET",
@@ -73,17 +73,28 @@ async function ensureUsers(admin: string): Promise<void> {
   }
 }
 
-async function importFile(admin: string, kind: string, query = ""): Promise<void> {
+async function importFile(admin: string, kind: string): Promise<void> {
   const form = new FormData();
   form.append("file", new Blob([readFileSync(resolve(TEMPLATES, `${kind}.xlsx`))]), `${kind}.xlsx`);
-  const batch = await call<{ id: string; status: string; report?: unknown }>(
-    `/imports/${kind}/preview${query}`,
-    { method: "POST", token: admin, form },
-  );
+  const batch = await call<{ id: string; status: string; report?: unknown }>(`/imports/${kind}/preview`, {
+    method: "POST",
+    token: admin,
+    form,
+  });
   if (batch.status !== "previewed") {
     throw new Error(`Import ${kind} refusé : ${JSON.stringify(batch).slice(0, 1500)}`);
   }
-  await call(`/imports/${batch.id}/apply`, { method: "POST", token: admin });
+  // Constaté une fois : un `apply` envoyé aussitôt après le `preview` répond 404 « Lot d'import introuvable »
+  // (le lot n'est pas encore visible). On réessaie brièvement.
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      await call(`/imports/${batch.id}/apply`, { method: "POST", token: admin });
+      return;
+    } catch (error) {
+      if (attempt >= 4 || !String(error).includes("→ 404")) throw error;
+      await new Promise((done) => setTimeout(done, 300));
+    }
+  }
 }
 
 const HOURS = Object.fromEntries(
@@ -188,28 +199,65 @@ async function ensureFleet(admin: string, productId: (code: string) => string): 
   }
 }
 
+export interface SeedLoad {
+  compartment_id: string;
+  compartment_position: number;
+  product_id: string;
+  product_code: string;
+  planned_l: number;
+}
+export interface SeedStop {
+  id: string;
+  seq: number;
+  station_code: string;
+  station_name: string;
+  planned_arrival_at: string;
+  deliveries: { order_id: string; product_code: string; planned_l: number }[];
+}
+export interface SeedTrip {
+  id: string;
+  seq: number;
+  truck_id: string;
+  truck_plate: string;
+  driver_id: string;
+  driver_name: string;
+  depot_id: string;
+  planned_depart_at: string;
+  loads: SeedLoad[];
+  stops: SeedStop[];
+}
 export interface Seed {
   day: string;
   planId: string;
-  tripCount: number;
+  /** Jeton administrateur, pour préparer des états par l'API sans nouvelle connexion (débit limité). */
+  adminToken: string;
+  trips: SeedTrip[];
 }
 
-/** Jour libre pour un test : loin dans le futur, différent à chaque exécution. */
-export function freshDay(): string {
-  const start = Date.UTC(2030, 0, 1);
-  const offset = Math.floor((Date.now() / 60_000) % 3_000);
-  const date = new Date(start + offset * 86_400_000);
-  // Le dépôt est fermé le dimanche.
-  if (date.getUTCDay() === 0) date.setUTCDate(date.getUTCDate() + 1);
-  return date.toISOString().slice(0, 10);
+/** Jour sans aucun plan, loin dans le futur (hors dimanche : dépôt fermé) : chaque exécution a le sien. */
+async function freeDay(admin: string): Promise<string> {
+  const date = new Date(Date.UTC(2030, 0, 1) + (Math.floor(Date.now() / 1000) % 5000) * 86_400_000);
+  for (;;) {
+    const day = date.toISOString().slice(0, 10);
+    if (date.getUTCDay() !== 0) {
+      const plans = await call<Paged<unknown>>(`/plans?day=${day}&limit=1`, { token: admin });
+      if (plans.total === 0) return day;
+    }
+    date.setUTCDate(date.getUTCDate() + 1);
+  }
 }
 
-export async function seedPublishedPlan(day: string): Promise<Seed> {
+/** Sans `requestedDay`, un jour encore vierge est choisi (voir `Seed.day`). */
+export async function seedPublishedPlan(requestedDay?: string): Promise<Seed> {
   const admin = await login(ADMIN.email, ADMIN.password);
+  const day = requestedDay ?? (await freeDay(admin));
   await ensureUsers(admin);
 
-  // Référentiels : rejouer les fichiers modèles est sans effet s'ils sont déjà en base (mises à jour).
-  for (const kind of ["depots", "stations", "trucks", "drivers"]) await importFile(admin, kind);
+  // Référentiels des fichiers modèles, importés une seule fois.
+  const existing = await call<Paged<Named>>("/stations?limit=1", { token: admin });
+  if (existing.total === 0) {
+    for (const kind of ["depots", "stations", "trucks", "drivers"]) await importFile(admin, kind);
+  }
 
   const depots = (await call<Paged<Named>>("/depots?limit=200", { token: admin })).items;
   const products = (await call<Paged<Named>>("/products?limit=200", { token: admin })).items;
@@ -260,13 +308,16 @@ export async function seedPublishedPlan(day: string): Promise<Seed> {
     if (task.state === "succeeded") planId = task.plan_id;
   }
   if (!planId) throw new Error("Calcul du plan : délai dépassé (le worker Celery tourne-t-il ?).");
-  const plan = await call<{ trips: unknown[] }>(`/plans/${planId}/publish`, { method: "POST", token: admin });
-  return { day, planId, tripCount: plan.trips.length };
+  const plan = await call<{ trips: SeedTrip[] }>(`/plans/${planId}/publish`, {
+    method: "POST",
+    token: admin,
+  });
+  return { day, planId, adminToken: admin, trips: [...plan.trips].sort((a, b) => a.seq - b.seq) };
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  seedPublishedPlan(process.argv[2] ?? freshDay()).then(
-    (seed) => console.log(JSON.stringify(seed)),
+  seedPublishedPlan(process.argv[2]).then(
+    (seed) => console.log(JSON.stringify({ day: seed.day, planId: seed.planId, trips: seed.trips.length })),
     (error) => {
       console.error(error);
       process.exit(1);

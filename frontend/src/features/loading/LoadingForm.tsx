@@ -294,13 +294,16 @@ export function LoadingForm({
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLFormElement>) => {
-    if (event.key !== "Enter" || !(event.target instanceof HTMLInputElement)) return;
-    event.preventDefault();
+    if (event.key !== "Enter") return;
+    // Ctrl + Entrée enregistre, où que soit le focus dans le formulaire.
     if (event.ctrlKey || event.metaKey) {
-      event.target.blur();
+      event.preventDefault();
+      if (event.target instanceof HTMLElement) event.target.blur();
       submit();
       return;
     }
+    if (!(event.target instanceof HTMLInputElement)) return;
+    event.preventDefault();
     const fields = [
       ...(formRef.current?.querySelectorAll<HTMLElement>("input:not([disabled]), button[type=submit]") ?? []),
     ];

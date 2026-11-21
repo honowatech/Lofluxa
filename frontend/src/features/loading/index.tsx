@@ -225,8 +225,8 @@ function TripCard({
               {warning && <AlertTriangle className="size-3" aria-hidden />}
               {warning ? t.list.gapWarning : t.list.loaded}
             </Badge>
-            <span className="num text-xs text-muted-foreground">
-              {formatLiters(trip.loading?.volume_15_total_l)} {t.list.at15}
+            <span className="text-xs text-muted-foreground">
+              <span className="num">{formatLiters(trip.loading?.volume_15_total_l)}</span> {t.list.at15}
             </span>
           </>
         )}
