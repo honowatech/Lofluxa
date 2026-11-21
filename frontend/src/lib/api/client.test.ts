@@ -27,7 +27,7 @@ describe("client API", () => {
   it("préfixe /api/v1, sérialise la requête et renvoie le JSON typé", async () => {
     loginAs("admin");
     const page = await api<Page<Station>>("/stations", {
-      query: { limit: 5, offset: 10, q: "", city: undefined, sort: "code" },
+      query: { limit: 5, offset: 10, q: "", city: undefined },
     });
     expect(page.items).toHaveLength(5);
     expect(page).toMatchObject({ total: 30, limit: 5, offset: 10 });
@@ -40,20 +40,24 @@ describe("client API", () => {
   it("enveloppe d'erreur → ApiError typée (code, message, details, erreurs par champ)", async () => {
     loginAs("admin");
     const error = await caught(
-      api("/products", { method: "POST", body: { code: "SUPER", label: "Doublon" } }),
+      api("/products", {
+        method: "POST",
+        body: { code: "SUPER", label: "Doublon", ref_density_15: 0.75, thermal_coeff: 0.001 },
+      }),
     );
     expect(error).toBeInstanceOf(ApiError);
     expect(error.status).toBe(409);
-    expect(error.code).toBe("conflict");
-    expect(error.message).toContain("SUPER");
+    expect(error.code).toBe("duplicate");
+    expect(error.message).toBe("Le code produit « SUPER » est déjà utilisé.");
     expect(error.isConflict).toBe(true);
-    expect(error.fieldErrors).toEqual({ code: "Valeur déjà utilisée" });
+    // Le détail d'un doublon n'a pas de message propre (`{field, value}`) : le champ reprend celui de l'erreur.
+    expect(error.fieldErrors).toEqual({ code: "Le code produit « SUPER » est déjà utilisé." });
     expect(errorMessage(error)).toBe(error.message);
 
     const invalid = await caught(api("/products", { method: "POST", body: {} }));
     expect(invalid.status).toBe(422);
     expect(invalid.code).toBe("validation_error");
-    expect(Object.keys(invalid.fieldErrors)).toEqual(["code", "label"]);
+    expect(Object.keys(invalid.fieldErrors)).toEqual(["code", "label", "ref_density_15", "thermal_coeff"]);
   });
 
   it("violations de règle : rule_code RM-xx exposé", async () => {
@@ -127,6 +131,64 @@ describe("client API", () => {
     expect(useSession.getState().status).toBe("authenticated");
   });
 
+  it("rotation : le jeton de rafraîchissement ne sert qu'une fois, le suivant est stocké", async () => {
+    const user = loginAs("admin");
+    const first = makeToken("refresh", user.id);
+    setTokens({ access_token: makeToken("access", user.id, -1000), refresh_token: first });
+    await api("/me");
+    expect(getTokens()?.refresh_token).not.toBe(first);
+    expect(db.revokedTokens.has(first)).toBe(true);
+    // L'ancien jeton est révoqué côté serveur : le rejouer échoue.
+    const replay = await fetch("/api/v1/auth/refresh", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refresh_token: first }),
+    });
+    expect(replay.status).toBe(401);
+    expect((await replay.json()).code).toBe("token_revoked");
+  });
+
+  it("un autre onglet a déjà rafraîchi : ses jetons sont repris sans rappeler le serveur", async () => {
+    const user = loginAs("admin");
+    setTokens({
+      access_token: makeToken("access", user.id, -1000),
+      refresh_token: makeToken("refresh", user.id),
+    });
+    const refreshes = vi.fn();
+    server.events.on("request:start", ({ request }) => {
+      if (request.url.endsWith("/auth/refresh")) refreshes();
+    });
+    // L'autre onglet écrit directement dans le stockage partagé (le cache de cet onglet n'est pas à jour).
+    const fresh = {
+      access_token: makeToken("access", user.id),
+      refresh_token: makeToken("refresh", user.id),
+    };
+    window.localStorage.setItem("tourneo.tokens", JSON.stringify(fresh));
+    await expect(api<{ email: string }>("/me")).resolves.toMatchObject({ email: "admin@honowa.tech" });
+    server.events.removeAllListeners();
+    expect(refreshes).not.toHaveBeenCalled();
+    expect(getTokens()).toEqual(fresh);
+  });
+
+  it("429 `rate_limited` : délai Retry-After exposé", async () => {
+    server.use(
+      http.post(`${API}/auth/login`, () =>
+        HttpResponse.json(
+          {
+            code: "rate_limited",
+            message: "Trop de tentatives. Réessayez dans quelques instants.",
+            details: [],
+          },
+          { status: 429, headers: { "Retry-After": "42" } },
+        ),
+      ),
+    );
+    const error = await caught(useSession.getState().login("admin@honowa.tech", "x"));
+    expect(error.isRateLimited).toBe(true);
+    expect(error.code).toBe("rate_limited");
+    expect(error.retryAfter).toBe(42);
+  });
+
   it("401 sans rafraîchissement possible : session fermée et marquée expirée", async () => {
     const user = loginAs("admin");
     setTokens({
@@ -153,8 +215,11 @@ describe("client API", () => {
     expect(useSession.getState().status).toBe("anonymous");
     const me = await useSession.getState().login("ADMIN@honowa.tech", "admin-dev-only");
     expect(me.role).toBe("admin");
+    // La déconnexion transmet le jeton de rafraîchissement pour qu'il soit révoqué côté serveur.
+    const refresh = getTokens()?.refresh_token as string;
     await useSession.getState().logout();
     expect(getTokens()).toBeNull();
+    expect(db.revokedTokens.has(refresh)).toBe(true);
   });
 });
 
@@ -162,7 +227,7 @@ describe("fichiers", () => {
   it("téléchargement : nom de fichier de Content-Disposition", async () => {
     loginAs("admin");
     const file = await apiDownload("/imports/templates/stations");
-    expect(file.filename).toBe("modele_stations.csv");
+    expect(file.filename).toBe("stations.csv");
     expect(file.blob.size).toBeGreaterThan(20);
     expect(filenameFromDisposition("attachment; filename*=UTF-8''feuille%20de%20route.pdf")).toBe(
       "feuille de route.pdf",
@@ -190,7 +255,7 @@ describe("fichiers", () => {
 });
 
 describe("pagination", () => {
-  it("toListQuery : limit / offset / sort / q / filtres", () => {
+  it("toListQuery : limit / offset / q / filtres — pas de tri (l'API n'en propose pas)", () => {
     expect(
       toListQuery({
         pageIndex: 2,
@@ -202,7 +267,6 @@ describe("pagination", () => {
     ).toEqual({
       limit: 25,
       offset: 50,
-      sort: "-code",
       q: "akwa",
       active: "true",
     });

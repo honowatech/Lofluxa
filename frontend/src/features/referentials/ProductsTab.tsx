@@ -2,7 +2,16 @@ import type { ColumnDef } from "@tanstack/react-table";
 import { useMemo } from "react";
 import { z } from "zod";
 
-import { ColorField, FieldRow, NumberField, TextField, zColor, zNumber, zText } from "@/components/forms";
+import {
+  ColorField,
+  FieldRow,
+  NumberField,
+  TextField,
+  zCode,
+  zColor,
+  zNumber,
+  zText,
+} from "@/components/forms";
 import { fr } from "@/i18n/fr";
 import { formatNumber } from "@/lib/format";
 import type { Product } from "@/lib/types";
@@ -14,10 +23,10 @@ import { Mono } from "./shared";
 const t = fr.referentials.products;
 
 const schema = z.object({
-  code: zText(32),
+  code: zCode(32),
   label: zText(120),
-  ref_density_15: zNumber({ min: 0.5, max: 1.2 }),
-  thermal_coeff: zNumber({ min: 0, max: 0.01 }),
+  ref_density_15: zNumber({ positive: true, max: 1.999 }),
+  thermal_coeff: zNumber({ min: 0, max: 0.00999 }),
   color: zColor,
 });
 
@@ -53,8 +62,7 @@ export function ProductsTab({ canWrite }: { canWrite: boolean }) {
               edit: {
                 type: "text",
                 validate: (value) => (value ? undefined : fr.common.required),
-                onCommit: (row, value) =>
-                  update.mutateAsync({ id: row.id, input: { ...row, label: String(value) } }),
+                onCommit: (row, value) => update.mutateAsync({ id: row.id, input: { label: String(value) } }),
               },
             }
           : undefined,

@@ -76,6 +76,16 @@ def test_recherche_exhaustive_quand_le_glouton_echoue():
     assert _by_compartment(loads)["U-C3"] == ("SUPER", 3000)
 
 
+def test_renvoie_none_sans_exception_quand_rien_ne_tient():
+    # Appelée après chaque édition manuelle, y compris sur une tournée surchargée par le dispatcher.
+    camion = truck("T", (5000, 4000))
+    assert assign_compartments(camion, {"SUPER": 50000, "GASOIL": 30000}, MARGIN) is None
+    assert assign_compartments(camion, {"INCONNU": 1.0, "SUPER": 4000, "GASOIL": 4000}, MARGIN) is None
+    assert assign_compartments(truck("VIDE", ()), {"SUPER": 1000}, MARGIN) is None
+    assert assign_compartments(camion, {"SUPER": 1000}, 100.0) is None  # marge absurde : capacité utile nulle
+    assert assign_compartments(camion, {"SUPER": -500.0}, MARGIN) == []  # volume négatif ignoré
+
+
 def test_rien_a_charger():
     assert assign_compartments(truck("T"), {}, MARGIN) == []
     assert assign_compartments(truck("T"), {"SUPER": 0.0}, MARGIN) == []

@@ -9,13 +9,16 @@ export class ApiError extends Error {
   readonly status: number;
   readonly code: string;
   readonly details: ApiErrorDetail[];
+  /** Délai d'attente demandé par le serveur (en-tête `Retry-After`, secondes) — 429 `rate_limited`. */
+  readonly retryAfter: number | null;
 
-  constructor(status: number, body: Partial<ApiErrorBody>) {
+  constructor(status: number, body: Partial<ApiErrorBody>, retryAfter: number | null = null) {
     super(body.message || fr.errors.unknown);
     this.name = "ApiError";
     this.status = status;
     this.code = body.code || `http_${status}`;
     this.details = Array.isArray(body.details) ? body.details : [];
+    this.retryAfter = retryAfter;
   }
 
   /** Codes RM-xx portés par l'erreur, sans doublon, dans l'ordre. */
@@ -43,15 +46,16 @@ export class ApiError extends Error {
   }
 
   /**
-   * Erreurs de validation par champ (422) : `{ "email": "…" }`.
+   * Erreurs par champ (422 de validation, 409 `duplicate`) : `{ "email": "…" }`.
    * Le préfixe `body.` de FastAPI est retiré pour correspondre aux noms des champs de formulaire.
+   * Un détail sans message propre (ex. doublon : `{field, value}`) reprend le message de l'erreur.
    */
   get fieldErrors(): Record<string, string> {
     const out: Record<string, string> = {};
     for (const d of this.details) {
-      if (!d.field || !d.message) continue;
+      if (!d.field) continue;
       const name = d.field.replace(/^(body|query|path)\./, "");
-      if (!(name in out)) out[name] = d.message;
+      if (!(name in out)) out[name] = d.message || this.message;
     }
     return out;
   }
@@ -70,6 +74,9 @@ export class ApiError extends Error {
   }
   get isValidation(): boolean {
     return this.status === 422;
+  }
+  get isRateLimited(): boolean {
+    return this.status === 429;
   }
   get isNetwork(): boolean {
     return this.status === 0;

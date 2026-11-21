@@ -1,7 +1,7 @@
 /** Constantes de configuration du front. Les valeurs métier paramétrables vivent côté serveur (`/settings`). */
 
-/** Préfixe de l'API (proxy Vite en développement, Caddy en production). */
-export const API_BASE = "/api/v1";
+/** Préfixe de l'API (proxy Vite en développement, Caddy en production) ; réglable au build par `VITE_API_BASE_URL`. */
+export const API_BASE: string = import.meta.env.VITE_API_BASE_URL || "/api/v1";
 
 /** Fuseau d'affichage (RM-20). Aligné sur le paramètre serveur `timezone`. */
 export const APP_TIMEZONE = "Africa/Douala";
@@ -17,6 +17,12 @@ export const MAX_PAGE_SIZE = 500;
  * Simple aide visuelle, sans effet sur les règles (RM-03 est contrôlée par le serveur).
  */
 export const EXPIRY_WARNING_DAYS = 30;
+
+/**
+ * Longueur minimale proposée à la saisie d'un mot de passe. Le serveur reste juge
+ * (`TOURNEO_PASSWORD_MIN_LENGTH`, 8 par défaut) : son refus éventuel s'affiche sous le champ.
+ */
+export const PASSWORD_MIN_LENGTH = 8;
 
 export type MocksMode = "off" | "partial" | "full";
 export const MOCKS_MODE: MocksMode = (import.meta.env.VITE_MOCKS as MocksMode | undefined) ?? "off";

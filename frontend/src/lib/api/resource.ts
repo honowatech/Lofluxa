@@ -25,7 +25,7 @@ import type { ApiError } from "./errors";
 import { fetchAll } from "./pagination";
 
 export interface ResourceOptions {
-  /** Verbe de mise à jour. `PUT` par défaut (question L9-Q1) ; un seul endroit à changer. */
+  /** Verbe de mise à jour. L'API traite `PUT` et `PATCH` de la même façon : mise à jour partielle. */
   updateMethod?: "PUT" | "PATCH";
   /** Clés de requête supplémentaires à invalider après une écriture. */
   invalidates?: QueryKey[];
@@ -135,7 +135,9 @@ export type Resource<T extends { id: UUID }, TInput = Partial<T>> = ReturnType<
 
 /**
  * Sous-ressource CRUD (`/stations/{id}/tanks`, `/trucks/{id}/compartments`).
- * `sync` rapproche la liste avant / après d'un formulaire : crée, met à jour et supprime ce qu'il faut.
+ * Les écrans du socle envoient désormais ces sous-listes avec leur parent (`tanks` / `compartments` dans le
+ * `POST` / `PUT` de la station ou du camion : une seule requête, atomique) ; ces routes restent disponibles
+ * pour modifier une seule ligne. `sync` rapproche une liste avant / après ligne par ligne.
  */
 export function createChildResource<C extends { id: UUID }, CInput>(
   parentPath: string,

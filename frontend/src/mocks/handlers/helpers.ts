@@ -33,7 +33,7 @@ export function makeToken(
   userId: string,
   ttlMs = type === "access" ? ACCESS_TTL_MS : REFRESH_TTL_MS,
 ): string {
-  return `mock.${type}.${userId}.${Date.now() + ttlMs}`;
+  return `mock.${type}.${userId}.${Date.now() + ttlMs}.${Math.random().toString(36).slice(2, 10)}`;
 }
 
 export function readToken(token: string | null | undefined, type: "access" | "refresh"): MockUser | null {
@@ -61,7 +61,7 @@ export function authorize(request: Request, roles: Role[] = []): MockUser | Resp
 
 /* ------------------------------------------------------------------ listes */
 
-const RESERVED = new Set(["limit", "offset", "sort", "q"]);
+const RESERVED = new Set(["limit", "offset", "q"]);
 
 export function paginate<T extends object>(
   request: Request,
@@ -92,23 +92,7 @@ export function paginate<T extends object>(
     else out = out.filter((row) => !(key in row) || String((row as Record<string, unknown>)[key]) === value);
   }
 
-  const sort = params.get("sort");
-  if (sort) {
-    const desc = sort.startsWith("-");
-    const field = desc ? sort.slice(1) : sort;
-    out.sort((a, b) => {
-      const x = (a as Record<string, unknown>)[field];
-      const y = (b as Record<string, unknown>)[field];
-      if (x === y) return 0;
-      if (x === null || x === undefined) return 1;
-      if (y === null || y === undefined) return -1;
-      const result =
-        typeof x === "number" && typeof y === "number"
-          ? x - y
-          : String(x).localeCompare(String(y), "fr", { numeric: true });
-      return desc ? -result : result;
-    });
-  }
+  // Comme l'API réelle : pas de paramètre de tri, l'ordre est celui fourni par l'appelant.
 
   const limit = Math.min(500, Math.max(1, Number(params.get("limit") ?? 50)));
   const offset = Math.max(0, Number(params.get("offset") ?? 0));

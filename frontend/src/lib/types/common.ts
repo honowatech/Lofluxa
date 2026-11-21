@@ -1,8 +1,9 @@
 /**
- * Types des ressources de l'API — ÉCRITS À LA MAIN pour la vague 1.
- * Ils seront remplacés en vague 2 par des types générés depuis l'OpenAPI : tout le reste du
- * code importe depuis `@/lib/types` (index.ts), jamais depuis un fichier précis de ce dossier.
+ * Types communs. Les types de ressources (`referentials.ts`, `admin.ts`, `auth.ts`, `enums.ts`) sont des
+ * alias des schémas générés depuis l'OpenAPI (`api.gen.ts`) ; le reste du code importe depuis
+ * `@/lib/types` (index.ts), jamais depuis un fichier précis de ce dossier.
  */
+import type { Schema } from "./schemas";
 
 export type UUID = string;
 /** Horodatage ISO 8601 en UTC, ex. `2027-01-12T06:30:00Z`. */
@@ -40,8 +41,8 @@ export type WeekdayKey = (typeof WEEKDAY_KEYS)[number];
 /** Horaires d'ouverture : `{}` = ouvert en continu ; jour absent ou `[]` = fermé (voir app/core/time.py). */
 export type OpeningHours = Partial<Record<WeekdayKey, [TimeHM, TimeHM][]>>;
 
-export const ROLES = ["dispatcher", "fleet", "supply", "manager", "admin"] as const;
-export type Role = (typeof ROLES)[number];
+export type Role = Schema<"Role">;
+export const ROLES = ["dispatcher", "fleet", "supply", "manager", "admin"] as const satisfies readonly Role[];
 
 export const SEVERITIES = ["blocking", "warning"] as const;
 export type Severity = (typeof SEVERITIES)[number];
