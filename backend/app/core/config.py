@@ -24,6 +24,14 @@ class Config(BaseSettings):
 
     cors_origins: list[str] = ["http://localhost:5173"]
 
+    # Durcissement de l'authentification (spec §8.5) — seuils au format slowapi « N/période ».
+    rate_limit_enabled: bool = True  # toujours inactif en `env=test`, sauf activation explicite par un test
+    rate_limit_login: str = "10/minute"  # tentatives de connexion par adresse IP
+    rate_limit_auth: str = "60/minute"  # autres routes d'authentification (rafraîchissement, déconnexion…)
+    password_min_length: int = 8
+    redis_timeout_s: float = 0.5  # délai maximal d'un appel Redis de contrôle (révocation, santé)
+    osrm_health_timeout_s: float = 3.0
+
     smtp_host: str = "localhost"
     smtp_port: int = 1025
     smtp_user: str = ""

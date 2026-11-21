@@ -1,0 +1,8 @@
+# Exclusions du contexte de construction du front-end (prises en compte par BuildKit pour ce Dockerfile).
+node_modules
+dist
+.vite
+coverage
+*.log
+.env
+.env.*

@@ -9,11 +9,11 @@ import pkgutil
 
 import structlog
 from fastapi import APIRouter, FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 
 import app
 import app.audit.listener  # noqa: F401  (active le journal d'audit)
 import app.models  # noqa: F401  (enregistre tous les modèles)
+from app.auth.hardening import install_security
 from app.core.config import get_config
 from app.core.errors import register_error_handlers
 
@@ -53,18 +53,9 @@ def create_app() -> FastAPI:
         docs_url=f"{API_PREFIX}/docs",
         redoc_url=None,
     )
-    application.add_middleware(
-        CORSMiddleware,
-        allow_origins=config.cors_origins,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
     register_error_handlers(application)
-
-    @application.get(f"{API_PREFIX}/health", tags=["santé"])
-    async def health() -> dict[str, str]:
-        return {"status": "ok"}
+    # Limitation de débit, CORS strict, en-têtes, refus d'une configuration de production dangereuse (lot L8).
+    install_security(application, config)
 
     for _name, router in discover_routers():
         application.include_router(router, prefix=API_PREFIX)
