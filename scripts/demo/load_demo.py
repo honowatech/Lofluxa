@@ -18,6 +18,11 @@
 6. avec `--compute` : `POST /plans/compute` puis suivi de la tâche (il faut un worker Celery, ou
    `TOURNEO_CELERY_ALWAYS_EAGER=true` côté API).
 
+7. avec `--ab` : import de `reference_day.xlsx` (journée A manuelle fabriquée par
+   `make_reference_day.py`), rejeu par le moteur, comparaison A/B et, avec `--pdf`, rapport PDF.
+
+`--no-orders` : référentiels et stocks seulement (utile avant `--ab` sur une base vide de commandes).
+
 Rejouable sans doublons : un second passage n'annonce que des lignes « inchangées », ne ressaisit pas un
 stock identique et ne confirme que les commandes encore en brouillon.
 
@@ -47,9 +52,11 @@ import httpx
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import export_fixture  # noqa: E402
+
 from app.core.enums import ImportKind  # noqa: E402  (chemin `backend/` ajouté par export_fixture)
 from app.planning.fixtures import load_problem  # noqa: E402
 
+REFERENCE_FILE = "reference_day.xlsx"
 XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 PAGE = 500
 
@@ -281,6 +288,71 @@ class DemoApi:
             "computed_in_ms": plan["computed_in_ms"],
         }
 
+    # ----- journée A / rejeu / comparaison (F8)
+
+    async def import_reference_day(
+        self, content: bytes, *, day: date | None = None, replace: bool = True
+    ) -> dict[str, Any]:
+        """`POST /reference-days/import` → plan `manual_reference` (remplace celui du même jour).
+        `day` prime sur la date du fichier."""
+        data = {"replace": "true" if replace else "false"}
+        if day is not None:
+            data["day"] = day.isoformat()
+        response = await self.call(
+            "POST",
+            "/reference-days/import",
+            "dispatcher",
+            files={"file": (REFERENCE_FILE, content, XLSX_MIME)},
+            data=data,
+            expected=(201, 422),
+        )
+        body = response.json()
+        if response.status_code == 422:
+            lines = "\n".join(
+                f"  {i.get('sheet')} ligne {i.get('row')} — {i.get('message')}" for i in body["errors"][:20]
+            )
+            raise DemoError(f"Journée de référence rejetée ({body['error_count']} erreur(s)) :\n{lines}")
+        return body
+
+    async def start_replay(self, plan_id: str) -> str:
+        response = await self.call("POST", f"/plans/{plan_id}/replay", "dispatcher", expected=(202,))
+        return response.json()["task_id"]
+
+    async def comparison(self, plan_a: str, plan_b: str, role: str = "dispatcher") -> dict[str, Any]:
+        params = {"plan_a": plan_a, "plan_b": plan_b}
+        return (await self.call("GET", "/comparison", role, params=params)).json()
+
+    async def comparison_pdf(self, plan_a: str, plan_b: str, role: str = "dispatcher") -> bytes:
+        params = {"plan_a": plan_a, "plan_b": plan_b}
+        return (await self.call("GET", "/comparison.pdf", role, params=params)).content
+
+
+def reference_day_file(name: str) -> bytes:
+    path = export_fixture.import_dir(name) / REFERENCE_FILE
+    if not path.is_file():
+        raise DemoError(
+            f"{path} absent. Lancer d'abord : uv run python ../scripts/demo/make_reference_day.py {name}"
+        )
+    return path.read_bytes()
+
+
+def verdict_lines(comparison: dict[str, Any]) -> list[str]:
+    """Résumé lisible d'une comparaison A/B (critères d'acceptation 1 et 2)."""
+    a, b, verdict = comparison["metrics_a"], comparison["metrics_b"], comparison["verdict"]
+    gain = verdict["gain_pct"]
+    return [
+        f"  A (manuel)  : {a['distance_estimated_m'] / 1000:.1f} km, {a['trucks_used']} camion(s), "
+        f"{a['trips_count']} tournée(s), {a['orders_served']}/{a['orders_requested']} commande(s), "
+        f"{a['violations_blocking']} violation(s) bloquante(s)",
+        f"  B (calculé) : {b['distance_estimated_m'] / 1000:.1f} km, {b['trucks_used']} camion(s), "
+        f"{b['trips_count']} tournée(s), {b['orders_served']}/{b['orders_requested']} commande(s), "
+        f"{b['violations_blocking']} violation(s) bloquante(s)",
+        f"  gain kilométrique : {verdict['gain_m'] / 1000:.1f} km"
+        + (f" ({gain:.1f} %)" if gain is not None else "")
+        + f" pour un seuil de {verdict['threshold_pct']:g} %",
+        f"  verdict : {verdict['message']}",
+    ]
+
 
 def fixture_files(name: str, day: date | None = None) -> tuple[date, dict[str, bytes]]:
     """Fichiers à charger : ceux versionnés dans `<jeu>/import/`, ou reconstruits pour un autre jour."""
@@ -305,8 +377,12 @@ async def load_demo(
     day: date | None = None,
     admin: tuple[str, str] = DEFAULT_ADMIN,
     compute: bool = False,
+    orders: bool = True,
 ) -> LoadSummary:
-    """Charge le jeu `name` par l'API. `api.client` pointe sur `…/api/v1`."""
+    """Charge le jeu `name` par l'API. `api.client` pointe sur `…/api/v1`.
+
+    `orders=False` : référentiels et stocks seulement (les commandes viendront d'une journée de
+    référence)."""
     log = api.log
     day, files = fixture_files(name, day)
     summary = LoadSummary(name=name, day=day)
@@ -319,6 +395,8 @@ async def load_demo(
     summary.users_created = await api.ensure_demo_users()
 
     for kind in export_fixture.IMPORT_ORDER:
+        if kind == ImportKind.ORDERS and not orders:
+            continue
         filename = export_fixture.XLSX_FILES[kind]
         role = "dispatcher" if kind == ImportKind.ORDERS else "admin"
         params = {"day": day.isoformat()} if kind == ImportKind.ORDERS else {}
@@ -361,6 +439,24 @@ async def load_demo(
     return summary
 
 
+async def run_ab(api: DemoApi, name: str, *, day: date | None = None, pdf: Path | None = None) -> dict:
+    """Preuve A/B (démo du jalon J5) : import de la journée de référence fabriquée → rejeu par le
+    moteur → comparaison → rapport PDF. Renvoie la comparaison (`GET /comparison`)."""
+    log = api.log
+    imported = await api.import_reference_day(reference_day_file(name), day=day)
+    log(
+        f"→ Journée de référence importée : plan {imported['plan_id']} "
+        f"({len(imported['warnings'])} avertissement(s))"
+    )
+    log("→ Rejeu par le moteur")
+    replay_id = await api.wait_task(await api.start_replay(imported["plan_id"]))
+    comparison = await api.comparison(imported["plan_id"], replay_id)
+    if pdf is not None:
+        pdf.write_bytes(await api.comparison_pdf(imported["plan_id"], replay_id))
+        log(f"→ Rapport comparatif : {pdf}")
+    return comparison
+
+
 def print_summary(summary: LoadSummary, log: Callable[[str], None] = print) -> None:
     log("")
     log(f"Jeu « {summary.name} » chargé pour le {summary.day:%d/%m/%Y}")
@@ -398,8 +494,15 @@ async def _main(args: argparse.Namespace) -> None:
             day=args.day,
             admin=(args.admin_email, args.admin_password),
             compute=args.compute,
+            orders=not args.no_orders,
         )
+        comparison = await run_ab(api, args.name, day=args.day, pdf=args.pdf) if args.ab else None
     print_summary(summary)
+    if comparison is not None:
+        print("")
+        print("Comparaison A / B (journée manuelle fabriquée → rejeu du moteur)")
+        for line in verdict_lines(comparison):
+            print(line)
 
 
 def main() -> None:
@@ -408,6 +511,13 @@ def main() -> None:
     parser.add_argument("--base-url", default="http://localhost:8000", help="adresse de l'API")
     parser.add_argument("--day", type=date.fromisoformat, help="date des commandes et des stocks")
     parser.add_argument("--compute", action="store_true", help="lancer aussi le calcul du plan")
+    parser.add_argument("--no-orders", action="store_true", help="référentiels et stocks seulement")
+    parser.add_argument(
+        "--ab",
+        action="store_true",
+        help="importer aussi la journée de référence fabriquée, la rejouer et comparer (démo J5)",
+    )
+    parser.add_argument("--pdf", type=Path, help="avec --ab : enregistrer le rapport comparatif PDF ici")
     parser.add_argument("--admin-email", default=os.environ.get("TOURNEO_ADMIN_EMAIL", DEFAULT_ADMIN[0]))
     parser.add_argument(
         "--admin-password", default=os.environ.get("TOURNEO_ADMIN_PASSWORD", DEFAULT_ADMIN[1])

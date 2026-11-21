@@ -29,9 +29,12 @@ cuves, numéro de permis des chauffeurs, nom et type des transporteurs, exploita
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import math
+import re
 import sys
+import zipfile
 from dataclasses import fields, replace
 from datetime import date, time
 from pathlib import Path
@@ -185,6 +188,25 @@ def depot_rows(problem: PlanningProblem) -> list[tuple]:
     ]
 
 
+def unique_stations(problem: PlanningProblem) -> list[Any]:
+    """Stations du jeu, une par identifiant (la première rencontrée).
+
+    `demo_scale` contient deux stations de même identifiant et de même code (`MBA01` : Mbanga 1 et
+    Mbalmayo 1, défaut du générateur signalé dans `docs/DEMO.md`). Le moteur résout un identifiant
+    par `problem.station()`, qui renvoie la première : la seconde n'est jamais desservie. L'export
+    garde la même lecture — un code station est unique à l'import."""
+    seen: dict[str, Any] = {}
+    for station in problem.stations:
+        seen.setdefault(station.id, station)
+    return list(seen.values())
+
+
+def duplicate_stations(problem: PlanningProblem) -> list[str]:
+    """Noms des stations écartées par `unique_stations`."""
+    kept = {id(s) for s in unique_stations(problem)}
+    return [f"{s.code} ({s.name})" for s in problem.stations if id(s) not in kept]
+
+
 def station_tanks(problem: PlanningProblem) -> dict[str, list[tuple[str, int, int]]]:
     """Cuves fabriquées par station : (code produit, capacité, stock de sécurité).
 
@@ -197,7 +219,7 @@ def station_tanks(problem: PlanningProblem) -> dict[str, list[tuple[str, int, in
         key = (order.station_id, codes[order.product_id])
         largest[key] = max(largest.get(key, 0.0), order.requested_l)
     tanks: dict[str, list[tuple[str, int, int]]] = {}
-    for station in problem.stations:
+    for station in unique_stations(problem):
         rows = []
         for product in problem.products:
             ordered = largest.get((station.id, product.code), 0.0)
@@ -215,7 +237,7 @@ def station_tanks(problem: PlanningProblem) -> dict[str, list[tuple[str, int, in
 def station_rows(problem: PlanningProblem) -> list[tuple]:
     rows = []
     tanks = station_tanks(problem)
-    for station in problem.stations:
+    for station in unique_stations(problem):
         city = city_of(station)
         head = {
             "name": station.name or station.code,
@@ -323,10 +345,34 @@ ROW_BUILDERS = {
 }
 
 
+_ZIP_STAMP = (2026, 11, 21, 8, 0, 0)
+_CORE_DATES = re.compile(rb"(<dcterms:(created|modified)[^>]*>)[^<]*(</dcterms:(?:created|modified)>)")
+
+
+def stable_xlsx(content: bytes) -> bytes:
+    """Rend un classeur reproductible à l'octet près : même contenu → même fichier versionné.
+
+    Un .xlsx est une archive zip dont les entrées portent l'heure de création, et dont les propriétés
+    (`docProps/core.xml`) portent la date d'enregistrement. On ne touche qu'à ces métadonnées
+    d'archive ; aucune cellule n'est lue ni interprétée ici."""
+    source = zipfile.ZipFile(io.BytesIO(content))
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as target:
+        for info in source.infolist():
+            data = source.read(info.filename)
+            if info.filename == "docProps/core.xml":
+                data = _CORE_DATES.sub(rb"\g<1>2026-11-21T08:00:00Z\g<3>", data)
+            entry = zipfile.ZipInfo(info.filename, date_time=_ZIP_STAMP)
+            entry.compress_type = zipfile.ZIP_DEFLATED
+            entry.external_attr = info.external_attr
+            target.writestr(entry, data)
+    return buffer.getvalue()
+
+
 def build_xlsx(kind: ImportKind, problem: PlanningProblem, day: date | None = None) -> bytes:
     """Classeur au format du modèle du kind, rempli avec les lignes du jeu."""
     rows = order_rows(problem, day) if kind == ImportKind.ORDERS else ROW_BUILDERS[kind](problem)
-    return build_template(replace(columns.SPECS[kind], examples=tuple(rows)))
+    return stable_xlsx(build_template(replace(columns.SPECS[kind], examples=tuple(rows))))
 
 
 # --------------------------------------------------------------------------- hors modèles
@@ -401,9 +447,13 @@ def main() -> None:
     for name in names:
         target = export(name, args.out, args.day)
         problem = load_problem(name)
+        for ghost in duplicate_stations(problem):
+            print(f"⚠ {name} : station en double dans problem.json, écartée de l'export : {ghost}")
         print(
-            f"✔ {name} → {target} : {len(problem.depots)} dépôt(s), {len(problem.stations)} stations, "
-            f"{len(problem.trucks)} camions, {len(problem.drivers)} chauffeurs, {len(problem.orders)} commandes"
+            f"✔ {name} → {target} : {len(problem.depots)} dépôt(s), "
+            f"{len(unique_stations(problem))} stations, "
+            f"{len(problem.trucks)} camions, {len(problem.drivers)} chauffeurs, "
+            f"{len(problem.orders)} commandes"
         )
 
 

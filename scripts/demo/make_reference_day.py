@@ -37,6 +37,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import export_fixture  # noqa: E402
+
 from app.core.enums import Severity, UnservedReason  # noqa: E402  (chemin `backend/` ajouté par export_fixture)
 from app.imports.reference_day import TEMPLATE_README, build_workbook  # noqa: E402
 from app.planning.domain import DeliveryD, PlanningProblem, StopD, TripD, TruckD, UnservedD  # noqa: E402
@@ -189,7 +190,7 @@ def workbook(problem: PlanningProblem, trips: list[TripD]) -> bytes:
                     )
                 )
                 first = False
-    return build_workbook(
+    content = build_workbook(
         day=problem.day.isoformat(),
         prep_time_min=PREP_TIME_MIN,
         label="Journée A — plan manuel fabriqué (démonstration)",
@@ -197,6 +198,7 @@ def workbook(problem: PlanningProblem, trips: list[TripD]) -> bytes:
         trips=trip_rows,
         readme=TEMPLATE_README,
     )
+    return export_fixture.stable_xlsx(content)
 
 
 def build(name: str) -> tuple[bytes, dict]:
