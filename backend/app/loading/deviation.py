@@ -9,6 +9,11 @@ Granularité retenue (voir docs/questions/l6-chargement.md) :
 - la tournée reçoit **un seul** avertissement RM-13 dès qu'au moins un compartiment ou le total sort de
   la tolérance ; le message détaille les compartiments concernés.
 
+Décomposition de l'écart (pour expliquer un avertissement, sans changer la règle) :
+
+    écart = (volume à 15 °C − volume observé) + (volume observé − volume planifié)
+            └ part de la correction de température ┘   └ part de l'écart de volume observé ┘
+
 « Au-delà de la tolérance » est strict : un écart exactement égal à la tolérance n'alerte pas.
 L'écart est pris en valeur absolue (sur-chargement comme sous-chargement).
 """
@@ -32,10 +37,37 @@ class Gap:
     gap_l: Decimal  # chargé à 15 °C − planifié
     gap_pct: Decimal | None  # en % du planifié, arrondi au centième ; None si rien n'était planifié
     out_of_tolerance: bool
+    observed_l: Decimal | None = None  # volume observé (non corrigé) ; None si inconnu
+
+    @property
+    def temperature_gap_l(self) -> Decimal | None:
+        """Part de l'écart due à la seule correction de température : volume à 15 °C − volume observé."""
+        return None if self.observed_l is None else self.loaded_15_l - self.observed_l
+
+    @property
+    def observed_gap_l(self) -> Decimal | None:
+        """Part de l'écart due au volume observé : volume observé − volume planifié."""
+        return None if self.observed_l is None else self.observed_l - self.planned_l
+
+    def _pct(self, part: Decimal | None) -> Decimal | None:
+        if part is None or self.planned_l <= 0:
+            return None
+        return (part * 100 / self.planned_l).quantize(_PCT, rounding=ROUND_HALF_UP)
+
+    @property
+    def temperature_gap_pct(self) -> Decimal | None:
+        return self._pct(self.temperature_gap_l)
+
+    @property
+    def observed_gap_pct(self) -> Decimal | None:
+        return self._pct(self.observed_gap_l)
 
 
 def compute_gap(
-    loaded_15_l: Decimal | float, planned_l: Decimal | float, tolerance_pct: Decimal | float
+    loaded_15_l: Decimal | float,
+    planned_l: Decimal | float,
+    tolerance_pct: Decimal | float,
+    observed_l: Decimal | float | None = None,
 ) -> Gap:
     loaded = to_decimal(loaded_15_l)
     planned = to_decimal(planned_l)
@@ -49,7 +81,14 @@ def compute_gap(
         # Rien de planifié : tout volume chargé est hors tolérance, le pourcentage n'a pas de sens.
         out = loaded > 0
         pct = None
-    return Gap(planned_l=planned, loaded_15_l=loaded, gap_l=gap, gap_pct=pct, out_of_tolerance=out)
+    return Gap(
+        planned_l=planned,
+        loaded_15_l=loaded,
+        gap_l=gap,
+        gap_pct=pct,
+        out_of_tolerance=out,
+        observed_l=None if observed_l is None else to_decimal(observed_l),
+    )
 
 
 @dataclass(frozen=True)
@@ -80,23 +119,50 @@ class Rm13Result:
             f"({_fr(self.tolerance_pct)} %) — " + " ; ".join(parts) + "."
         )
 
+    @property
+    def explanation(self) -> str | None:
+        """Une ligne expliquant l'avertissement : part de la température et part du volume observé.
+
+        None s'il n'y a pas d'avertissement ou si les volumes observés ne sont pas connus.
+        """
+        if not self.warning:
+            return None
+        items = [
+            (f"compartiment {self.labels.get(key, key)}", gap)
+            for key, gap in self.by_compartment.items()
+            if gap.out_of_tolerance
+        ]
+        if self.total.out_of_tolerance:
+            items.append(("total de la tournée", self.total))
+        parts = [
+            f"{label} : {_signed_l(gap.temperature_gap_l)} de correction de température, "
+            f"{_signed_l(gap.observed_gap_l)} d'écart entre volume observé et volume planifié"
+            for label, gap in items
+            if gap.observed_l is not None
+        ]
+        return "Décomposition de l'écart — " + " ; ".join(parts) + "." if parts else None
+
 
 def evaluate_rm_13(
     planned_by_compartment: Mapping[Hashable, Decimal | float],
     loaded_15_by_compartment: Mapping[Hashable, Decimal | float],
     tolerance_pct: Decimal | float,
     labels: Mapping[Hashable, str] | None = None,
+    observed_by_compartment: Mapping[Hashable, Decimal | float] | None = None,
 ) -> Rm13Result:
     """RM-13 : écart par compartiment (union des compartiments planifiés et chargés) et au total."""
     tolerance = to_decimal(tolerance_pct)
     keys = list(planned_by_compartment) + [
         k for k in loaded_15_by_compartment if k not in planned_by_compartment
     ]
+    observed = observed_by_compartment
     by_compartment = {
         key: compute_gap(
             loaded_15_by_compartment.get(key, Decimal(0)),
             planned_by_compartment.get(key, Decimal(0)),
             tolerance,
+            # Compartiment planifié mais non chargé : 0 L observé.
+            None if observed is None else observed.get(key, Decimal(0)),
         )
         for key in keys
     }
@@ -104,6 +170,7 @@ def evaluate_rm_13(
         sum((g.loaded_15_l for g in by_compartment.values()), Decimal(0)),
         sum((g.planned_l for g in by_compartment.values()), Decimal(0)),
         tolerance,
+        None if observed is None else sum((g.observed_l for g in by_compartment.values()), Decimal(0)),
     )
     return Rm13Result(
         tolerance_pct=tolerance, by_compartment=by_compartment, total=total, labels=dict(labels or {})
@@ -115,6 +182,12 @@ def _fr(value: Decimal) -> str:
     if "." in text:
         text = text.rstrip("0").rstrip(".")
     return text.replace(".", ",")
+
+
+def _signed_l(value: Decimal | None) -> str:
+    value = value or Decimal(0)
+    sign = "+" if value >= 0 else "−"
+    return f"{sign}{_fr(abs(value).quantize(_PCT))} L"
 
 
 def _describe(gap: Gap) -> str:

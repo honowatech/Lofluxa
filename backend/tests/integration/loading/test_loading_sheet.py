@@ -100,6 +100,9 @@ async def test_contenu_de_la_fiche(client, db, auth_headers, scenario):
         "−352,88 L",  # écart vs planifié
         "−3,53 %",
         "Avertissement RM-13",
+        # Explication de l'avertissement : part de la température et part du volume observé.
+        "compartiment 1 : −152,88 L de correction de température, "
+        "−200 L d&#39;écart entre volume observé et volume planifié",
         "ST-001 — OLA Akwa",  # séquence d'arrêts
         "ST-002 — OLA Bonabéri",
         "Mme Ngo",
@@ -123,6 +126,7 @@ async def test_fiche_sans_avertissement_quand_le_chargement_est_conforme(client,
     ctx = await service.load_trip_context(db, scenario.trip.id)
     html = render_html(sheet.TEMPLATE, await sheet.build_sheet_context(db, ctx))
     assert "Avertissement RM-13" not in html
+    assert "Décomposition de l" not in html
     assert ASTM_NOTE in html
 
 

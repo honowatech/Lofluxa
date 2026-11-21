@@ -32,6 +32,9 @@ async def test_tournees_du_jour_avec_etat_de_chargement(client, db, auth_headers
     assert set(by_id) == {str(scenario.trip.id), str(other_depot.trip.id)}  # ni brouillon, ni lendemain
     loaded = by_id[str(scenario.trip.id)]
     assert loaded["day"] == "2027-01-12"
+    assert loaded["plan_id"] == str(scenario.plan.id)
+    assert loaded["plan_version"] == 1
+    assert loaded["plan_label"] is None
     assert loaded["status"] == "planned"
     assert loaded["truck_plate"] == "LT-123-AB"
     assert loaded["driver_name"] == "Jean Mbarga"
@@ -70,3 +73,27 @@ async def test_parametre_day_invalide_422(client, auth_headers):
         "/loadings", params={"day": "12/01/2027"}, headers=await auth_headers("fleet")
     )
     assert response.status_code == 422
+
+
+async def test_deux_plans_publies_le_meme_jour_sont_distinguables(
+    client, db, auth_headers, scenario, products
+):
+    # Plan du matin + plan des reliquats : deux « Tournée 1 », distinguées par le plan.
+    second = await make_trip_scenario(db, products, suffix="-R")
+    second.plan.version = 3
+    second.plan.label = "Reliquats de l'après-midi"
+    archived = await make_trip_scenario(db, products, suffix="-A", plan_status=PlanStatus.ARCHIVED)
+    await db.flush()
+
+    body = (
+        await client.get("/loadings", params={"day": DAY.isoformat()}, headers=await auth_headers("fleet"))
+    ).json()
+
+    assert body["total"] == 2
+    by_plan = {item["plan_id"]: item for item in body["items"]}
+    assert str(archived.plan.id) not in by_plan  # version archivée : plus en vigueur
+    assert [item["seq"] for item in body["items"]] == [1, 1]
+    assert by_plan[str(scenario.plan.id)]["plan_version"] == 1
+    assert by_plan[str(scenario.plan.id)]["plan_label"] is None
+    assert by_plan[str(second.plan.id)]["plan_version"] == 3
+    assert by_plan[str(second.plan.id)]["plan_label"] == "Reliquats de l'après-midi"

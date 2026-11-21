@@ -396,3 +396,51 @@ async def test_tournee_inconnue(client, db, auth_headers, scenario):
     response = await client.post(f"/trips/{unknown}/loading", json=payload, headers=headers)
     assert response.status_code == 404
     assert response.json()["code"] == "not_found"
+
+
+async def test_RM_13_decomposition_de_l_ecart_temperature_et_volume(client, auth_headers, scenario):
+    payload = scenario.loading_payload()
+    # Super 9 800 L à 28 °C → 9 647,12 L à 15 °C : −152,88 L de température, −200 L de volume observé.
+    payload["lines"][0] = scenario.line(scenario.compartments[0], "SUPER", 9800, 28)
+
+    body = (
+        await client.post(
+            f"/trips/{scenario.trip.id}/loading", json=payload, headers=await auth_headers("fleet")
+        )
+    ).json()
+
+    line = body["lines"][0]
+    assert line["gap_l"] == -352.88
+    assert line["gap_temperature_l"] == -152.88
+    assert line["gap_temperature_pct"] == -1.53
+    assert line["gap_observed_l"] == -200
+    assert line["gap_observed_pct"] == -2
+    assert line["out_of_tolerance"] is True
+    conform = body["lines"][1]
+    assert conform["gap_temperature_l"] == 0 and conform["gap_observed_l"] == 0
+    # Au total : 25 000 planifiés, 24 800 observés, 24 647,12 à 15 °C.
+    assert body["gap_l"] == -352.88
+    assert body["gap_temperature_l"] == -152.88
+    assert body["gap_temperature_pct"] == -0.61
+    assert body["gap_observed_l"] == -200
+    assert body["gap_observed_pct"] == -0.8
+    assert body["gap_explanation"] == (
+        "Décomposition de l'écart — compartiment 1 : −152,88 L de correction de température, "
+        "−200 L d'écart entre volume observé et volume planifié."
+    )
+
+
+async def test_pas_d_explication_d_ecart_sans_avertissement(client, auth_headers, scenario):
+    payload = scenario.loading_payload()
+    payload["lines"][0] = scenario.line(scenario.compartments[0], "SUPER", 10000, 25)  # −1,2 % : toléré
+
+    body = (
+        await client.post(
+            f"/trips/{scenario.trip.id}/loading", json=payload, headers=await auth_headers("fleet")
+        )
+    ).json()
+
+    assert body["out_of_tolerance"] is False
+    assert body["gap_explanation"] is None
+    assert body["lines"][0]["gap_temperature_l"] == -120
+    assert body["lines"][0]["gap_observed_l"] == 0
