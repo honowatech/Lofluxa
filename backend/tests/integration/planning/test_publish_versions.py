@@ -337,3 +337,125 @@ async def test_recalcul_d_un_plan_publie_cree_une_version(db, plan, fakes, dispa
     assert (await load_plan(db, plan.id)).status == PlanStatus.PUBLISHED
     # Les commandes du plan, passées `planned`, sont bien replanifiées.
     assert result.metrics["orders_served"] == 5 and len(result.trips) == 2
+
+
+async def test_RM_13_violations_du_chargement_conservees(db, plan, dispatcher):
+    """Les violations RM-13 sont écrites par le chargement (lot L6), pas par `check_plan` : un
+    recontrôle ne les efface pas, et une nouvelle version les reprend sur la tournée copiée."""
+    from app.planning.models import ConstraintViolation
+
+    trip = plan.trips[0]
+    plan.violations.append(
+        ConstraintViolation(
+            trip_id=trip.id,
+            rule_code="RM-13",
+            severity=Severity.WARNING,
+            message="Écart de 3,1 % au chargement.",
+        )
+    )
+    await db.flush()
+
+    await service.recheck_plan(db, plan.id)
+    await service.recheck_plan(db, plan.id)
+    reloaded = await load_plan(db, plan.id)
+    assert [(v.rule_code, v.trip_id) for v in reloaded.violations] == [("RM-13", trip.id)]
+    assert reloaded.metrics["warning_count"] == 1
+
+    # Une modification manuelle (recontrôle complet) la conserve aussi.
+    from app.planning import editing
+
+    edited = await editing.reorder_stops(db, plan.id, trip.id, [s.id for s in reversed(trip.stops)])
+    assert [v.rule_code for v in edited.violations] == ["RM-13"]
+
+    await service.publish_plan(db, plan.id)  # un avertissement ne bloque pas
+    copy, ids = await service.new_version_with_ids(db, plan.id, reason="Panne")
+    assert [(v.rule_code, v.trip_id) for v in copy.violations] == [("RM-13", ids.trip(trip.id))]
+    await service.recheck_plan(db, copy.id)
+    assert [v.rule_code for v in (await load_plan(db, copy.id)).violations] == ["RM-13"]
+
+
+async def test_recalcul_conserve_RM_13_des_tournees_figees_seulement(db, plan, fakes, dispatcher):
+    from app.planning.models import ConstraintViolation
+
+    first, second = plan.trips
+    first.locked = True
+    for trip in (first, second):
+        plan.violations.append(
+            ConstraintViolation(
+                trip_id=trip.id, rule_code="RM-13", severity=Severity.WARNING, message="Écart."
+            )
+        )
+    await db.flush()
+    result = await service.run_recompute(db, plan.id)
+    assert [(v.rule_code, v.trip_id) for v in result.violations] == [("RM-13", first.id)]
+
+
+async def test_journee_de_reference_ni_modifiable_ni_recalculable_ni_publiable(
+    client, auth_headers, db, plan
+):
+    """Plan `manual_reference` (lot L7) : lecture seule, y compris sans plan de chargement."""
+    from app.core.enums import PlanKind
+
+    plan.kind = PlanKind.MANUAL_REFERENCE
+    for trip in plan.trips:
+        trip.compartment_loads.clear()
+    await db.commit()
+    headers = await auth_headers()
+    base, trip_id = f"/plans/{plan.id}", plan.trips[0].id
+    stop_ids = [str(s.id) for s in plan.trips[0].stops]
+
+    body = (await client.get(base, headers=headers)).json()
+    assert body["kind"] == "manual_reference" and body["publishable"] is False
+    assert all(t["loads"] == [] and t["fill_rate"] is not None for t in body["trips"])
+
+    calls = [
+        (f"{base}/trips/{trip_id}/lock", None),
+        (f"{base}/trips/{trip_id}/reorder", {"stop_ids": stop_ids}),
+        (f"{base}/trips/{trip_id}/assign", {"driver_id": None}),
+        (f"{base}/recompute", None),
+        (f"{base}/versions/1/restore", None),
+    ]
+    for url, payload in calls:
+        response = await client.post(url, json=payload, headers=headers)
+        assert response.status_code == 409 and response.json()["code"] == "plan_is_reference", url
+    response = await client.post(f"{base}/publish", headers=headers)
+    assert response.status_code == 409 and response.json()["code"] == "plan_kind_not_publishable"
+
+
+async def test_rejeu_commandes_imposees_sans_toucher_aux_statuts(db, world, fakes, dispatcher):
+    """Rejeu (lot L7) : `order_ids` imposés quel que soit leur statut ; aucun statut modifié ;
+    un plan `replay` ne se publie pas."""
+    from app.core.enums import PlanKind
+
+    for key, status in (
+        ("o1", OrderStatus.DELIVERED),
+        ("o2", OrderStatus.POSTPONED),
+        ("o3", OrderStatus.DELIVERED),
+    ):
+        world.orders[key].status = status
+    await db.commit()
+    ids = [world.orders[k].id for k in ("o1", "o2", "o3")]
+    before = await _statuses(db, world)
+
+    problem = await service.build_problem(db, world.day, order_ids=ids)
+    assert {o.id for o in problem.orders} == {str(i) for i in ids}
+    assert len(problem.depots) == 1 and len(problem.stations) == 3
+    assert len(problem.trucks) == 2 and len(problem.drivers) == 3
+
+    reference = await service.run_compute(db, world.day)  # tient lieu de plan de référence
+    replay = await service.run_compute(
+        db,
+        world.day,
+        kind=PlanKind.REPLAY,
+        order_ids=ids,
+        parent_plan_id=reference.id,
+        label="Rejeu du 12/01",
+    )
+    assert replay.kind == PlanKind.REPLAY and replay.parent_plan_id == reference.id
+    assert replay.label == "Rejeu du 12/01" and replay.root_plan_id == replay.id and replay.version == 1
+    assert replay.metrics["orders_served"] == 3
+    assert await _statuses(db, world) == before
+    with pytest.raises(ConflictError) as excinfo:
+        await service.publish_plan(db, replay.id)
+    assert excinfo.value.code == "plan_kind_not_publishable"
+    assert await _statuses(db, world) == before

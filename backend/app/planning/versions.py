@@ -21,7 +21,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import new_id
-from app.core.enums import EventType, PlanStatus
+from app.core.enums import EventType, PlanKind, PlanStatus
 from app.core.errors import ConflictError, NotFoundError
 from app.events.models import Event
 from app.planning.checking import load_plan, log_event, recheck, root_id
@@ -59,7 +59,7 @@ async def lineage(session: AsyncSession, plan: Plan) -> list[Plan]:
     return list(rows.scalars())
 
 
-def copy_plan(session: AsyncSession, source: Plan, *, version: int) -> tuple[Plan, IdMap]:
+async def copy_plan(session: AsyncSession, source: Plan, *, version: int) -> tuple[Plan, IdMap]:
     """Copie intégrale d'un plan (chargé par `load_plan`) en brouillon de la même lignée.
 
     L'état d'exécution (statuts, heures et volumes réels) est conservé : une nouvelle version
@@ -82,6 +82,7 @@ def copy_plan(session: AsyncSession, source: Plan, *, version: int) -> tuple[Pla
         params_snapshot=source.params_snapshot,
         computed_at=source.computed_at,
         computed_in_ms=source.computed_in_ms,
+        violations=[],
     )
     for trip in source.trips:
         trip_copy = Trip(
@@ -139,6 +140,9 @@ def copy_plan(session: AsyncSession, source: Plan, *, version: int) -> tuple[Pla
                 order_id=unserved.order_id, reason_code=unserved.reason_code, reason_text=unserved.reason_text
             )
         )
+    session.add(copy)
+    # Les violations désignent tournées et arrêts par simple identifiant : ceux-ci doivent exister.
+    await session.flush()
     for violation in source.violations:
         copy.violations.append(
             ConstraintViolation(
@@ -149,7 +153,6 @@ def copy_plan(session: AsyncSession, source: Plan, *, version: int) -> tuple[Pla
                 message=violation.message,
             )
         )
-    session.add(copy)
     return copy, ids
 
 
@@ -169,7 +172,7 @@ async def create_version(session: AsyncSession, plan: Plan, *, reason: str) -> t
             code="draft_version_exists",
             details=[{"draft_plan_id": str(draft.id), "version": draft.version}],
         )
-    copy, ids = copy_plan(session, plan, version=max(p.version for p in versions) + 1)
+    copy, ids = await copy_plan(session, plan, version=max(p.version for p in versions) + 1)
     await session.flush()
     log_event(
         session,
@@ -191,6 +194,11 @@ async def restore_version(session: AsyncSession, plan_id: uuid.UUID, version: in
     """F5.5 : restaure la version `version` de la lignée du plan → nouvelle version brouillon,
     recontrôlée avec les données du moment (à publier pour qu'elle prenne effet)."""
     plan = await load_plan(session, plan_id, for_update=True)
+    if plan.kind == PlanKind.MANUAL_REFERENCE:
+        raise ConflictError(
+            "Ce plan est une journée de référence importée : il n'a pas de version à restaurer.",
+            code="plan_is_reference",
+        )
     versions = await lineage(session, plan)
     target = next((p for p in versions if p.version == version), None)
     if target is None:
@@ -206,7 +214,7 @@ async def restore_version(session: AsyncSession, plan_id: uuid.UUID, version: in
             other.status = PlanStatus.ARCHIVED  # brouillon abandonné : conservé, jamais supprimé
             abandoned.append(other.version)
     source = await load_plan(session, target.id)
-    copy, _ = copy_plan(session, source, version=max(p.version for p in versions) + 1)
+    copy, _ = await copy_plan(session, source, version=max(p.version for p in versions) + 1)
     await session.flush()
     log_event(
         session,

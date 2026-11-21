@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.audit.models import AuditLog
 from app.core.context import current_user_id
+from app.core.time import utcnow
 
 AUDITED_TABLES = {"plans", "trips", "loadings", "loading_lines", "daily_depot_stocks", "settings"}
 
@@ -63,6 +64,8 @@ def _changes(obj: Any) -> tuple[dict[str, Any], dict[str, Any]]:
 @event.listens_for(Session, "before_flush")
 def _audit_before_flush(session: Session, flush_context: Any, instances: Any) -> None:
     actor = current_user_id.get()
+    # Horloge réelle (et non l'heure de début de transaction) : l'ordre des écritures est conservé.
+    now = utcnow()
     entries: list[AuditLog] = []
 
     for obj in list(session.new):
@@ -82,6 +85,7 @@ def _audit_before_flush(session: Session, flush_context: Any, instances: Any) ->
                     action="insert",
                     after=_snapshot(obj),
                     actor_id=actor,
+                    at=now,
                 )
             )
 
@@ -98,6 +102,7 @@ def _audit_before_flush(session: Session, flush_context: Any, instances: Any) ->
                     before=before,
                     after=after,
                     actor_id=actor,
+                    at=now,
                 )
             )
 
@@ -110,6 +115,7 @@ def _audit_before_flush(session: Session, flush_context: Any, instances: Any) ->
                     action="delete",
                     before=_snapshot(obj),
                     actor_id=actor,
+                    at=now,
                 )
             )
 

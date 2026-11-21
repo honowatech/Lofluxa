@@ -13,7 +13,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.enums import EventType, PlanStatus, StopStatus, TripStatus
+from app.core.enums import EventType, PlanKind, PlanStatus, StopStatus, TripStatus
 from app.core.errors import ConflictError, NotFoundError, ValidationAppError
 from app.planning.checking import load_plan, log_event, recheck
 from app.planning.models import Plan, Stop, Trip
@@ -29,6 +29,7 @@ async def open_for_edit(session: AsyncSession, plan_id: uuid.UUID, *, reason: st
       reçus du client désignent la version publiée et doivent passer par `IdMap` ;
     - archivé : refus."""
     plan = await load_plan(session, plan_id, for_update=True)
+    ensure_not_reference(plan)
     if plan.status == PlanStatus.DRAFT:
         return plan, IdMap()
     if plan.status == PlanStatus.PUBLISHED:
@@ -37,6 +38,16 @@ async def open_for_edit(session: AsyncSession, plan_id: uuid.UUID, *, reason: st
         "Ce plan est archivé : il ne peut plus être modifié. Restaurez cette version pour repartir d'elle.",
         code="plan_archived",
     )
+
+
+def ensure_not_reference(plan: Plan) -> None:
+    """Une journée de référence (`manual_reference`) est le relevé de ce qui a réellement été fait :
+    elle ne se modifie pas, ne se recalcule pas et ne se restaure pas."""
+    if plan.kind == PlanKind.MANUAL_REFERENCE:
+        raise ConflictError(
+            "Ce plan est une journée de référence importée : il ne peut être ni modifié ni recalculé.",
+            code="plan_is_reference",
+        )
 
 
 def find_trip(plan: Plan, trip_id: uuid.UUID) -> Trip:

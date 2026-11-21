@@ -48,8 +48,8 @@ def order_rows():
 
 
 async def orders_in_db(db) -> list[Order]:
-    db.expire_all()
-    return list((await db.execute(select(Order).order_by(Order.requested_l))).scalars())
+    stmt = select(Order).order_by(Order.requested_l).execution_options(populate_existing=True)
+    return list((await db.execute(stmt)).scalars())
 
 
 async def test_import_commandes_cycle_complet(client, auth_headers, db, products, stations):

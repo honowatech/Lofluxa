@@ -40,6 +40,8 @@ PLAN_LOAD = (
 # Statuts de commande qui retirent une commande non servie du contrôle (RM-15 : « reportée explicitement »).
 _OUT_OF_PLAN = (OrderStatus.POSTPONED, OrderStatus.CANCELLED)
 _PARAM_NAMES = {f.name for f in fields(Params)}
+# Violations enregistrées par d'autres modules que la planification : jamais effacées par un recontrôle.
+EXTERNAL_RULE_CODES = frozenset({"RM-13"})
 
 
 async def load_plan(session: AsyncSession, plan_id: uuid.UUID, *, for_update: bool = False) -> Plan:
@@ -155,8 +157,12 @@ def assign_loads(trips: list[TripD], problem: PlanningProblem) -> list[Violation
 
 
 def store_violations(plan: Plan, violations: list[ViolationD], trip_by_seq: dict[int, Trip]) -> None:
-    """Remplace les violations enregistrées du plan (`trip_seq` / `stop_seq` → identifiants)."""
-    plan.violations.clear()
+    """Remplace les violations de planification enregistrées (`trip_seq` / `stop_seq` → identifiants).
+
+    Les violations écrites par d'autres modules (`EXTERNAL_RULE_CODES` : RM-13, posée par le
+    chargement) ne viennent pas de `check_plan` et sont conservées."""
+    for row in [v for v in plan.violations if v.rule_code not in EXTERNAL_RULE_CODES]:
+        plan.violations.remove(row)
     for violation in violations:
         trip = trip_by_seq.get(violation.trip_seq) if violation.trip_seq is not None else None
         stop = None

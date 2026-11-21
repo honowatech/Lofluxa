@@ -19,7 +19,7 @@ from decimal import Decimal
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.availability.models import DailyDepotStock, DailyResourceStatus, DailyTruckDriver
+from app.availability import service as availability_service
 from app.core.config import get_config
 from app.core.enums import PlanKind, PlanStatus, StopStatus
 from app.core.geo import latlon
@@ -351,52 +351,31 @@ async def assemble_problem(
         )
     ).scalars()
     stations = (await session.execute(select(Station).where(Station.id.in_(station_ids)))).scalars()
-    trucks = (
-        await session.execute(
-            select(Truck).where(or_(Truck.deleted_at.is_(None), Truck.id.in_(extra_trucks)))
-        )
-    ).scalars()
-    drivers = (
-        await session.execute(
-            select(Driver).where(or_(Driver.deleted_at.is_(None), Driver.id.in_(extra_drivers)))
-        )
-    ).scalars()
-
-    # Disponibilité du jour (F2.2, F2.3) : une ligne `available = false` rend la ressource indisponible.
-    unavailable_trucks: set[uuid.UUID] = set()
-    unavailable_drivers: set[uuid.UUID] = set()
-    statuses = await session.execute(select(DailyResourceStatus).where(DailyResourceStatus.day == day))
-    for status in statuses.scalars():
-        if status.available:
-            continue
-        if status.truck_id:
-            unavailable_trucks.add(status.truck_id)
-        if status.driver_id:
-            unavailable_drivers.add(status.driver_id)
-
-    # Affectation du jour camion → chauffeur (F2.4).
-    pairs = await session.execute(select(DailyTruckDriver).where(DailyTruckDriver.day == day))
-    driver_by_truck = {str(p.truck_id): str(p.driver_id) for p in pairs.scalars()}
-
-    # Stock dépôt courant = saisie la plus récente par (dépôt, produit) pour J (F2.1).
-    stocks: dict[tuple[str, str], float] = {}
-    stock_rows = await session.execute(
-        select(DailyDepotStock).where(DailyDepotStock.day == day).order_by(DailyDepotStock.entered_at)
-    )
-    for stock in stock_rows.scalars():
-        stocks[(str(stock.depot_id), str(stock.product_id))] = float(stock.available_l)
+    # Disponibilité du jour, affectation effective chauffeur ↔ camion et stock courant : module
+    # disponibilité (lot L4). S'y ajoutent les ressources supprimées que le plan référence encore.
+    resources = await availability_service.load_day_resources(session, day)
+    truck_rows = {t.truck.id: (t.truck, t.available_today) for t in resources.trucks}
+    driver_rows = {d.driver.id: (d.driver, d.available_today) for d in resources.drivers}
+    missing_trucks = extra_trucks - set(truck_rows)
+    if missing_trucks:
+        for truck in (await session.execute(select(Truck).where(Truck.id.in_(missing_trucks)))).scalars():
+            truck_rows[truck.id] = (truck, True)
+    missing_drivers = extra_drivers - set(driver_rows)
+    if missing_drivers:
+        for driver in (await session.execute(select(Driver).where(Driver.id.in_(missing_drivers)))).scalars():
+            driver_rows[driver.id] = (driver, True)
+    driver_by_truck = {str(truck_id): str(driver_id) for driver_id, truck_id in resources.assignments.items()}
+    current = await availability_service.current_depot_stocks(session, day)
+    stocks = {(str(depot), str(product)): float(row.available_l) for (depot, product), row in current.items()}
 
     return PlanningProblem(
         day=day,
         products=sorted((product_to_domain(p) for p in products), key=lambda p: p.code),
         depots=sorted((depot_to_domain(d, day) for d in depots), key=lambda d: d.code),
         stations=sorted((station_to_domain(s, day) for s in stations), key=lambda s: s.code),
-        trucks=sorted(
-            (truck_to_domain(t, t.id not in unavailable_trucks) for t in trucks), key=lambda t: t.plate
-        ),
+        trucks=sorted((truck_to_domain(t, ok) for t, ok in truck_rows.values()), key=lambda t: t.plate),
         drivers=sorted(
-            (driver_to_domain(d, d.id not in unavailable_drivers) for d in drivers),
-            key=lambda d: (d.full_name, d.id),
+            (driver_to_domain(d, ok) for d, ok in driver_rows.values()), key=lambda d: (d.full_name, d.id)
         ),
         orders=[order_to_domain(o, requested.get(o.id)) for o in sorted(orders, key=lambda o: str(o.id))],
         depot_stocks=stocks,
