@@ -65,11 +65,17 @@ async def db(_schema: None) -> AsyncIterator[AsyncSession]:
 @pytest_asyncio.fixture
 async def client(db: AsyncSession) -> AsyncIterator[AsyncClient]:
     async def _session_override() -> AsyncIterator[AsyncSession]:
+        # Chaque requête s'exécute dans son propre point de sauvegarde : une requête en erreur
+        # n'annule que ses propres écritures, pas le jeu de données préparé par le test.
+        savepoint = await db.begin_nested()
         try:
             yield db
-            await db.commit()
+            await db.flush()
+            if savepoint.is_active:
+                await savepoint.commit()
         except Exception:
-            await db.rollback()
+            if savepoint.is_active:
+                await savepoint.rollback()
             raise
 
     app_instance.dependency_overrides[get_session] = _session_override
