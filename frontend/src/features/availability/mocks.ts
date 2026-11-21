@@ -150,7 +150,7 @@ export function createAvailabilityMocks() {
   const entry = (
     depotId: string,
     productId: string,
-    available_l: number,
+    available_l: number | null,
     entered_at: string,
     author: string,
   ) => ({

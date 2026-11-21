@@ -56,6 +56,18 @@ def test_demo_scale_composition():
     assert len(problem.trucks) == 25
     assert len(problem.orders) == 120
     assert {o.station_id for o in problem.orders} == {s.id for s in problem.stations}
+    # Identifiants, codes et noms uniques (une journée de référence désigne un chauffeur par son nom).
+    for values in (
+        [s.id for s in problem.stations],
+        [s.code for s in problem.stations],
+        [s.name for s in problem.stations],
+        [t.id for t in problem.trucks],
+        [t.plate for t in problem.trucks],
+        [d.id for d in problem.drivers],
+        [d.full_name for d in problem.drivers],
+        [o.id for o in problem.orders],
+    ):
+        assert len(values) == len(set(values))
     # Faisable par construction : chaque commande tient dans un camion admis par sa station.
     margin = problem.params.compartment_safety_margin_pct
     for order in problem.orders:
@@ -104,6 +116,19 @@ def test_aller_retour_avec_tournees_verrouillees_et_affectations(tmp_path):
     path = dump_problem(problem, tmp_path / "copie.json")
     assert load_problem(path) == problem
     assert problem_from_dict(problem_to_dict(problem)) == problem
+
+
+def test_generateur_refuse_les_doublons():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("gen_fixtures", ROOT / "scripts" / "gen_fixtures.py")
+    generator = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(generator)
+    problem = load_problem("demo_douala")
+    generator.check_unique("demo_douala", problem)
+    problem.stations.append(problem.stations[0])
+    with pytest.raises(ValueError, match="identifiants de station en double : DLA01"):
+        generator.check_unique("demo_douala", problem)
 
 
 def test_repertoire_des_jeux_surchargeable(monkeypatch, tmp_path):

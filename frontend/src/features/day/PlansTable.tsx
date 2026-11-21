@@ -16,8 +16,14 @@ import { planLink } from "./ComputePanel";
 const t = fr.screens.day.plans;
 
 const metric = (plan: PlanSummary, key: string): number | null => {
-  const value = plan.metrics?.[key];
+  const value = (plan.metrics as Record<string, unknown> | null | undefined)?.[key];
   return typeof value === "number" ? value : null;
+};
+
+/** Taux de remplissage moyen en % (l'API le donne entre 0 et 1 dans `avg_fill_rate`). */
+const fillPercent = (plan: PlanSummary): number | null => {
+  const rate = plan.metrics?.avg_fill_rate;
+  return typeof rate === "number" ? rate * 100 : null;
 };
 
 export const planLabel = (plan: PlanSummary) =>
@@ -105,11 +111,9 @@ export function PlansTable({
       {
         id: "fill",
         header: t.fill,
-        accessorFn: (plan) => metric(plan, "avg_fill_rate_pct"),
+        accessorFn: (plan) => fillPercent(plan),
         meta: { align: "right", className: "w-28" },
-        cell: ({ row }) => (
-          <span className="num">{formatPercent(metric(row.original, "avg_fill_rate_pct"))}</span>
-        ),
+        cell: ({ row }) => <span className="num">{formatPercent(fillPercent(row.original))}</span>,
       },
       {
         id: "violations",

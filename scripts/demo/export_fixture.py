@@ -188,25 +188,6 @@ def depot_rows(problem: PlanningProblem) -> list[tuple]:
     ]
 
 
-def unique_stations(problem: PlanningProblem) -> list[Any]:
-    """Stations du jeu, une par identifiant (la première rencontrée).
-
-    `demo_scale` contient deux stations de même identifiant et de même code (`MBA01` : Mbanga 1 et
-    Mbalmayo 1, défaut du générateur signalé dans `docs/DEMO.md`). Le moteur résout un identifiant
-    par `problem.station()`, qui renvoie la première : la seconde n'est jamais desservie. L'export
-    garde la même lecture — un code station est unique à l'import."""
-    seen: dict[str, Any] = {}
-    for station in problem.stations:
-        seen.setdefault(station.id, station)
-    return list(seen.values())
-
-
-def duplicate_stations(problem: PlanningProblem) -> list[str]:
-    """Noms des stations écartées par `unique_stations`."""
-    kept = {id(s) for s in unique_stations(problem)}
-    return [f"{s.code} ({s.name})" for s in problem.stations if id(s) not in kept]
-
-
 def station_tanks(problem: PlanningProblem) -> dict[str, list[tuple[str, int, int]]]:
     """Cuves fabriquées par station : (code produit, capacité, stock de sécurité).
 
@@ -219,7 +200,7 @@ def station_tanks(problem: PlanningProblem) -> dict[str, list[tuple[str, int, in
         key = (order.station_id, codes[order.product_id])
         largest[key] = max(largest.get(key, 0.0), order.requested_l)
     tanks: dict[str, list[tuple[str, int, int]]] = {}
-    for station in unique_stations(problem):
+    for station in problem.stations:
         rows = []
         for product in problem.products:
             ordered = largest.get((station.id, product.code), 0.0)
@@ -237,7 +218,7 @@ def station_tanks(problem: PlanningProblem) -> dict[str, list[tuple[str, int, in
 def station_rows(problem: PlanningProblem) -> list[tuple]:
     rows = []
     tanks = station_tanks(problem)
-    for station in unique_stations(problem):
+    for station in problem.stations:
         city = city_of(station)
         head = {
             "name": station.name or station.code,
@@ -447,11 +428,9 @@ def main() -> None:
     for name in names:
         target = export(name, args.out, args.day)
         problem = load_problem(name)
-        for ghost in duplicate_stations(problem):
-            print(f"⚠ {name} : station en double dans problem.json, écartée de l'export : {ghost}")
         print(
             f"✔ {name} → {target} : {len(problem.depots)} dépôt(s), "
-            f"{len(unique_stations(problem))} stations, "
+            f"{len(problem.stations)} stations, "
             f"{len(problem.trucks)} camions, {len(problem.drivers)} chauffeurs, "
             f"{len(problem.orders)} commandes"
         )

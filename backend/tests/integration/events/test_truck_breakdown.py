@@ -307,3 +307,57 @@ async def test_roles_sur_la_panne(client, auth_headers, world, published, spare,
         "/events/truck-breakdown", json=_body(published, world, spare), headers=await auth_headers(role)
     )
     assert response.status_code == expected, response.text
+
+
+async def test_chargement_de_la_tournee_d_origine_conserve_dans_la_nouvelle_version(
+    client, auth_headers, world, published, spare
+):
+    """Le chargement enregistré suit la tournée d'origine dans la version 2 (lot L5) ; la tournée de
+    remplacement n'en a pas : elle doit être chargée au dépôt."""
+    headers = await auth_headers("dispatcher")
+    trip1 = trip_by_seq(await get_plan(client, headers, published.id), 1)
+    await start_trip(client, headers, trip1)
+    await deliver(client, headers, trip1["stops"][0])
+    body = (
+        await client.post(
+            "/events/truck-breakdown",
+            json=_body(published, world, spare, occurred_at=iso(at(8, 0))),
+            headers=headers,
+        )
+    ).json()
+    kept = await client.get(f"/trips/{body['origin_trip_id']}/loading", headers=headers)
+    assert kept.status_code == 200, kept.text
+    assert kept.json()["depot_ticket_no"] == "BL-0001"
+    assert (await client.get(f"/trips/{body['new_trip_id']}/loading", headers=headers)).status_code == 404
+    refused = await client.put(
+        f"/trips/{body['new_trip_id']}/status", json={"status": "at_depot"}, headers=headers
+    )
+    assert refused.status_code == 200
+    loaded = await client.put(
+        f"/trips/{body['new_trip_id']}/status", json={"status": "loaded"}, headers=headers
+    )
+    assert loaded.status_code == 409 and loaded.json()["code"] == "loading_missing"
+
+
+async def test_panne_avant_le_depart_tournee_deja_chargee_conservee(
+    client, auth_headers, world, published, spare
+):
+    """Chargement saisi alors que la tournée est encore `planned` : vidée par la panne, elle reste
+    au plan (terminée) pour ne pas perdre son chargement réel."""
+    from tests.integration.events.helpers import record_loading
+
+    headers = await auth_headers("dispatcher")
+    trip1 = trip_by_seq(await get_plan(client, headers, published.id), 1)
+    await record_loading(client, headers, trip1)
+    response = await client.post(
+        "/events/truck-breakdown",
+        json=_body(published, world, spare, occurred_at=iso(at(5, 30))),
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["published"] is True, body["violations"]
+    origin = next(t for t in body["plan"]["trips"] if t["id"] == body["origin_trip_id"])
+    assert origin["status"] == "completed" and origin["stops"] == []
+    assert (await client.get(f"/trips/{origin['id']}/loading", headers=headers)).status_code == 200
+    assert len(trip_by_seq(body["plan"], 3)["stops"]) == 3

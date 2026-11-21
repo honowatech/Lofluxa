@@ -10,7 +10,8 @@ Aucune ne bloque : une valeur par défaut est adoptée et codée. À consolider 
 | L4-A2 | `GET /availability/summary?day=` (commandes par statut, camions et chauffeurs affectables, stocks renseignés ou non) | Résumé de l'écran 2 « Journée » en une requête. |
 | L4-A3 | `GET /availability/depot-stocks/history?day=&depot_id=&product_id=` | F2.1 demande de garder l'historique ; il faut pouvoir le consulter. |
 | L4-A4 | `PATCH /orders/{id}` (modification partielle) en plus de `PUT /orders/{id}` (remplacement complet) | Tableau éditable de l'écran 3 : modifier une cellule sans renvoyer toute la ligne. |
-| L4-A5 | Champ `warnings[]` (`{code, message}`) sur une commande lue, renseigné par la confirmation et par la modification d'une commande confirmée | F3.4 : avertissement non bloquant à renvoyer dans la réponse. |
+| L4-A5 | Champ `warnings[]` (`{code, message}`) sur toute commande lue (liste, détail, réponses d'écriture), calculé à chaque lecture pour les commandes `draft` et `confirmed` : `tank_unknown` (cuve non renseignée) ou `exceeds_tank_capacity` (volume supérieur au recevable : la confirmation sera refusée) | F3.4 : l'avertissement doit rester visible après rechargement de l'écran (L11-A2). |
+| L4-A6 | `PUT /availability/depot-stocks` accepte `available_l: null` = effacer la saisie (retour à « non renseigné ») ; la ligne d'effacement est conservée dans l'historique (`available_l` nul, `is_current`). Migration `l4_depot_stock_effacable` : `daily_depot_stocks.available_l` devient nullable. | L11-A8 / L11-10 : corriger une saisie erronée. |
 
 ## Zones d'ombre de la spec
 
@@ -34,3 +35,4 @@ Aucune ne bloque : une valeur par défaut est adoptée et codée. À consolider 
 | L4-16 | F2.4 : comment dire « ce chauffeur n'a aucun camion aujourd'hui » ? | Pas de moyen dédié : `truck_id: null` supprime l'affectation du jour et rend le camion habituel. Pour écarter un chauffeur, le marquer indisponible. |
 | L4-17 | F2.4 : peut-on affecter pour la journée un chauffeur bloqué par RM-03, ou un camion non affectable (RM-04) ? | Non : 409 `rule_violation` avec `details[].rule_code` = `RM-03` / `RM-04`. Un chauffeur seulement en repos / congé / marqué indisponible peut recevoir une affectation (il reste non affectable). |
 | L4-18 | Marquer indisponible un camion ou un chauffeur déjà engagé dans un plan publié du jour. | Aucun contrôle ici : c'est le rôle des événements (F6.1, F6.2, lot L10). |
+| L4-19 | F2.1 : Supply peut-il effacer un stock saisi par erreur (retour à « non renseigné », donc avertissement RM-08 au lieu d'un contrôle bloquant) ? | Oui, par `available_l: null` ; l'effacement est horodaté, signé, audité et visible dans l'historique. Pour les autres modules (`current_depot_stocks`), un stock effacé est une clé absente. À confirmer avec OLA. |

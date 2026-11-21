@@ -10,8 +10,6 @@ from __future__ import annotations
 
 from collections import Counter
 
-import pytest
-
 from app.planning.fixtures import load_problem
 from tests.e2e.conftest import compute_day, get_plan, load, loading_payload, published_day
 
@@ -66,12 +64,6 @@ async def _skip_first_trip(api, plan: dict) -> tuple[dict, set[str]]:
 # --------------------------------------------------------------------------- jeux de données (lot L2)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="L2 — scripts/gen_fixtures.py::build_demo_scale : le code station est `ville[:3]` + rang ; "
-    "Mbanga et Mbalmayo donnent tous deux MBA01. demo_scale/problem.json contient deux stations de même "
-    "identifiant et de même code : 69 stations distinctes au lieu des 70 de la spec §7.5.",
-)
 def test_defaut_demo_scale_a_70_stations_distinctes():
     problem = load_problem("demo_scale")
     duplicates = {k: n for k, n in Counter(s.id for s in problem.stations).items() if n > 1}
@@ -102,13 +94,6 @@ async def test_defaut_nouvelle_version_d_un_plan_publie_conserve_le_chargement_e
     assert next(t for t in listed if t["id"] == same_trip["id"])["loading_recorded"] is True
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="L5 × L6 — app/planning/versions.py::create_version fige l'état d'exécution au moment de la "
-    "copie, alors que la version publiée reste modifiable par Fleet (PUT /trips/{id}/status, "
-    "PUT /stops/{id}/delivery) tant que le brouillon n'est pas publié : à la publication du brouillon "
-    "(service.publish_plan), l'avancement saisi entre-temps est perdu (tournée revenue à « loaded »).",
-)
 async def test_defaut_la_publication_d_une_version_ne_perd_pas_l_avancement_saisi_entre_temps(api, db, tasks):
     _, plan = await published_day(api, db, tasks)
     started = _by_departure(plan)[0]
@@ -127,13 +112,6 @@ async def test_defaut_la_publication_d_une_version_ne_perd_pas_l_avancement_sais
 # --------------------------------------------------------------------------- arrêt sauté (L5 × L6)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="L5 × L6 — app/planning/mapping.py::planned_elsewhere additionne les `stop_deliveries.planned_l` "
-    "des plans publiés sans écarter les arrêts `skipped` : le reliquat (service._remainders) d'une "
-    "commande remise à « confirmed » par un arrêt sauté vaut 0. POST /plans/compute est accepté (202) "
-    "puis la tâche échoue : « Aucune commande confirmée à planifier ».",
-)
 async def test_defaut_commande_d_un_arret_saute_replanifiable_par_un_nouveau_calcul(api, db, tasks):
     summary, plan = await published_day(api, db, tasks)
     _, skipped = await _skip_first_trip(api, plan)
@@ -146,13 +124,6 @@ async def test_defaut_commande_d_un_arret_saute_replanifiable_par_un_nouveau_cal
     assert served == skipped
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="L5 × L6 — app/planning/service.py::run_recompute fige la tournée terminée avec son arrêt "
-    "`skipped`, dont les livraisons comptent comme servies : les commandes ne sont ni replanifiées ni "
-    "listées non servies (contraire à F4.4), et la publication de la nouvelle version "
-    "(_sync_order_statuses) les repasse « planned » alors que plus aucun arrêt à venir ne les livre.",
-)
 async def test_defaut_recalcul_du_plan_publie_ne_perd_pas_les_commandes_d_un_arret_saute(api, db, tasks):
     summary, plan = await published_day(api, db, tasks)
     _, skipped = await _skip_first_trip(api, plan)
@@ -189,13 +160,6 @@ async def test_defaut_recalcul_du_plan_publie_ne_perd_pas_les_commandes_d_un_arr
 # --------------------------------------------------------------------------- stock dépôt (L5 × L1)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="L5 × L1 — RM-08 porte sur « le volume total planifié d'un produit au départ d'un dépôt pour "
-    "J », mais app/planning/mapping.py::assemble_problem transmet le stock saisi sans en retirer les "
-    "volumes des autres plans publiés du jour : un second calcul replanifie 13 000 L de gasoil alors "
-    "que les 30 000 L disponibles sont déjà engagés par le plan publié, sans violation RM-08.",
-)
 async def test_defaut_rm_08_stock_depot_cumule_entre_les_plans_publies_du_jour(api, db, tasks):
     summary = await load(api, "demo_shortage")  # 30 000 L de gasoil au dépôt pour 43 000 L demandés
     first = await compute_day(api, db, tasks, summary)

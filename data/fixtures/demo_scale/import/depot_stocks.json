@@ -4,32 +4,32 @@
   {
    "depot_code": "SCDP-DLA",
    "product_code": "GASOIL",
-   "available_l": 294000.0
+   "available_l": 262000.0
   },
   {
    "depot_code": "SCDP-DLA",
    "product_code": "PETROLE",
-   "available_l": 68000.0
+   "available_l": 67000.0
   },
   {
    "depot_code": "SCDP-DLA",
    "product_code": "SUPER",
-   "available_l": 299000.0
+   "available_l": 320000.0
   },
   {
    "depot_code": "SCDP-YDE",
    "product_code": "GASOIL",
-   "available_l": 294000.0
+   "available_l": 262000.0
   },
   {
    "depot_code": "SCDP-YDE",
    "product_code": "PETROLE",
-   "available_l": 68000.0
+   "available_l": 67000.0
   },
   {
    "depot_code": "SCDP-YDE",
    "product_code": "SUPER",
-   "available_l": 299000.0
+   "available_l": 320000.0
   }
  ]
 }

@@ -24,7 +24,7 @@ async def test_demo_scale_importe_par_les_fichiers_puis_calcule_en_moins_de_60_s
     load_s = time.perf_counter() - started
     assert {k: v["created"] for k, v in summary.imports.items()} == {
         "depots": 2,
-        "stations": 69,  # 70 attendues : voir `test_defaut_demo_scale_a_70_stations_distinctes`
+        "stations": 70,
         "trucks": 25,
         "drivers": 28,
         "orders": 120,

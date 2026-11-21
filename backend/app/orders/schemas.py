@@ -91,7 +91,8 @@ class OrderOut(BaseModel):
     import_batch_id: uuid.UUID | None
     created_at: UtcDatetime
     updated_at: UtcDatetime
-    # Renseigné par la confirmation et par la modification d'une commande confirmée ; vide ailleurs.
+    # Avertissements F3.4, calculés à chaque lecture pour les commandes `draft` et `confirmed` :
+    # `tank_unknown` (cuve non renseignée), `exceeds_tank_capacity` (confirmation impossible).
     warnings: list[OrderWarning] = []
 
 

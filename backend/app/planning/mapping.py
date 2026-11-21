@@ -285,7 +285,8 @@ async def planned_elsewhere(
     *,
     exclude_root_id: uuid.UUID | None = None,
 ) -> dict[uuid.UUID, float]:
-    """Volume déjà planifié par commande dans les plans `published` (RM-16, reliquat).
+    """Volume déjà planifié par commande dans les plans `published` (RM-16, reliquat), hors arrêts
+    sautés (`skipped`).
 
     `exclude_root_id` : lignée de versions à ignorer (le plan en cours de modification)."""
     ids = list(order_ids)
@@ -300,12 +301,43 @@ async def planned_elsewhere(
             StopDelivery.order_id.in_(ids),
             Plan.status == PlanStatus.PUBLISHED,
             Plan.kind == PlanKind.COMPUTED,
+            # Un arrêt sauté ne livre rien : sa commande reste entièrement à planifier.
+            Stop.status != StopStatus.SKIPPED,
         )
         .group_by(StopDelivery.order_id)
     )
     if exclude_root_id is not None:
         stmt = stmt.where(func.coalesce(Plan.root_plan_id, Plan.id) != exclude_root_id)
     return {order_id: float(total) for order_id, total in (await session.execute(stmt)).all()}
+
+
+async def committed_depot_volumes(
+    session: AsyncSession, day: date, *, exclude_root_id: uuid.UUID | None = None
+) -> dict[tuple[str, str], float]:
+    """Volume déjà engagé par (dépôt, produit) dans les plans `published` calculés du jour J
+    (RM-08 : le stock saisi vaut pour tous les plans du jour). Les arrêts sautés comptent : le
+    produit a quitté le dépôt. `exclude_root_id` : lignée à ignorer (le plan en cours de contrôle)."""
+    stmt = (
+        select(Trip.depot_id, StopDelivery.product_id, func.sum(StopDelivery.planned_l))
+        .join(Stop, Stop.trip_id == Trip.id)
+        .join(StopDelivery, StopDelivery.stop_id == Stop.id)
+        .join(Plan, Plan.id == Trip.plan_id)
+        .where(Plan.day == day, Plan.status == PlanStatus.PUBLISHED, Plan.kind == PlanKind.COMPUTED)
+        .group_by(Trip.depot_id, StopDelivery.product_id)
+    )
+    if exclude_root_id is not None:
+        stmt = stmt.where(func.coalesce(Plan.root_plan_id, Plan.id) != exclude_root_id)
+    return {(str(d), str(p)): float(total) for d, p, total in (await session.execute(stmt)).all()}
+
+
+def without_skipped(trips: list[TripD]) -> list[TripD]:
+    """Retire (en place) les livraisons des arrêts sautés : vu des règles et du moteur, un arrêt
+    sauté ne livre rien — sa commande reste à servir. L'arrêt lui-même reste dans la tournée."""
+    for trip in trips:
+        for stop in trip.stops:
+            if stop.status == StopStatus.SKIPPED.value:
+                stop.deliveries = []
+    return trips
 
 
 async def assemble_problem(
@@ -319,9 +351,14 @@ async def assemble_problem(
     extra_depot_ids: Iterable[uuid.UUID] = (),
     extra_truck_ids: Iterable[uuid.UUID] = (),
     extra_driver_ids: Iterable[uuid.UUID] = (),
+    net_of_published: bool = False,
+    exclude_root_id: uuid.UUID | None = None,
 ) -> PlanningProblem:
     """Assemble le problème du jour J : commandes données, toutes les ressources (avec statut et
     disponibilité du jour), affectation du jour, stock dépôt courant, fenêtres du jour.
+
+    `net_of_published` : le stock dépôt est diminué des volumes des plans publiés calculés du jour
+    (hors lignée `exclude_root_id`) — pour un calcul ou le contrôle d'un plan calculé, pas pour un rejeu.
 
     `plan` : les ressources, dépôts et stations qu'il référence sont inclus même s'ils ont été
     supprimés ou désactivés depuis (un plan existant doit toujours pouvoir être recontrôlé)."""
@@ -371,6 +408,12 @@ async def assemble_problem(
     driver_by_truck = {str(truck_id): str(driver_id) for driver_id, truck_id in resources.assignments.items()}
     current = await availability_service.current_depot_stocks(session, day)
     stocks = {(str(depot), str(product)): float(row.available_l) for (depot, product), row in current.items()}
+    if net_of_published:
+        # Stock restant = stock saisi − volumes des autres plans publiés du jour (RM-08).
+        committed = await committed_depot_volumes(session, day, exclude_root_id=exclude_root_id)
+        for key, volume in committed.items():
+            if key in stocks:
+                stocks[key] = max(stocks[key] - volume, 0.0)
 
     return PlanningProblem(
         day=day,
