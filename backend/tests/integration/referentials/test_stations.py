@@ -75,11 +75,17 @@ async def test_station_filtres_et_recherche(client, auth_headers, products):
     await client.post(
         "/stations",
         json=station_payload(
-            products, code="ST-BAF", name="OLA Bafoussam", region="Ouest", city="Bafoussam",
-            max_truck_size="large", active=False, tanks=[],
+            products,
+            code="ST-BAF",
+            name="OLA Bafoussam",
+            region="Ouest",
+            city="Bafoussam",
+            max_truck_size="large",
+            active=False,
+            tanks=[],
         ),
         headers=admin,
-    )  # fmt: skip
+    )
     reader = await auth_headers("fleet")
 
     async def codes(**params):
@@ -113,26 +119,31 @@ async def test_station_validation(client, auth_headers, products):
         station_payload(products, code="S 2"),
         # Produit inexistant
         station_payload(
-            products, code="S2",
+            products,
+            code="S2",
             tanks=[{"product_id": "00000000-0000-7000-8000-000000000000", "capacity_l": 1000}],
         ),
         # Stock de sécurité supérieur à la capacité
         station_payload(
-            products, code="S2",
+            products,
+            code="S2",
             tanks=[{"product_id": str(products["SUPER"].id), "capacity_l": 1000, "safety_stock_l": 2000}],
         ),
         # Capacité nulle
-        station_payload(products, code="S2", tanks=[{"product_id": str(products["SUPER"].id), "capacity_l": 0}]),
-    ]  # fmt: skip
+        station_payload(
+            products, code="S2", tanks=[{"product_id": str(products["SUPER"].id), "capacity_l": 0}]
+        ),
+    ]
     for payload in cases:
         response = await client.post("/stations", json=payload, headers=admin)
         assert response.status_code == 422, (payload, response.text)
         assert response.json()["code"] == "validation_error"
 
     twice = station_payload(
-        products, code="S2",
+        products,
+        code="S2",
         tanks=[{"product_id": str(products["SUPER"].id), "capacity_l": 1000}] * 2,
-    )  # fmt: skip
+    )
     assert (await client.post("/stations", json=twice, headers=admin)).status_code == 409
     assert (await client.get("/stations", headers=admin)).json()["total"] == 1
 

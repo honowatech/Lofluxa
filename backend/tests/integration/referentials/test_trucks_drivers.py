@@ -131,9 +131,16 @@ async def test_camion_validation(client, admin, products):
     assert "dépasse" in incoherent.json()["message"]
 
     unknown_product = truck_payload(
-        products, plate="LT 2",
-        compartments=[{"position": 1, "capacity_l": 100, "allowed_product_ids": ["00000000-0000-7000-8000-000000000000"]}],
-    )  # fmt: skip
+        products,
+        plate="LT 2",
+        compartments=[
+            {
+                "position": 1,
+                "capacity_l": 100,
+                "allowed_product_ids": ["00000000-0000-7000-8000-000000000000"],
+            }
+        ],
+    )
     assert (await client.post("/trucks", json=unknown_product, headers=admin)).status_code == 422
 
     empty_list = truck_payload(

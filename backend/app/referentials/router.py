@@ -127,9 +127,8 @@ async def get_product(product_id: uuid.UUID, session: SessionDep) -> ProductOut:
     return svc.product_out(await svc.get_active(session, Product, product_id, "Produit introuvable."))
 
 
-@router.api_route(
-    "/products/{product_id}", methods=["PUT", "PATCH"], response_model=ProductOut, dependencies=ADMIN
-)
+@router.put("/products/{product_id}", response_model=ProductOut, dependencies=ADMIN)
+@router.patch("/products/{product_id}", response_model=ProductOut, dependencies=ADMIN)
 async def update_product(product_id: uuid.UUID, payload: ProductUpdate, session: SessionDep) -> ProductOut:
     product = await svc.get_active(session, Product, product_id, "Produit introuvable.")
     values = _changes(payload, Product)
@@ -202,7 +201,8 @@ async def get_depot(depot_id: uuid.UUID, session: SessionDep) -> DepotOut:
     return svc.depot_out(await svc.get_active(session, Depot, depot_id, "Dépôt introuvable."))
 
 
-@router.api_route("/depots/{depot_id}", methods=["PUT", "PATCH"], response_model=DepotOut, dependencies=ADMIN)
+@router.put("/depots/{depot_id}", response_model=DepotOut, dependencies=ADMIN)
+@router.patch("/depots/{depot_id}", response_model=DepotOut, dependencies=ADMIN)
 async def update_depot(depot_id: uuid.UUID, payload: DepotUpdate, session: SessionDep) -> DepotOut:
     depot = await svc.get_active(session, Depot, depot_id, "Dépôt introuvable.")
     values = _changes(payload, Depot)
@@ -302,9 +302,8 @@ async def get_station(station_id: uuid.UUID, session: SessionDep) -> StationOut:
     return svc.station_out(station, await svc.products_by_id(session))
 
 
-@router.api_route(
-    "/stations/{station_id}", methods=["PUT", "PATCH"], response_model=StationOut, dependencies=ADMIN
-)
+@router.put("/stations/{station_id}", response_model=StationOut, dependencies=ADMIN)
+@router.patch("/stations/{station_id}", response_model=StationOut, dependencies=ADMIN)
 async def update_station(station_id: uuid.UUID, payload: StationUpdate, session: SessionDep) -> StationOut:
     station = await svc.get_active(session, Station, station_id, "Station introuvable.")
     products = await svc.products_by_id(session)
@@ -381,9 +380,13 @@ async def get_tank(station_id: uuid.UUID, tank_id: uuid.UUID, session: SessionDe
     return svc.tank_out(_find_tank(station, tank_id), await svc.products_by_id(session))
 
 
-@router.api_route(
+@router.put(
     "/stations/{station_id}/tanks/{tank_id}",
-    methods=["PUT", "PATCH"],
+    response_model=TankOut,
+    dependencies=ADMIN,
+)
+@router.patch(
+    "/stations/{station_id}/tanks/{tank_id}",
     response_model=TankOut,
     dependencies=ADMIN,
 )
@@ -451,9 +454,8 @@ async def get_carrier(carrier_id: uuid.UUID, session: SessionDep) -> CarrierOut:
     return svc.carrier_out(await svc.get_active(session, Carrier, carrier_id, "Transporteur introuvable."))
 
 
-@router.api_route(
-    "/carriers/{carrier_id}", methods=["PUT", "PATCH"], response_model=CarrierOut, dependencies=ADMIN
-)
+@router.put("/carriers/{carrier_id}", response_model=CarrierOut, dependencies=ADMIN)
+@router.patch("/carriers/{carrier_id}", response_model=CarrierOut, dependencies=ADMIN)
 async def update_carrier(carrier_id: uuid.UUID, payload: CarrierUpdate, session: SessionDep) -> CarrierOut:
     carrier = await svc.get_active(session, Carrier, carrier_id, "Transporteur introuvable.")
     values = _changes(payload, Carrier)
@@ -571,7 +573,8 @@ async def get_truck(truck_id: uuid.UUID, session: SessionDep) -> TruckOut:
     return await _truck_out(session, await svc.get_active(session, Truck, truck_id, "Camion introuvable."))
 
 
-@router.api_route("/trucks/{truck_id}", methods=["PUT", "PATCH"], response_model=TruckOut, dependencies=ADMIN)
+@router.put("/trucks/{truck_id}", response_model=TruckOut, dependencies=ADMIN)
+@router.patch("/trucks/{truck_id}", response_model=TruckOut, dependencies=ADMIN)
 async def update_truck(truck_id: uuid.UUID, payload: TruckUpdate, session: SessionDep) -> TruckOut:
     truck = await svc.get_active(session, Truck, truck_id, "Camion introuvable.")
     values = _changes(payload, Truck, {"compartments"})
@@ -683,9 +686,13 @@ async def get_compartment(
     return svc.compartment_out(_find_compartment(truck, compartment_id), await svc.products_by_id(session))
 
 
-@router.api_route(
+@router.put(
     "/trucks/{truck_id}/compartments/{compartment_id}",
-    methods=["PUT", "PATCH"],
+    response_model=CompartmentOut,
+    dependencies=ADMIN,
+)
+@router.patch(
+    "/trucks/{truck_id}/compartments/{compartment_id}",
     response_model=CompartmentOut,
     dependencies=ADMIN,
 )
@@ -791,9 +798,8 @@ async def get_driver(driver_id: uuid.UUID, session: SessionDep) -> DriverOut:
     )
 
 
-@router.api_route(
-    "/drivers/{driver_id}", methods=["PUT", "PATCH"], response_model=DriverOut, dependencies=ADMIN
-)
+@router.put("/drivers/{driver_id}", response_model=DriverOut, dependencies=ADMIN)
+@router.patch("/drivers/{driver_id}", response_model=DriverOut, dependencies=ADMIN)
 async def update_driver(driver_id: uuid.UUID, payload: DriverUpdate, session: SessionDep) -> DriverOut:
     driver = await svc.get_active(session, Driver, driver_id, "Chauffeur introuvable.")
     values = _changes(payload, Driver)
