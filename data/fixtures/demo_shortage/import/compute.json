@@ -1,0 +1,11 @@
+{
+ "params": {
+  "solver_time_limit_s": 6
+ },
+ "driver_assignments": [
+  {
+   "truck_plate": "LT-401-AA",
+   "driver_license_no": "PERMIS-CH01"
+  }
+ ]
+}
