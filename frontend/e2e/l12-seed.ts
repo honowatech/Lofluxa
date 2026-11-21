@@ -5,8 +5,12 @@
  * Depuis un test Playwright :   const { planId } = await seedPlan({ fixture: "demo_douala", day });
  * En ligne de commande :        node --experimental-strip-types e2e/l12-seed.ts demo_douala 2027-01-12
  *
- * Idempotent pour les référentiels (retrouvés par code / immatriculation / nom) ; les commandes et le plan
- * sont créés à chaque appel : utiliser un jour neuf par exécution (`freshDay()`).
+ * Tout ce que ce script crée est préfixé `L12-` (codes de dépôts et de stations, immatriculations, numéros de
+ * permis, noms de chauffeurs et de transporteurs) : les jeux d'essai des autres lots, dans la même base, ne
+ * réutilisent ni ne modifient ces lignes, et réciproquement.
+ * Rejouable sur une base déjà remplie : les référentiels sont retrouvés par code / immatriculation / nom ; les
+ * commandes et le plan sont créés à chaque appel, pour un jour encore vierge (`freshDay()` : ni commande ni
+ * plan, pris dans une plage d'années réservée à ce lot).
  * Les camions et chauffeurs étrangers au jeu sont marqués indisponibles pour le jour, afin que le plan ne
  * dépende pas des autres jeux déjà chargés.
  */
@@ -93,11 +97,34 @@ export interface SeedResult {
   driverIds: Record<string, string>;
 }
 
-/** Jour de 2027 tiré au hasard (les habilitations des jeux expirent fin 2027) : un plan neuf par exécution. */
-export function freshDay(): string {
-  const start = Date.UTC(2027, 1, 1);
-  const offset = Math.floor(Math.random() * 300);
-  return new Date(start + offset * 86_400_000).toISOString().slice(0, 10);
+/** Préfixe de tout ce que ce lot crée dans la base partagée par les parcours des autres lots. */
+export const TAG = "L12-";
+/** Permis et habilitations des chauffeurs du jeu : valables sur toute la plage de jours du lot. */
+const DOCUMENTS_EXPIRY = "2039-12-31";
+
+/**
+ * Jour encore vierge (aucune commande, aucun plan), tiré au hasard entre 2030 et 2035 — plage que les autres
+ * lots n'utilisent pas : chaque exécution a son plan, même sur une base déjà remplie par des passes précédentes.
+ */
+export async function freshDay(): Promise<string> {
+  const api = await sharedApi();
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const offset = Math.floor(Math.random() * 2190);
+    const day = new Date(Date.UTC(2030, 0, 1) + offset * 86_400_000).toISOString().slice(0, 10);
+    const [orders, plans] = await Promise.all([
+      api.call<{ total: number }>("GET", `/orders?day=${day}&limit=1`),
+      api.call<{ total: number }>("GET", `/plans?day=${day}&limit=1`),
+    ]);
+    if (orders.total === 0 && plans.total === 0) return day;
+  }
+  throw new Error("Aucun jour vierge trouvé entre 2030 et 2035");
+}
+
+/** Une seule connexion par processus de test (les connexions sont limitées par minute et par adresse). */
+let shared: Promise<Api> | null = null;
+function sharedApi(): Promise<Api> {
+  shared ??= Api.login();
+  return shared;
 }
 
 const hm = (seconds: number) =>
@@ -169,7 +196,7 @@ export async function seedPlan(options: SeedOptions): Promise<SeedResult> {
   const problem = JSON.parse(
     readFileSync(resolve(HERE, `../../data/fixtures/${fixture}/problem.json`), "utf8"),
   ) as Problem;
-  const api = await Api.login();
+  const api = await sharedApi();
 
   const products = await api.all("/products");
   const productId = (code: string) => {
@@ -183,20 +210,22 @@ export async function seedPlan(options: SeedOptions): Promise<SeedResult> {
   const carrierIds: Record<string, string> = {};
   for (const key of new Set([...problem.trucks, ...problem.drivers].map((x) => x.carrier_id))) {
     if (!key) continue;
-    const existing = carriers.find((c) => c.name === key);
-    carrierIds[key] = existing?.id ?? (await api.call<Named>("POST", "/carriers", { name: key })).id;
+    const name = `${TAG}${key}`;
+    const existing = carriers.find((c) => c.name === name);
+    carrierIds[key] = existing?.id ?? (await api.call<Named>("POST", "/carriers", { name })).id;
   }
 
   // Dépôts
   const depots = await api.all("/depots");
   const depotIds: Record<string, string> = {};
   for (const depot of problem.depots) {
-    const existing = depots.find((d) => d.code === depot.code);
+    const code = `${TAG}${depot.code}`;
+    const existing = depots.find((d) => d.code === code);
     depotIds[depot.id] =
       existing?.id ??
       (
         await api.call<Named>("POST", "/depots", {
-          code: depot.code,
+          code,
           name: depot.name,
           lat: depot.lat,
           lon: depot.lon,
@@ -211,14 +240,14 @@ export async function seedPlan(options: SeedOptions): Promise<SeedResult> {
   const stations = await api.all("/stations");
   const stationIds: Record<string, string> = {};
   for (const station of problem.stations) {
-    const existing = stations.find((s) => s.code === station.code);
+    const code = `${TAG}${station.code}`;
+    const existing = stations.find((s) => s.code === code);
     stationIds[station.id] =
       existing?.id ??
       (
         await api.call<Named>("POST", "/stations", {
-          code: station.code,
+          code,
           name: station.name,
-          city: "Douala",
           lat: station.lat,
           lon: station.lon,
           opening_hours: openingHours(station.windows),
@@ -233,12 +262,13 @@ export async function seedPlan(options: SeedOptions): Promise<SeedResult> {
   const truckIds: Record<string, string> = {};
   const usedTrucks = problem.trucks.slice(0, options.maxTrucks ?? problem.trucks.length);
   for (const truck of problem.trucks) {
-    const existing = trucks.find((t) => t.plate === truck.plate);
+    const plate = `${TAG}${truck.plate}`;
+    const existing = trucks.find((t) => t.plate === plate);
     truckIds[truck.id] =
       existing?.id ??
       (
         await api.call<Named>("POST", "/trucks", {
-          plate: truck.plate,
+          plate,
           size: truck.size,
           carrier_id: truck.carrier_id ? carrierIds[truck.carrier_id] : null,
           compartments: truck.compartments.map((c) => ({
@@ -254,17 +284,18 @@ export async function seedPlan(options: SeedOptions): Promise<SeedResult> {
   const drivers = await api.all("/drivers");
   const driverIds: Record<string, string> = {};
   for (const driver of problem.drivers) {
-    const existing = drivers.find((d) => d.full_name === driver.full_name);
+    const fullName = `${TAG}${driver.full_name}`;
+    const existing = drivers.find((d) => d.full_name === fullName);
     driverIds[driver.id] =
       existing?.id ??
       (
         await api.call<Named>("POST", "/drivers", {
-          full_name: driver.full_name,
+          full_name: fullName,
           phone: `+237 6 77 00 ${driver.id.replace(/\D/g, "").padStart(2, "0")} 00`,
-          license_no: `P-${fixture.replace("demo_", "").toUpperCase()}-${driver.id}`,
-          license_expiry: driver.license_expiry,
-          hazmat_cert: driver.hazmat_cert,
-          hazmat_expiry: driver.hazmat_expiry,
+          license_no: `${TAG}${fixture.replace("demo_", "").toUpperCase()}-${driver.id}`,
+          license_expiry: DOCUMENTS_EXPIRY,
+          hazmat_cert: true,
+          hazmat_expiry: DOCUMENTS_EXPIRY,
           carrier_id: driver.carrier_id ? carrierIds[driver.carrier_id] : null,
           default_truck_id: driver.default_truck_id ? truckIds[driver.default_truck_id] : null,
         })
@@ -329,9 +360,10 @@ export async function seedPlan(options: SeedOptions): Promise<SeedResult> {
 
 // Exécution directe : node --experimental-strip-types e2e/l12-seed.ts <jeu> <jour>
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const [fixture = "demo_douala", day = freshDay(), ...rest] = process.argv.slice(2);
+  const [fixture = "demo_douala", requestedDay, ...rest] = process.argv.slice(2);
   const stocks = Object.fromEntries(rest.map((pair) => pair.split("=")).map(([k, v]) => [k, Number(v)]));
-  seedPlan({ fixture: fixture as SeedOptions["fixture"], day, stocks })
+  (requestedDay ? Promise.resolve(requestedDay) : freshDay())
+    .then((day) => seedPlan({ fixture: fixture as SeedOptions["fixture"], day, stocks }))
     .then((result) => console.log(JSON.stringify({ day: result.day, planId: result.planId })))
     .catch((error) => {
       console.error(error);

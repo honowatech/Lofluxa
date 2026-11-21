@@ -57,7 +57,7 @@ async function dragTo(page: Page, handle: ReturnType<Page["locator"]>, target: R
 test("plan calculé → déplacer un arrêt → verrouiller → publier → feuille de route → nouvelle version", async ({
   page,
 }) => {
-  const day = freshDay();
+  const day = await freshDay();
   const { planId, token } = await seedPlan({ fixture: "demo_douala", day });
   expect(planId).toBeTruthy();
   // Une seule connexion par l'API (10 connexions par minute et par adresse) : le jeton de la mise en données est réutilisé.
@@ -190,7 +190,7 @@ test("plan calculé → déplacer un arrêt → verrouiller → publier → feui
 });
 
 test("édition au clavier et vue tableau contre la vraie API", async ({ page }) => {
-  const day = freshDay();
+  const day = await freshDay();
   const { planId, token } = await seedPlan({ fixture: "demo_douala", day });
   const api = new Api(token);
   const initial = await api.call<ApiPlan>("GET", `/plans/${planId}`);
@@ -225,7 +225,7 @@ test("urgente non servie → reporter → publier ; liens d'exécution ; version
   page,
 }) => {
   // Aucun gasoil au dépôt : la commande urgente de gasoil ne peut pas être servie (RM-15).
-  const day = freshDay();
+  const day = await freshDay();
   const { planId, token, driverIds } = await seedPlan({ fixture: "demo_douala", day, stocks: { GASOIL: 0 } });
   const api = new Api(token);
 

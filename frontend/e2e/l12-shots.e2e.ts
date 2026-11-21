@@ -55,7 +55,7 @@ const hideToasts = (page: Page) =>
 
 test("captures : plan réaliste, édition, violation, publication, versions", async ({ page }) => {
   // Pénurie de gasoil : plusieurs tournées et des commandes non servies.
-  const day = freshDay();
+  const day = await freshDay();
   const { planId, token } = await seedPlan({ fixture: "demo_douala", day, stocks: { GASOIL: 30000 } });
   const api = new Api(token);
   const plan = await api.call<{ trips: ApiTrip[] }>("GET", `/plans/${planId}`);
@@ -148,7 +148,7 @@ test("captures : plan réaliste, édition, violation, publication, versions", as
 });
 
 test("captures : commande urgente non servie (RM-15), plan de 30 tournées, aucun plan", async ({ page }) => {
-  const urgentDay = freshDay();
+  const urgentDay = await freshDay();
   await seedPlan({ fixture: "demo_douala", day: urgentDay, stocks: { GASOIL: 0 } });
   await login(page);
   await page.goto(`/plan?day=${urgentDay}`);
@@ -158,7 +158,7 @@ test("captures : commande urgente non servie (RM-15), plan de 30 tournées, aucu
   await page.waitForTimeout(1200);
   await shot(page, "13-commande-urgente-non-servie");
 
-  const scaleDay = freshDay();
+  const scaleDay = await freshDay();
   await seedPlan({ fixture: "demo_scale", day: scaleDay });
   await page.goto(`/plan?day=${scaleDay}`);
   await expect(page.locator("[data-trip-card]").nth(20)).toBeVisible();
