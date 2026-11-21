@@ -7,10 +7,11 @@ import { useId } from "react";
 
 import { Spinner, Tip } from "@/components";
 import { Button } from "@/components/ui/button";
-import { Input, NativeSelect } from "@/components/ui/input";
+import { DateInput } from "@/components/forms";
+import { NativeSelect } from "@/components/ui/input";
 import { fr } from "@/i18n/fr";
 import { errorMessage } from "@/lib/api";
-import { formatLocalTime, isValidDay } from "@/lib/format";
+import { formatLocalTime } from "@/lib/format";
 import type { IsoDate } from "@/lib/types";
 
 import { SIDE_LABEL, type PlanRow, type Side } from "./api";
@@ -60,13 +61,13 @@ function SidePicker({
         {loading && <Spinner className="size-3" />}
       </p>
       <div className="flex min-w-0 gap-1.5">
-        <Input
+        <DateInput
           id={`${ids}-day`}
-          type="date"
           value={day}
+          required
           aria-label={t.picker.day(label)}
-          onChange={(event) => isValidDay(event.target.value) && onDayChange(event.target.value)}
-          className="num w-[8.75rem] shrink-0"
+          onChange={(next) => next && onDayChange(next)}
+          wrapperClassName="w-[9rem] shrink-0"
         />
         <NativeSelect
           id={`${ids}-plan`}

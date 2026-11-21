@@ -21,10 +21,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { DateInput } from "@/components/forms";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { fr } from "@/i18n/fr";
-import { downloadFile, errorMessage, isApiError } from "@/lib/api";
+import { downloadFile, errorMessage, isApiError, type ApiError } from "@/lib/api";
 import { EMPTY, formatDate, formatLiters, parseDecimal } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -41,9 +42,12 @@ interface Report {
   rejected: string | null;
 }
 
-const asIssues = (details: unknown[]): ImportIssue[] =>
-  details
-    .map((entry) => (entry && typeof entry === "object" ? (entry as Record<string, unknown>) : {}))
+type Raw = Record<string, unknown>;
+const asRecord = (value: unknown): Raw => (value && typeof value === "object" ? (value as Raw) : {});
+
+const asIssues = (entries: unknown): ImportIssue[] =>
+  (Array.isArray(entries) ? entries : [])
+    .map(asRecord)
     .filter((entry) => typeof entry.message === "string")
     .map((entry) => ({
       sheet: typeof entry.sheet === "string" ? entry.sheet : "",
@@ -51,6 +55,24 @@ const asIssues = (details: unknown[]): ImportIssue[] =>
       column: typeof entry.column === "string" ? entry.column : null,
       message: entry.message as string,
     }));
+
+/**
+ * Rapport d'un fichier rejeté (422 `import_rejected`). Le corps de la réponse porte `errors`, `warnings`,
+ * `summary` et `day` en plus de l'enveloppe ; à défaut, `details[]` mêle erreurs et avertissements,
+ * distingués par `severity`.
+ */
+function rejectedReport(error: ApiError): Report {
+  const body = asRecord(error.body);
+  const bySeverity = (warning: boolean) =>
+    error.details.filter((detail) => ((detail.severity as string) === "warning") === warning);
+  return {
+    day: typeof body.day === "string" ? body.day : null,
+    errors: asIssues(Array.isArray(body.errors) ? body.errors : bySeverity(false)),
+    warnings: asIssues(Array.isArray(body.warnings) ? body.warnings : bySeverity(true)),
+    summary: asRecord(body.summary),
+    rejected: error.message,
+  };
+}
 
 const count = (summary: Record<string, unknown>, key: string): number | null =>
   typeof summary[key] === "number" ? (summary[key] as number) : null;
@@ -210,13 +232,7 @@ export function ReferenceDayDialog({ open, onOpenChange, onImported }: Reference
       });
     } catch (caught) {
       if (isApiError(caught) && caught.code === "import_rejected") {
-        setReport({
-          day: null,
-          errors: asIssues(caught.details),
-          warnings: [],
-          summary: {},
-          rejected: caught.message,
-        });
+        setReport(rejectedReport(caught));
       } else {
         setError(errorMessage(caught));
       }
@@ -247,13 +263,7 @@ export function ReferenceDayDialog({ open, onOpenChange, onImported }: Reference
         return;
       }
       if (isApiError(caught) && caught.code === "import_rejected") {
-        setReport({
-          day: null,
-          errors: asIssues(caught.details),
-          warnings: [],
-          summary: {},
-          rejected: caught.message,
-        });
+        setReport(rejectedReport(caught));
         return;
       }
       setError(errorMessage(caught));
@@ -350,12 +360,11 @@ export function ReferenceDayDialog({ open, onOpenChange, onImported }: Reference
           <div className="grid gap-x-4 gap-y-3 sm:grid-cols-[11rem_13rem_minmax(0,1fr)]">
             <div className="flex flex-col gap-1">
               <Label htmlFor={`${ids}-day`}>{t.day}</Label>
-              <Input
+              <DateInput
                 id={`${ids}-day`}
-                type="date"
-                value={day}
+                value={day || null}
                 disabled={busy}
-                onChange={(event) => edit(setDay)(event.target.value)}
+                onChange={(next) => edit(setDay)(next ?? "")}
                 aria-describedby={`${ids}-day-hint`}
               />
               <p id={`${ids}-day-hint`} className="text-2xs text-muted-foreground">

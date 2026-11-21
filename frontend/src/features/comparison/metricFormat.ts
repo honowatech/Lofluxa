@@ -15,8 +15,7 @@ export function formatMetric(unit: string, value: Maybe): string {
     case "m":
       return formatKm(value);
     case "s":
-      // Un calcul de quelques secondes ne doit pas s'afficher « 0 min ».
-      return value > 0 && value < 60 ? fr.screens.comparison.metrics.underMinute : formatDuration(value);
+      return formatDuration(value, { seconds: true });
     case "l":
       return formatLiters(value);
     case "pct":

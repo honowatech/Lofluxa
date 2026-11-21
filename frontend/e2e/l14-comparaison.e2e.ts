@@ -13,11 +13,13 @@ import { expect, test, type Page } from "@playwright/test";
 
 import {
   ADMIN,
+  declareBreakdown,
   DISPATCHER,
   ensureUsers,
   login as apiLogin,
   MANAGER,
   referenceDayWorkbook,
+  seedDayB,
   seedReferentials,
 } from "./l14-seed";
 
@@ -137,7 +139,7 @@ test("dispatcher : import de la journée A → rejeu → verdict → PDF", async
   await expect(planA.locator("tr[data-trip]")).toHaveCount(expected.routes_a.length);
   await expect(planB.locator("tr[data-trip]")).toHaveCount(expected.routes_b.length);
   await expect(planA.getByText("Commandes non servies (1)")).toBeVisible();
-  await planB.getByRole("button", { name: "Tournée 1", exact: true }).click();
+  await planB.locator("tr[data-trip]").getByRole("button", { name: "Tournée 1", exact: true }).click();
   await expect(planB.getByTestId("trip-detail")).toContainText("Départ prévu");
 
   // 6. Export PDF.
@@ -180,4 +182,39 @@ test("direction : consulte la comparaison partagée et exporte, sans import ni r
     },
   });
   expect(refused.status()).toBe(403);
+});
+
+test("direction : après une panne, le suivi et la présélection portent sur la nouvelle version publiée", async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  const day = "2027-01-22";
+  // Journée B par l'API : commandes, calcul, publication, deux tournées avancées, puis une panne de camion.
+  await seedDayB(day);
+  const { planId, version } = await declareBreakdown(day);
+  expect(version).toBeGreaterThanOrEqual(2);
+
+  await login(page, MANAGER);
+  await page.goto(`/comparaison?day=${day}&vue=suivi`);
+  const panel = page.getByTestId("dashboard-panel");
+  await expect(panel.getByText(`Plan publié · version ${version}`)).toBeVisible();
+  await expect(panel.getByTestId("dashboard-tiles")).toContainText("Tournées terminées");
+  // L'alerte de l'événement reprend le résumé rédigé par le serveur.
+  const alert = panel
+    .getByTestId("dashboard-alerts")
+    .getByRole("listitem")
+    .filter({ hasText: "Panne du camion" });
+  await expect(alert.first()).toContainText("truck_breakdown");
+  await expect(alert.first()).toContainText(/transféré\(s\) sur le camion/);
+  // La tournée de remplacement figure dans l'avancement, la tournée en retard reste signalée.
+  await expect(panel.getByTestId("dashboard-trips").getByText("En cours")).toBeVisible();
+  await expect(panel.getByTestId("dashboard-delays")).toContainText("+ 25 min");
+
+  // Présélection du plan B : la version publiée la plus récente (l'ancienne est archivée, toujours listée).
+  await page.getByRole("tab", { name: "Comparaison", exact: true }).click();
+  const planB = page.getByRole("combobox", { name: "Plan B" });
+  await expect(planB).toHaveValue(planId);
+  await expect(planB.locator("option:checked")).toContainText(`Plan calculé · v${version} · Publié`);
+  await expect(planB.locator("option", { hasText: `v${version - 1} · Archivé` })).toHaveCount(1);
+  await expect(page.getByText("Il manque le plan A")).toBeVisible();
 });

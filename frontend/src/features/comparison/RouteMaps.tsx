@@ -3,13 +3,14 @@
  * liste des tournées sous chaque carte (survol = mise en évidence, sélection = détail des arrêts) et
  * commandes non servies.
  *
- * Cadrage commun : `MapView` cadre sur son contenu ; les deux cartes reçoivent donc les mêmes marqueurs
- * (dépôts et stations des deux plans réunis), seules les tournées diffèrent.
+ * Cadrage commun : les deux cartes reçoivent la même emprise (`bounds`), calculée sur les deux plans réunis.
+ * Chaque carte ne montre que les dépôts et stations de son plan. Les couleurs des tournées sont celles du
+ * serveur (`TripRouteOut.color`), identiques à celles du PDF.
  */
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { Fragment, useMemo, useState } from "react";
 
-import { MapView, routeColor, StatusBadge, type MapPoint, type MapRoute } from "@/components";
+import { boundsOf, MapView, StatusBadge, type MapPoint, type MapRoute } from "@/components";
 import { fr } from "@/i18n/fr";
 import { EMPTY, formatDuration, formatKm, formatLiters, formatLocalTime, formatPercent } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -29,10 +30,10 @@ const kinds = fr.screens.comparison.kinds;
 
 const pointId = (kind: string, code: string) => `${kind}:${code}`;
 
-/** Dépôts et stations des deux plans, sans doublon : mêmes marqueurs donc même emprise des deux côtés. */
-export function sharedPoints(routesA: TripRoute[], routesB: TripRoute[]): MapPoint[] {
+/** Dépôts et stations desservis par un plan, sans doublon. */
+export function planPoints(routes: TripRoute[]): MapPoint[] {
   const points = new Map<string, MapPoint>();
-  for (const route of [...routesA, ...routesB]) {
+  for (const route of routes) {
     for (const point of route.points) {
       const id = pointId(point.kind, point.code);
       if (points.has(id)) continue;
@@ -54,11 +55,11 @@ const deliveriesText = (stop: TripRoute["stops"][number]) =>
     .map((delivery) => `${delivery.product_code ?? EMPTY} ${formatLiters(delivery.planned_l)}`)
     .join(" · ");
 
-function toMapRoute(route: TripRoute, index: number, active: string | null): MapRoute {
+function toMapRoute(route: TripRoute, active: string | null): MapRoute {
   const stopBySeq = new Map(route.stops.map((stop) => [stop.seq, stop]));
   return {
     id: route.trip_id,
-    color: routeColor(index),
+    color: route.color,
     label: t.trip(route.seq),
     dimmed: active !== null && active !== route.trip_id,
     path: route.points.map((point) => ({ lat: point.lat, lon: point.lon })),
@@ -84,7 +85,8 @@ function toMapRoute(route: TripRoute, index: number, active: string | null): Map
 function TripDetail({ route }: { route: TripRoute }) {
   const d = t.detail;
   const hasActual = route.stops.some((stop) => stop.actual_arrival_at !== null);
-  const th = "px-2 py-0.5 text-left text-2xs font-semibold uppercase tracking-wide text-foreground/60";
+  const th =
+    "whitespace-nowrap px-2 py-0.5 text-left text-2xs font-semibold uppercase tracking-wide text-foreground/60";
   return (
     <div className="flex flex-col gap-1.5 border-l-2 border-foreground/15 py-1 pl-2.5">
       <p className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-muted-foreground">
@@ -133,7 +135,7 @@ function TripDetail({ route }: { route: TripRoute }) {
           {route.stops.map((stop) => (
             <tr key={stop.stop_id}>
               <td className="num px-2 py-0.5 text-right">{stop.seq}</td>
-              <td className="px-2 py-0.5">
+              <td className="whitespace-nowrap px-2 py-0.5">
                 {stop.station_name ?? EMPTY}{" "}
                 <span className="num text-2xs text-muted-foreground">{stop.station_code}</span>
               </td>
@@ -204,22 +206,20 @@ function PlanMap({
   plan,
   routes,
   unserved,
-  points,
+  bounds,
 }: {
   side: Side;
   plan: PlanSummary;
   routes: TripRoute[];
   unserved: Unserved[];
-  points: MapPoint[];
+  bounds: ReturnType<typeof boundsOf>;
 }) {
   const [selected, setSelected] = useState<string | null>(null);
   const [hovered, setHovered] = useState<string | null>(null);
   const selectedRoute = routes.find((route) => route.trip_id === selected) ?? null;
   const active = hovered ?? selectedRoute?.trip_id ?? null;
-  const mapRoutes = useMemo(
-    () => routes.map((route, index) => toMapRoute(route, index, active)),
-    [routes, active],
-  );
+  const points = useMemo(() => planPoints(routes), [routes]);
+  const mapRoutes = useMemo(() => routes.map((route) => toMapRoute(route, active)), [routes, active]);
   const toggle = (tripId: string) => setSelected((current) => (current === tripId ? null : tripId));
   const c = t.columns;
   const th = "border-b bg-muted px-2 py-1 text-xs font-semibold text-foreground/70";
@@ -240,8 +240,11 @@ function PlanMap({
       <MapView
         className="h-[340px]"
         label={t.mapLabel(label)}
+        bounds={bounds}
         points={points}
         routes={mapRoutes}
+        onRouteClick={toggle}
+        onRouteHover={setHovered}
         onSelect={(id, kind) => {
           if (kind !== "stop") return;
           const owner = routes.find((route) => route.stops.some((stop) => stop.stop_id === id));
@@ -286,7 +289,7 @@ function PlanMap({
               </tr>
             </thead>
             <tbody>
-              {routes.map((route, index) => {
+              {routes.map((route) => {
                 const open = selected === route.trip_id;
                 return (
                   <Fragment key={route.trip_id}>
@@ -322,7 +325,7 @@ function PlanMap({
                           <span
                             aria-hidden
                             className="size-2.5 rounded-full"
-                            style={{ background: routeColor(index) }}
+                            style={{ background: route.color }}
                           />
                           <span className="num">{t.tripShort(route.seq)}</span>
                         </button>
@@ -368,10 +371,14 @@ function PlanMap({
 }
 
 export function RouteMaps({ comparison }: { comparison: Comparison }) {
-  const points = useMemo(
-    () => sharedPoints(comparison.routes_a, comparison.routes_b),
-    [comparison.routes_a, comparison.routes_b],
-  );
+  // Même emprise pour les deux cartes : dépôts, stations et tracés des deux plans réunis.
+  const bounds = useMemo(() => {
+    const all = [...comparison.routes_a, ...comparison.routes_b];
+    return boundsOf(
+      planPoints(all),
+      all.map((route) => toMapRoute(route, null)),
+    );
+  }, [comparison.routes_a, comparison.routes_b]);
   return (
     <Section id="maps-heading" title={t.heading} hint={t.hint}>
       <div className="grid gap-4 xl:grid-cols-2">
@@ -380,14 +387,14 @@ export function RouteMaps({ comparison }: { comparison: Comparison }) {
           plan={comparison.plan_a}
           routes={comparison.routes_a}
           unserved={comparison.unserved_a}
-          points={points}
+          bounds={bounds}
         />
         <PlanMap
           side="b"
           plan={comparison.plan_b}
           routes={comparison.routes_b}
           unserved={comparison.unserved_b}
-          points={points}
+          bounds={bounds}
         />
       </div>
     </Section>

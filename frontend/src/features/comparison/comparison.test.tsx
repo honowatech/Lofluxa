@@ -8,7 +8,7 @@ import type { PlanMetrics } from "./api";
 import { comparisonHandlers, DASHBOARD_NO_PLAN, DAY, FAVORABLE, IDS, PLANS } from "./fixtures";
 import { preselect } from "./index";
 import { formatDelta, formatDeltaPct, formatMetric } from "./metricFormat";
-import { sharedPoints } from "./RouteMaps";
+import { planPoints } from "./RouteMaps";
 import { replayConfig } from "./useReplay";
 import { verdictOutcome } from "./VerdictBanner";
 
@@ -90,7 +90,7 @@ describe("Comparaison — verdict et indicateurs", () => {
     expect(cells(metricRow("fill_rate_avg_pct"))[2]).toHaveTextContent("+3,4 pt");
     const prep = cells(metricRow("prep_time_s"));
     expect(prep[0]).toHaveTextContent(/^1 h 45\s?\(saisi\)$/);
-    expect(prep[1]).toHaveTextContent(/^< 1 min\s?\(temps de calcul\)$/);
+    expect(prep[1]).toHaveTextContent(/^6 s\s?\(temps de calcul\)$/);
 
     // Égalité et grandeur de contexte.
     expect(cells(metricRow("stations_served")).at(-1)).toHaveTextContent("Égalité");
@@ -111,10 +111,11 @@ describe("Comparaison — verdict et indicateurs", () => {
       expect(deltaPct).toHaveTextContent(/^—$/);
       expect(better).toHaveTextContent(/^—$/);
     }
-    // Écart relatif non calculable (A = 0) : « — », l'écart en valeur reste affiché.
+    // 0 contre 0 : le serveur renvoie un écart nul et une égalité, affichés tels quels.
     const blocking = cells(metricRow("violations_blocking"));
     expect(blocking[2]).toHaveTextContent(/^0$/);
-    expect(blocking[3]).toHaveTextContent(/^—$/);
+    expect(blocking[3]).toHaveTextContent(/^0,0 %$/);
+    expect(blocking.at(-1)).toHaveTextContent("Égalité");
   });
 
   it("affiche un résultat défavorable aussi clairement qu'un résultat favorable", async () => {
@@ -161,13 +162,9 @@ describe("Comparaison — verdict et indicateurs", () => {
     expect(within(planB).getByText("Commandes non servies (1)")).toBeInTheDocument();
     expect(within(planB).getByText("Aucun camion affectable")).toBeInTheDocument();
     expect(cells(metricRow("fill_rate_avg_pct"))[1]).toHaveTextContent(/^—$/);
-    // Les deux cartes gardent le même cadrage : mêmes marqueurs des deux côtés.
-    const markers = (side: string) =>
-      [...screen.getByTestId(side).querySelectorAll("[data-point]")].map((node) =>
-        node.getAttribute("data-point"),
-      );
-    expect(markers("plan-b")).toEqual(markers("plan-a"));
-    expect(markers("plan-a")).toHaveLength(5);
+    // Chaque carte ne montre que les marqueurs de son plan.
+    expect(screen.getByTestId("plan-a").querySelectorAll("[data-point]")).toHaveLength(5);
+    expect(screen.getByTestId("plan-b").querySelectorAll("[data-point]")).toHaveLength(0);
   });
 });
 
@@ -186,7 +183,8 @@ describe("Comparaison — cartes et tournées", () => {
     expect(within(planB).getByText("Toutes les commandes demandées sont servies.")).toBeInTheDocument();
     expect(within(planB).getByText("Sans chauffeur")).toBeInTheDocument();
 
-    await user.click(within(planB).getByRole("button", { name: "Tournée 1" }));
+    const tripsB = within(planB).getByRole("table", { name: "Tournées du plan B" });
+    await user.click(within(tripsB).getByRole("button", { name: "Tournée 1" }));
     const detail = within(planB).getByTestId("trip-detail");
     expect(within(detail).getByText("OLA Ndokoti")).toBeInTheDocument();
     expect(within(detail).getByText("GASOIL 10 000 L")).toBeInTheDocument();
@@ -197,13 +195,38 @@ describe("Comparaison — cartes et tournées", () => {
     expect(planB.querySelectorAll('[data-route][opacity="0.35"]')).toHaveLength(1);
     expect(planA.querySelectorAll('[data-route][opacity="0.35"]')).toHaveLength(0);
 
-    await user.click(within(planB).getByRole("button", { name: "Tournée 1" }));
+    await user.click(within(tripsB).getByRole("button", { name: "Tournée 1" }));
     expect(within(planB).queryByTestId("trip-detail")).not.toBeInTheDocument();
   });
 
-  it("réunit les marqueurs des deux plans sans doublon", () => {
-    const points = sharedPoints(FAVORABLE.routes_a, FAVORABLE.routes_b);
-    expect(points.map((point) => point.id).sort()).toEqual([
+  it("même cadrage des deux cartes, couleurs des tournées données par le serveur", async () => {
+    use();
+    loginAs("manager");
+    renderApp(URL_BASE);
+    const planA = await screen.findByTestId("plan-a");
+    const planB = screen.getByTestId("plan-b");
+    // Le plan B ne dessert pas les mêmes stations : le dépôt tombe pourtant au même endroit des deux côtés.
+    const depot = (side: HTMLElement) =>
+      side.querySelector('[data-point="depot:SCDP-DLA"]')?.getAttribute("transform");
+    expect(depot(planA)).toBeTruthy();
+    expect(depot(planB)).toBe(depot(planA));
+    const akwa = (side: HTMLElement) =>
+      side.querySelector('[data-point="station:ST-AKWA"]')?.getAttribute("transform");
+    expect(akwa(planB)).toBe(akwa(planA));
+    expect(planB.querySelectorAll('[data-point^="station:"]')).toHaveLength(4);
+    expect(
+      [...planB.querySelectorAll('[data-route] path[stroke^="#"]:not([stroke="#fff"])')].map((path) =>
+        path.getAttribute("stroke"),
+      ),
+    ).toEqual(FAVORABLE.routes_b.map((route) => route.color));
+  });
+
+  it("liste les dépôts et stations d'un plan sans doublon", () => {
+    expect(
+      planPoints(FAVORABLE.routes_a)
+        .map((point) => point.id)
+        .sort(),
+    ).toEqual([
       "depot:SCDP-DLA",
       "station:ST-AKWA",
       "station:ST-BONAB",
@@ -329,7 +352,10 @@ describe("Comparaison — journée de référence et rejeu (dispatcher)", () => 
     ).toEqual([
       ["Erreur", "Tournées", "3", "Code station", "Station inconnue : ST-XXX."],
       ["Erreur", "Tournées", "5", "Camion", "Camion inconnu : LT 999 ZZ."],
+      ["Avertissement", "Tournées", "3", "Code station", "Livraison sans commande."],
     ]);
+    // Le résumé et les avertissements d'un fichier rejeté viennent du corps de la réponse 422.
+    expect(within(report).getByTestId("reference-summary")).toHaveTextContent("16 commandes · 6 tournées");
     // Pas de bouton d'import tant qu'il reste des erreurs ; rien d'autre qu'un contrôle n'a été envoyé.
     expect(within(dialog).queryByRole("button", { name: "Importer la journée" })).not.toBeInTheDocument();
     expect(recorded.imports).toEqual([{ dry_run: "true", filename: "journee_erreur.xlsx" }]);
@@ -499,8 +525,8 @@ describe("Comparaison — mise en forme", () => {
     expect(formatMetric("m", 182934)).toBe(nbsp("183 km"));
     expect(formatMetric("l", 138500)).toBe(nbsp("138 500 L"));
     expect(formatMetric("s", 6300)).toBe(nbsp("1 h 45"));
-    expect(formatMetric("s", 6)).toBe("< 1 min");
-    expect(formatMetric("s", 0)).toBe(nbsp("0 min"));
+    expect(formatMetric("s", 6)).toBe(nbsp("6 s"));
+    expect(formatMetric("s", 0)).toBe(nbsp("0 s"));
     expect(formatMetric("pct", 85.67)).toBe(nbsp("85,7 %"));
     expect(formatMetric("count", 0)).toBe("0");
     expect(formatMetric("count", null)).toBe("—");
