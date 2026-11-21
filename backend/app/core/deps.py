@@ -19,6 +19,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth.revocation import is_token_revoked
 from app.core.context import current_user_id
 from app.core.db import get_session
 from app.core.enums import Role
@@ -38,6 +39,8 @@ async def get_current_user(
     if credentials is None:
         raise UnauthorizedError("Authentification requise.")
     payload = decode_token(credentials.credentials, ACCESS)
+    if await is_token_revoked(payload):
+        raise UnauthorizedError("Session terminée. Reconnectez-vous.", code="token_revoked")
     user = await session.get(User, uuid.UUID(payload["sub"]))
     if user is None or not user.active:
         raise UnauthorizedError("Compte inconnu ou désactivé.")

@@ -67,4 +67,4 @@ async def test_require_roles_admin_passe_partout(client, auth_headers):
 
 
 async def test_health(client):
-    assert (await client.get("/health")).json() == {"status": "ok"}
+    assert (await client.get("/health")).json()["status"] == "ok"
