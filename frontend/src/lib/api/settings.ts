@@ -31,3 +31,9 @@ export function useUpdateSettings() {
     },
   });
 }
+
+/** @deprecated `GET /settings` renvoie une `Page<Setting>` : conservé pour compatibilité (accepte une page ou une liste). */
+export function normalizeSettings(raw: unknown): Setting[] {
+  if (Array.isArray(raw)) return raw as Setting[];
+  return ((raw as Partial<Page<Setting>> | null)?.items ?? []) as Setting[];
+}

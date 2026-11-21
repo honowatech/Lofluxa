@@ -52,12 +52,13 @@ const shown = (value: unknown): string =>
 
 /** Effet annoncé d'une ligne : champs modifiés « avant → après » pour une mise à jour. */
 function ItemEffect({ item }: { item: ImportItem }) {
+  const changes = item.changes ?? [];
   return (
     <div>
       <span className="font-medium">{item.label || item.key}</span>
-      {item.action === "update" && item.changes.length > 0 && (
+      {item.action === "update" && changes.length > 0 && (
         <ul className="mt-0.5 flex flex-col gap-0.5 text-muted-foreground">
-          {item.changes.map((change) => (
+          {changes.map((change) => (
             <li key={change.field}>
               {change.label} : <span className="num line-through">{shown(change.before)}</span>
               {" → "}

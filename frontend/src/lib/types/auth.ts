@@ -1,16 +1,7 @@
-import type { Role, UUID } from "./common";
+import type { Schema } from "./schemas";
 
-/** `POST /auth/login`, `POST /auth/refresh` (livrés par le socle). */
-export interface TokenPair {
-  access_token: string;
-  refresh_token: string;
-  token_type: string;
-}
+/** `POST /auth/login`, `POST /auth/refresh`. */
+export type TokenPair = Schema<"TokenOut">;
 
-/** `GET /me` (livré par le socle). */
-export interface Me {
-  id: UUID;
-  email: string;
-  full_name: string;
-  role: Role;
-}
+/** `GET /me`. */
+export type Me = Schema<"MeOut">;

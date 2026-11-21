@@ -40,12 +40,17 @@ export function importReportRows(batch: ImportBatch): ImportReportRow[] {
     if (!entry) rows.set(row, (entry = { row, status: "ok", item: null, issues: [] }));
     return entry;
   };
-  for (const item of batch.report.items) at(item.row).item = item;
+  for (const item of batch.report.items) at(item.row ?? null).item = item;
   for (const issue of batch.report.issues) {
-    const entry = at(issue.row);
+    const entry = at(issue.row ?? null);
     entry.issues.push(issue);
     if (issue.severity === "error") entry.status = "error";
     else if (entry.status === "ok") entry.status = "warning";
   }
   return [...rows.values()].sort((a, b) => (a.row ?? -1) - (b.row ?? -1));
+}
+
+/** @deprecated La réponse de l'API est déjà un `ImportBatch` : conservé pour compatibilité, renvoie son argument. */
+export function normalizeImportBatch(raw: unknown): ImportBatch {
+  return raw as ImportBatch;
 }
