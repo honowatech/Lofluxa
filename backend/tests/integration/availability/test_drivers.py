@@ -54,7 +54,7 @@ async def test_RM_03_permis_ou_habilitation_expires_chauffeur_non_affectable(cli
     # Statut du référentiel : non affectable, mais ce n'est pas RM-03.
     assert rows["G En congé"]["assignable"] is False
     assert rows["G En congé"]["rule_code"] is None
-    assert "leave" in rows["G En congé"]["block_reason"]
+    assert "congé" in rows["G En congé"]["block_reason"]
 
     ok = await _rows(client, await auth_headers("manager"), assignable="true")
     assert list(ok) == ["A Valide", "E Expire le jour J", "F Dates non renseignées"]

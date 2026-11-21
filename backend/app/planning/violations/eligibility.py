@@ -18,6 +18,8 @@ _TRUCK_STATUS_FR = {
     TruckStatus.RESERVED: "réservé",
 }
 
+_DRIVER_STATUS_FR = {"rest": "repos", "leave": "congé", "sick": "maladie"}
+
 
 def driver_block_reason(driver: DriverD, day: date) -> str | None:
     """RM-03 : permis ou habilitation matières dangereuses expirés à la date J → non affectable.
@@ -39,7 +41,9 @@ def driver_unavailable_reason(driver: DriverD, day: date) -> str | None:
     if reason:
         return reason
     if driver.status != "available":
-        return f"Chauffeur indisponible (statut : {driver.status})."
+        return (
+            f"Chauffeur indisponible (statut : {_DRIVER_STATUS_FR.get(str(driver.status), driver.status)})."
+        )
     if not driver.available_today:
         return "Chauffeur marqué indisponible pour la journée."
     return None

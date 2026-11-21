@@ -82,13 +82,6 @@ def test_defaut_demo_scale_a_70_stations_distinctes():
 # --------------------------------------------------------------------------- versions × chargement (L5 × L6)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="L5 × L6 — app/planning/versions.py::copy_plan recopie tournées, arrêts et statuts mais pas "
-    "`loadings` / `loading_lines` (rattachés à l'identifiant de tournée de l'ancienne version) : après "
-    "une édition d'un plan publié, la tournée est « loaded » sans chargement (GET loading → 404, "
-    "fiche PDF → 409).",
-)
 async def test_defaut_nouvelle_version_d_un_plan_publie_conserve_le_chargement_enregistre(api, db, tasks):
     summary, plan = await published_day(api, db, tasks)
     loaded = _by_departure(plan)[0]
@@ -229,12 +222,6 @@ async def test_defaut_rm_08_stock_depot_cumule_entre_les_plans_publies_du_jour(a
 # --------------------------------------------------------------------------- libellés (socle)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Socle — app/planning/violations/eligibility.py::driver_unavailable_reason insère la valeur "
-    "technique du statut dans le message affiché : « Chauffeur indisponible (statut : leave). » au lieu "
-    "du libellé français (congé). Messages d'interface en français (spec §0).",
-)
 async def test_defaut_motif_d_indisponibilite_du_chauffeur_en_francais(api, db, tasks):
     summary = await load(api, "demo_scale")  # un chauffeur du jeu est en congé
     drivers = await api.get_all("/availability/drivers", "dispatcher", day=summary.day.isoformat())

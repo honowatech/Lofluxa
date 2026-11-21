@@ -85,10 +85,8 @@ async def test_critere_3_calcul_en_moins_de_60_s_sur_demo_scale(api, db, tasks):
 
 RULES = [f"RM-{n:02d}" for n in range(1, 21)]
 # Règles sans test nommé `test_RM_xx…` à ce jour, avec le lot qui doit le fournir.
-MISSING = {
-    "RM-19": "L10 (événements, vague 2) non encore livré : la panne de camion (F6.1) n'existe pas, "
-    "donc aucun `test_RM_19_…` (transfert des seuls arrêts `pending`).",
-}
+# Règles encore sans test : aucune (RM-19 est couverte depuis la livraison du lot L10).
+MISSING: dict[str, str] = {}
 
 
 def rule_tests() -> dict[str, list[str]]:
