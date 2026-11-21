@@ -30,7 +30,7 @@ Zones d'ombre rencontrées, valeur par défaut adoptée en attendant la réponse
 | L5-12 | Heure de début d'une tournée après modification. | Elle garde son heure de début ; si le même camion a une tournée précédente qui finit plus tard, elle est décalée au retour de celle-ci. Le reste (chauffeur partagé…) est constaté par RM-02. |
 | L5-13 | Affecter un camion ou un chauffeur non affectable (RM-03, RM-04). | Accepté et enregistré avec la violation ; seule la publication est bloquée (F5.2). |
 | L5-14 | Arrêt déjà livré ou sauté, tournée terminée. | Non déplaçable / non modifiable (409). |
-| L5-15 | Plan de chargement impossible après modification (`assign_compartments` renvoie `None`). | Chargement laissé vide et violation bloquante `RM-05` ajoutée par le service si les règles n'en signalent pas déjà une (RM-05/06/07) sur la tournée. À revoir avec le lot L1 pour éviter le doublon. |
+| L5-15 | Plan de chargement impossible après modification (`assign_compartments` renvoie `None`). | Chargement laissé vide : la règle RM-05 du lot L1 signale alors en bloquant chaque volume qui ne tient pas. Le service n'ajoute sa propre violation `RM-05` que si les règles n'en renvoient aucune (RM-05/06/07) pour la tournée (filet de sécurité). |
 | L5-16 | Paramètres utilisés pour recontrôler un plan existant. | Ceux de son calcul (`params_snapshot`), complétés par les réglages courants pour les clés absentes. |
 
 ## Calcul, recalcul, publication
@@ -45,3 +45,4 @@ Zones d'ombre rencontrées, valeur par défaut adoptée en attendant la réponse
 | L5-22 | Feuille de route d'un plan non publié. | Délivrée avec la mention « BROUILLON — plan non publié » (ou « VERSION ARCHIVÉE »). Les PDF sont produits à la demande, pas stockés à la publication. |
 | L5-23 | `constraint_violations` n'a pas de colonne `order_id` (présent dans `ViolationD`). | L'identifiant de commande n'est pas conservé ; le message de la règle doit désigner la commande. Pas de migration ajoutée. |
 | L5-24 | `GET /tasks/{id}` avec un identifiant inconnu. | État `pending` (Celery ne distingue pas inconnu et en attente). |
+| L5-25 | Violations `RM-13` (écrites par le chargement, lot L6). | Jamais effacées par un recontrôle ni par un recalcul (sauf si leur tournée est supprimée) ; recopiées sur la tournée correspondante d'une nouvelle version. |

@@ -34,8 +34,11 @@ async def test_build_problem_commandes_confirmees_et_ressources(db, world, fakes
     assert problem.driver(str(world.drivers["Abena"].id)).default_truck_id == str(
         world.trucks["LT-001-AA"].id
     )
-    # Affectation du jour (F2.4).
-    assert problem.driver_by_truck == {str(world.trucks["LT-002-BB"].id): str(world.drivers["Biya"].id)}
+    # Affectation effective du jour (F2.4) : affectation saisie, à défaut camion habituel.
+    assert problem.driver_by_truck == {
+        str(world.trucks["LT-002-BB"].id): str(world.drivers["Biya"].id),
+        str(world.trucks["LT-001-AA"].id): str(world.drivers["Abena"].id),
+    }
     # Fenêtres du jour (mardi 06:00–18:00) et fenêtre de commande en secondes locales.
     assert problem.depots[0].windows == ((6 * 3600, 18 * 3600),)
     assert problem.order(str(world.orders["o2"].id)).window == (7 * 3600, 16 * 3600)
@@ -138,7 +141,8 @@ async def test_non_servies_enregistrees_avec_leur_raison(db, world, fakes):
     fakes.engine.skip = {str(world.orders["o3"].id)}
     plan = await service.run_compute(db, world.day)
     assert [(u.order_id, u.reason_code) for u in plan.unserved] == [(world.orders["o3"].id, "other")]
-    assert [v.rule_code for v in plan.violations] == ["RM-15"]  # fakes. : urgente non servie
+    assert [v.rule_code for v in plan.violations] == ["RM-15"]  # vraie règle : urgente non servie
+    assert plan.violations[0].trip_id is None  # violation au niveau du plan
     assert plan.metrics["blocking_count"] == 1 and plan.metrics["orders_unserved"] == 1
 
 
