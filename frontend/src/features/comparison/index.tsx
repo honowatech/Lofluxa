@@ -53,16 +53,23 @@ interface Selection {
 }
 
 /**
- * Présélection : la journée de référence du jour (non archivée, la plus récente) et son dernier rejeu.
+ * Présélection : en A, la journée de référence du jour (non archivée, la plus récente) ; en B, son dernier
+ * rejeu, à défaut la version publiée la plus récente du plan calculé du jour (journée B : une panne ou une
+ * pénurie crée une nouvelle version publiée et archive l'ancienne).
  * `plans` est trié du plus récent au plus ancien par l'API.
  */
 export function preselect(plans: PlanRow[]): { a: string | null; b: string | null } {
   const reference = plans.find((plan) => plan.kind === "manual_reference" && plan.status !== "archived");
-  if (!reference) return { a: null, b: null };
-  const replay = plans.find(
-    (plan) => plan.kind === "replay" && plan.parent_plan_id === reference.id && plan.status !== "archived",
-  );
-  return { a: reference.id, b: replay?.id ?? null };
+  const replay = reference
+    ? plans.find(
+        (plan) =>
+          plan.kind === "replay" && plan.parent_plan_id === reference.id && plan.status !== "archived",
+      )
+    : undefined;
+  const published = plans
+    .filter((plan) => plan.kind === "computed" && plan.status === "published")
+    .sort((x, y) => y.version - x.version)[0];
+  return { a: reference?.id ?? null, b: replay?.id ?? published?.id ?? null };
 }
 
 export default function ComparisonPage() {
