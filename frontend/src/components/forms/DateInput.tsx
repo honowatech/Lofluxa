@@ -71,6 +71,10 @@ export const DateInput = forwardRef<HTMLInputElement, DateInputProps>(function D
       <Input
         ref={ref}
         type="text"
+        // Modèle ARIA « sélecteur de date » : champ de saisie associé à un calendrier (le sélecteur natif).
+        role="combobox"
+        aria-haspopup="dialog"
+        aria-expanded={false}
         inputMode="numeric"
         autoComplete="off"
         placeholder={fr.fields.datePlaceholder}

@@ -249,7 +249,8 @@ describe("coquille", () => {
 
   it("zone d'alertes : documents de chauffeurs expirés, visibles depuis n'importe quel écran", async () => {
     loginAs("dispatcher");
-    const { user } = renderApp("/journee");
+    // Écran sans alertes propres : seules celles de la coquille sont comptées.
+    const { user } = renderApp("/chargement");
     expect(await screen.findByTestId("alerts-count")).toHaveTextContent("2");
     await user.click(screen.getByRole("button", { name: /Alertes : 2 alertes/ }));
     expect(

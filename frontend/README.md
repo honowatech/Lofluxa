@@ -16,14 +16,14 @@ pnpm dev            # http://localhost:5173 — proxy /api → http://localhost:
 L'API : `./scripts/dev_setup.sh` puis `cd backend && uv run uvicorn app.main:app_instance --port 8000`
 (compte du seed : `admin@honowa.tech` / `admin-dev-only`).
 
-| Commande        | Rôle                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pnpm dev`      | serveur de développement                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| `pnpm build`    | contrôle des types + site statique dans `dist/` (servi par Caddy)                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| `pnpm lint`     | ESLint (zéro avertissement) + Prettier                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| `pnpm test`     | Vitest + Testing Library + MSW                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| `pnpm e2e`      | Playwright, **contre la vraie API, sans doublure** (prérequis : `./scripts/dev_setup.sh`, l'API, et un worker Celery pour les parcours Plan et Comparaison). Socle : connexion → coquille → rafraîchissement du jeton → déconnexion ; dépôt + station → carte ; import de `data/templates/stations.xlsx` ; paramètre → audit. La suite complète dépasse 10 connexions par minute : les parcours du socle attendent le délai annoncé par le serveur sur un 429 (`e2e/l9-auth.ts`). |
-| `pnpm captures` | régénère `docs/captures/*.png` (doublures complètes, aucun back-end requis)                                                                                                                                                                                                                                                                                                                                                                                                       |
+| Commande        | Rôle                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `pnpm dev`      | serveur de développement                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `pnpm build`    | contrôle des types + site statique dans `dist/` (servi par Caddy)                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `pnpm lint`     | ESLint (zéro avertissement) + Prettier                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `pnpm test`     | Vitest + Testing Library + MSW                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `pnpm e2e`      | Playwright, **contre la vraie API, sans doublure**. Prérequis : `./scripts/dev_setup.sh` sur une base `tourneo` vierge et un worker Celery (`cd backend && uv run celery -A app.worker.celery_app worker`) ; l'API est lancée par Playwright si elle ne tourne pas. Sans argument, `e2e/run.mjs` enchaîne les parcours groupe par groupe dans un ordre compatible avec leurs jeux d'essai (Comparaison, Journée / Commandes, Plan, puis socle) ; avec arguments (`pnpm e2e e2e/login.e2e.ts`), ils sont transmis à Playwright. |
+| `pnpm captures` | régénère `docs/captures/*.png` (doublures complètes, aucun back-end requis)                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 
 ### Variables d'environnement (`.env.example`)
 
@@ -35,11 +35,13 @@ L'API : `./scripts/dev_setup.sh` puis `cd backend && uv run uvicorn app.main:app
 | `VITE_TILES_ATTRIBUTION` | Mention de source affichée sur la carte.                                                                                                                                                                                                                                                                                                                                                              |
 | `VITE_API_PROXY`         | Cible du proxy de développement (défaut `http://localhost:8000`).                                                                                                                                                                                                                                                                                                                                     |
 
-Les routes d'authentification, de référentiels, d'imports et d'administration sont **livrées** (lots L3 et
-L8) : les écrans Référentiels et Administration parlent à la vraie API, et leurs doublures — alignées sur
-l'OpenAPI réelle — ne servent plus qu'aux tests Vitest et au mode `full`. Un écran de vague 2 dont les routes
-n'existent pas encore ajoute ses doublures à `undelivered`, puis les en retire. Les doublures ne sont pas
-incluses dans le build quand `VITE_MOCKS` est absent ou `off`.
+Toutes les routes des écrans livrés existent dans l'API réelle : `pnpm dev` parle à la vraie API. Les
+doublures ne servent plus qu'aux tests Vitest et au mode `full` (démonstration et captures sans back-end), où
+elles sont assemblées par `src/mocks/handlers/index.ts` : routes du socle (`auth`, `referentials`, `imports`,
+`admin`), puis doublures fournies par chaque écran dans son dossier (`src/mocks/handlers/screens.ts` :
+Plan, Journée, Comparaison, Commandes, Disponibilité — le premier gestionnaire qui répond l'emporte). Un écran
+dont les routes n'existent pas encore ajoute ses doublures à `undelivered`, puis les en retire. Les doublures
+ne sont pas incluses dans le build quand `VITE_MOCKS` est absent ou `off`.
 
 ## Organisation
 
@@ -184,15 +186,15 @@ jour courant à Douala, transmis par les liens de navigation. `withDay(path, day
 
 ### Formatage — `@/lib/format`
 
-| Fonction                                                                                             | Entrée → sortie                                                                                  |
-| ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `formatLiters(12000)`                                                                                | litres → `12 000 L`                                                                              |
-| `formatKm(12400)`                                                                                    | **mètres** → `12,4 km`                                                                           |
-| `formatDuration(7500)`                                                                               | **secondes** → `2 h 05` ; `formatDuration(42, { seconds: true })` → `42 s` (sous la minute)      |
-| `formatLocalTime("2027-01-12T06:30:00Z")`                                                            | horodatage UTC → `07:30` (Africa/Douala, RM-20)                                                  |
-| `formatDate("2027-01-12")`                                                                           | → `12/01/2027` ; `formatDateLong` → `mar. 12 janv. 2027` ; `formatDateTime` → `12/01/2027 07:30` |
-| `formatNumber`, `formatPercent`                                                                      | nombres en notation française                                                                    |
-| `todayLocal()`, `addDays`, `daysUntil`, `dayBoundsUtc`, `secondsToHM`, `hmToSeconds`, `parseDecimal` | aides de dates, d'heures et de saisie                                                            |
+| Fonction                                                                                             | Entrée → sortie                                                                                                                                         |
+| ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `formatLiters(12000)`                                                                                | litres → `12 000 L`                                                                                                                                     |
+| `formatKm(12400)`                                                                                    | **mètres** → `12,4 km`                                                                                                                                  |
+| `formatDuration(7500)`                                                                               | **secondes** → `2 h 05` ; `formatDuration(42, { seconds: true })` → `42 s` (sous la minute) ; `formatSeconds(5.34)` → `5,3 s` (durée courte, décimales) |
+| `formatLocalTime("2027-01-12T06:30:00Z")`                                                            | horodatage UTC → `07:30` (Africa/Douala, RM-20)                                                                                                         |
+| `formatDate("2027-01-12")`                                                                           | → `12/01/2027` ; `formatDateLong` → `mar. 12 janv. 2027` ; `formatDateTime` → `12/01/2027 07:30`                                                        |
+| `formatNumber`, `formatPercent`                                                                      | nombres en notation française                                                                                                                           |
+| `todayLocal()`, `addDays`, `daysUntil`, `dayBoundsUtc`, `secondsToHM`, `hmToSeconds`, `parseDecimal` | aides de dates, d'heures et de saisie                                                                                                                   |
 
 ### Alertes de la coquille — `@/lib/alerts`
 
@@ -267,6 +269,18 @@ cellule, ouvrir le menu d'actions, sinon ouvrir la ligne) · saisie directe (rem
 (valider) · Échap (annuler / désélectionner) · Espace (sélectionner) · Ctrl+A (toute la page).
 **Mémoriser `columns`** (`useMemo`) : une nouvelle définition à chaque rendu remonte toutes les cellules.
 
+Options ajoutées pour les écrans de vague 2 (facultatives, défauts inchangés) :
+
+```tsx
+<DataTable …
+  footer={(rows) => <Totals orders={rows} />}                 // ligne de totaux : lignes retenues, toutes pages
+  selectedRowIds={ids} onSelectionChange={(next) => setIds(next)}   // sélection pilotée ; setIds([]) la vide
+  onCellError={(error, row) => showViolations(error)}         // échec d'édition : remplace la notification
+/>
+// colonne : choix dépendant de la ligne, traitement d'erreur propre à la colonne
+meta: { edit: { type: "select", options: (row) => allowedStatuses(row), onCommit, onError } }
+```
+
 ### `MapView` (+ `routeColor`, types `MapPoint`, `MapRoute`)
 
 Marqueurs dépôts (carrés) et stations (ronds), tracés de tournées colorés, arrêts numérotés, détail au survol,
@@ -337,6 +351,9 @@ Action destructive : bouton rouge, focus initial sur « Annuler » (Entrée ne c
 Fichier (.xlsx / .csv, glisser-déposer) → prévisualisation → rapport ligne par ligne (création, mise à jour
 avec les champs « avant → après », inchangée, anomalies avec colonne et valeur fautive) → appliquer. Rien
 n'est écrit avant « Appliquer » ; `can_apply` du serveur fait foi. Téléchargement du fichier modèle.
+
+`fields` (ex. `{ day }` pour les commandes) est transmis en **paramètres de requête** de la prévisualisation
+(`POST /imports/orders/preview?day=AAAA-MM-JJ`) : c'est là que l'API lit les options d'un import.
 
 ### Formulaires — `EntityFormDialog`, champs, briques zod
 
@@ -435,7 +452,7 @@ const sensors = useSortableSensors(); // mêmes capteurs que la liste autonome
 <LoadingState /> · <ErrorState error={error} onRetry={refetch} /> · <Skeleton /> · <Spinner />
 notify.success("Plan publié"); notify.apiError(error, fr.errors.saveFailed);   // message serveur + codes RM-xx
 <PdfButton path={`/trips/${id}/route-sheet.pdf`} label="Feuille de route" />
-<PageHeader title="…" subtitle="…" actions={…} /> · <Notice tone="warning">…</Notice>
+<PageHeader title="…" subtitle="…" actions={…} /> · <Notice tone="warning">…</Notice>   // info · success · warning · blocking · neutral
 ```
 
 Primitives (`components/ui/`) : `Button`, `Input`, `Textarea`, `NativeSelect`, `Label`, `Checkbox`, `Switch`,

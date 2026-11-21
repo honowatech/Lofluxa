@@ -15,6 +15,7 @@ test.setTimeout(PATIENT_TIMEOUT);
 
 // Les tests sont lancés depuis `frontend/` (pnpm e2e).
 const TEMPLATE = path.resolve(process.cwd(), "../data/templates/stations.xlsx");
+const ORDERS_TEMPLATE = path.resolve(process.cwd(), "../data/templates/orders.xlsx");
 const suffix = Date.now().toString(36).toUpperCase().slice(-5);
 const DEPOT = { code: `E2E-D-${suffix}`, name: `Dépôt de test ${suffix}` };
 const STATION = { code: `E2E-S-${suffix}`, name: `Station de test ${suffix}` };
@@ -141,33 +142,67 @@ test("importer le fichier modèle des stations : prévisualiser puis appliquer",
   await dialog.getByRole("button", { name: "Prévisualiser" }).click();
   const batch = await (await preview).json();
   expect(batch.can_apply).toBe(true);
-  importedCodes.push(...(batch.report.items as { key: string }[]).map((item) => item.key));
 
-  // Première exécution : créations. Exécutions suivantes : les stations supprimées par le nettoyage sont
-  // annoncées comme « réactivées » (mise à jour) — le rapport affiché suit celui du serveur dans les deux cas.
-  const { created, updated } = batch.report.summary as { created: number; updated: number };
-  expect(created + updated).toBeGreaterThan(0);
+  // Selon l'état de la base : créations (base vierge), mises à jour « supprimé → réactivé » (stations retirées
+  // par un nettoyage précédent) ou rien (stations déjà importées par un autre parcours). Le rapport affiché
+  // suit celui du serveur dans les trois cas.
+  const { created, updated, unchanged } = batch.report.summary as Record<string, number>;
+  expect(created + updated + unchanged).toBeGreaterThan(0);
   await expect(dialog.getByTestId("import-summary")).toContainText("0 en erreur");
-  await expect(dialog.getByTestId("import-effects")).toContainText(`${created} création`);
-  await expect(dialog.getByTestId("import-effects")).toContainText(`${updated} mise`);
-  const firstItem = batch.report.items[0] as { label: string; action: string };
+  await expect(dialog.getByTestId("import-effects")).toContainText(
+    `${created} création${created > 1 ? "s" : ""}, ${updated} mise${updated > 1 ? "s" : ""} à jour, ${unchanged} inchangée${unchanged > 1 ? "s" : ""}`,
+  );
+  const firstItem = batch.report.items[0] as { label: string; action: "create" | "update" | "unchanged" };
   await expect(dialog.getByRole("row").filter({ hasText: firstItem.label })).toContainText(
-    firstItem.action === "create" ? "Création" : "Mise à jour",
+    { create: "Création", update: "Mise à jour", unchanged: "Inchangée" }[firstItem.action],
   );
 
-  await dialog.getByRole("button", { name: /^Appliquer \d+ lignes?$/ }).click();
-  await expect(page.getByText(/Import appliqué/)).toBeVisible();
-  await expect(dialog).toBeHidden();
-  const stations = page.getByRole("grid", { name: "Stations" });
-  for (const code of importedCodes)
-    await expect(stations.getByRole("gridcell", { name: code, exact: true })).toBeVisible();
+  if (created + updated > 0) {
+    // Seules les stations que CE parcours crée ou réactive seront retirées au nettoyage.
+    importedCodes.push(
+      ...(batch.report.items as { key: string; action: string }[])
+        .filter((item) => item.action !== "unchanged")
+        .map((item) => item.key),
+    );
+    await dialog.getByRole("button", { name: /^Appliquer \d+ lignes?$/ }).click();
+    await expect(page.getByText(/Import appliqué/)).toBeVisible();
+    await expect(dialog).toBeHidden();
+    // Les stations importées sont dans le tableau (rafraîchi après application).
+    const stations = page.getByRole("grid", { name: "Stations" });
+    for (const code of importedCodes) {
+      await expect(stations.getByRole("gridcell", { name: code, exact: true })).toBeAttached();
+    }
+    await page.getByRole("button", { name: "Importer" }).click();
+  } else {
+    await expect(dialog.getByRole("button", { name: "Rien à appliquer" })).toBeDisabled();
+  }
 
   // Rejouer le même fichier : plus rien à créer.
-  await page.getByRole("button", { name: "Importer" }).click();
   await dialog.getByLabel("Choisir un fichier").setInputFiles(TEMPLATE);
   await dialog.getByRole("button", { name: "Prévisualiser" }).click();
   await expect(dialog.getByTestId("import-effects")).toContainText("0 création, 0 mise à jour");
   await expect(dialog.getByText(/rien à appliquer/)).toBeVisible();
+});
+
+test("import des commandes : le jour J part en paramètre de requête et l'API le prend en compte", async ({
+  page,
+}) => {
+  // Les stations du fichier modèle existent (parcours précédent) ; le lot n'est PAS appliqué.
+  const day = "2031-05-05";
+  await login(page);
+  await page.goto(`/commandes?day=${day}`);
+  await page.getByRole("button", { name: "Importer" }).click();
+  const dialog = page.getByRole("dialog", { name: "Importer — commandes" });
+  await dialog.getByLabel("Choisir un fichier").setInputFiles(ORDERS_TEMPLATE);
+  const preview = page.waitForResponse((r) => r.url().includes("/imports/orders/preview"));
+  await dialog.getByRole("button", { name: "Prévisualiser" }).click();
+  const response = await preview;
+  expect(new URL(response.url()).searchParams.get("day")).toBe(day);
+  const batch = await response.json();
+  // Le serveur confirme le jour qu'il a retenu : c'est celui de l'écran.
+  expect(batch.report.options.day).toBe(day);
+  await expect(dialog.getByTestId("import-summary")).toBeVisible();
+  await dialog.getByRole("button", { name: "Annuler" }).click();
 });
 
 test("administration : paramètre modifié, tracé dans l'audit, puis rétabli", async ({ page }) => {

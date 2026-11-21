@@ -2,7 +2,7 @@ import { DndContext } from "@dnd-kit/core";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
-import { useState } from "react";
+import { createRef, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import { addDays, todayLocal } from "@/lib/format";
@@ -12,10 +12,12 @@ import { server } from "@/mocks/server";
 import { loginAs, renderWithProviders } from "@/test/utils";
 
 import { ConfirmDialog, ConfirmProvider, useConfirm } from "./ConfirmDialog";
+import { Notice } from "./PageHeader";
 import { PdfButton } from "./PdfButton";
 import { SortableList, useSortableSensors } from "./SortableList";
 import { EmptyState, ErrorState, LoadingState } from "./states";
 import { ExpiryBadge, expiryState, StatusBadge } from "./StatusBadge";
+import { Badge } from "./ui/badge";
 import { sortViolations, ViolationsPanel } from "./ViolationsPanel";
 
 const VIOLATIONS: Violation[] = [
@@ -204,6 +206,22 @@ describe("pastilles de statut", () => {
     expect(screen.getByText("01/03/2028")).toBeInTheDocument();
     expect(screen.getByText("Date non renseignée")).toBeInTheDocument();
     expect(expiryState(addDays(todayLocal(), -1))).toBe("expired");
+  });
+});
+
+describe("Badge, Notice", () => {
+  it("Badge transmet sa référence (info-bulles, menus) ; Notice a un ton de succès", () => {
+    const ref = createRef<HTMLSpanElement>();
+    render(
+      <>
+        <Badge ref={ref} tone="success">
+          Publié
+        </Badge>
+        <Notice tone="success">Plan publié</Notice>
+      </>,
+    );
+    expect(ref.current).toHaveTextContent("Publié");
+    expect(screen.getByText("Plan publié").closest('[role="status"]')).toHaveClass("text-success");
   });
 });
 
