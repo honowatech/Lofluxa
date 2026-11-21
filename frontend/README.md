@@ -65,6 +65,29 @@ Règles (vérifiées par ESLint quand c'est possible) :
 - aucun texte en dur dans un composant ; aucune mise en forme de litres / km / durées / heures hors de `lib/format.ts` ;
 - pas de `fetch` direct : `api()` ou une ressource.
 
+## Types de l'API
+
+`src/lib/types/api.gen.ts` est **généré** depuis l'OpenAPI réelle du back-end ; ne pas le modifier à la main.
+Après toute évolution des schémas de l'API, depuis la racine du dépôt :
+
+```bash
+./scripts/gen_api_types.sh        # openapi-typescript → frontend/src/lib/types/api.gen.ts
+cd frontend && pnpm build         # une incompatibilité avec le code apparaît à la compilation
+```
+
+`@/lib/types` expose des **alias** de ces schémas (`Station`, `Truck`, `User`, `ImportBatch`, `Setting`…),
+précisés là où l'OpenAPI est trop vague (horaires d'ouverture, valeur et type d'un paramètre, action d'audit).
+Les listes d'énumérations (`TRUCK_STATUSES`, `ROLES`…) sont contrôlées contre les types générés : une valeur
+ajoutée ou retirée côté serveur fait échouer la compilation. Pour un schéma sans alias :
+
+```ts
+import type { Schema } from "@/lib/types";
+type Order = Schema<"OrderOut">;
+```
+
+Les textes des écrans de vague 2 vivent dans `src/i18n/screens/<écran>.ts` (un fichier par écran, exposé sous
+`fr.screens.<écran>`) ; les textes du socle restent dans `src/i18n/fr.ts`.
+
 ## Ajouter (ou remplir) un écran
 
 Les huit écrans de vague 2 existent déjà comme pages d'attente routées : il suffit de remplacer

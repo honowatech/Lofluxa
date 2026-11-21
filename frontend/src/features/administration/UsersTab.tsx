@@ -254,7 +254,7 @@ export function UsersTab() {
         defaultValues={{ email: "", full_name: "", role: "dispatcher", password: "" }}
         submitLabel={fr.common.create}
         onSubmit={async (values) => {
-          await create.mutateAsync(values);
+          await create.mutateAsync({ ...values, active: true });
           notify.success(t.created(values.full_name));
         }}
       >
