@@ -46,7 +46,8 @@ async def test_creation_renvoie_un_brouillon_avec_libelles(client, db, auth_head
     assert (body["window_start"], body["window_end"]) == ("08:00", "12:30")
     assert body["priority"] == "urgent"
     assert body["created_at"].endswith("Z")
-    assert body["warnings"] == []
+    # La station n'a pas de cuve : l'avertissement F3.4 est visible dès la saisie.
+    assert [w["code"] for w in body["warnings"]] == ["tank_unknown"]
 
     read = await client.get(f"/orders/{body['id']}", headers=await auth_headers("manager"))
     assert read.status_code == 200

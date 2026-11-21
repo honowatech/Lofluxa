@@ -17,7 +17,9 @@ AssignmentSource = Literal["daily", "default"]
 class DepotStockItemIn(BaseModel):
     depot_id: uuid.UUID
     product_id: uuid.UUID
-    available_l: float = Field(ge=0, description="Stock disponible, en litres")
+    available_l: float | None = Field(
+        ge=0, description="Stock disponible, en litres ; `null` efface la saisie (retour à « non renseigné »)"
+    )
 
 
 class DepotStocksIn(BaseModel):
@@ -25,7 +27,8 @@ class DepotStocksIn(BaseModel):
 
 
 class DepotStockOut(BaseModel):
-    """Valeur courante pour (dépôt, produit, jour). `available_l` nul = stock non renseigné."""
+    """Valeur courante pour (dépôt, produit, jour). `available_l` nul = stock non renseigné
+    (jamais saisi, ou saisie effacée : `id`, `entered_at`, `entered_by` décrivent alors l'effacement)."""
 
     id: uuid.UUID | None
     day: date
@@ -43,7 +46,8 @@ class DepotStockOut(BaseModel):
 
 
 class DepotStockEntryOut(BaseModel):
-    """Une saisie de l'historique. `is_current` : c'est elle qui fait foi."""
+    """Une saisie de l'historique. `is_current` : c'est elle qui fait foi.
+    `available_l` nul = effacement de la saisie précédente."""
 
     id: uuid.UUID
     day: date
@@ -53,7 +57,7 @@ class DepotStockEntryOut(BaseModel):
     product_id: uuid.UUID
     product_code: str
     product_label: str
-    available_l: float
+    available_l: float | None
     entered_at: UtcDatetime
     entered_by: uuid.UUID | None
     entered_by_name: str | None

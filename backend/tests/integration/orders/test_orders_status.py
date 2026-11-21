@@ -246,3 +246,70 @@ async def test_service_report_d_une_commande_planifiee(db, products):
 def test_service_variante_synchrone(db, products):
     # Vérifie seulement la signature et le chemin sans accès base (liste vide).
     assert service.set_orders_status_sync(None, [], S.PLANNED) == []
+
+
+async def test_F3_4_avertissements_recalcules_en_lecture(client, db, auth_headers, products):
+    station = await make_station(db, tanks={products["SUPER"]: (30000, 3000)})
+    fits = await make_order(db, station, products["SUPER"])
+    no_tank_draft = await make_order(db, station, products["GASOIL"])
+    no_tank_confirmed = await make_order(db, station, products["GASOIL"], status=S.CONFIRMED)
+    too_big = await make_order(db, station, products["SUPER"], requested_l=50000)
+    planned = await make_order(db, station, products["GASOIL"], status=S.PLANNED)
+    cancelled = await make_order(db, station, products["GASOIL"], status=S.CANCELLED)
+    headers = await auth_headers("manager")
+
+    listing = (await client.get("/orders", headers=headers)).json()["items"]
+    codes = {item["id"]: [w["code"] for w in item["warnings"]] for item in listing}
+    assert codes == {
+        str(fits.id): [],
+        str(no_tank_draft.id): ["tank_unknown"],
+        str(no_tank_confirmed.id): ["tank_unknown"],
+        str(too_big.id): ["exceeds_tank_capacity"],
+        # Au-delà de `confirmed`, la commande n'est plus modifiable : plus d'avertissement.
+        str(planned.id): [],
+        str(cancelled.id): [],
+    }
+
+    one = (await client.get(f"/orders/{no_tank_confirmed.id}", headers=headers)).json()
+    assert "Cuve non renseignée" in one["warnings"][0]["message"]
+    big = (await client.get(f"/orders/{too_big.id}", headers=headers)).json()
+    assert "27 000 L" in big["warnings"][0]["message"]
+    assert (await client.get(f"/orders/{planned.id}", headers=headers)).json()["warnings"] == []
+
+
+async def test_F3_4_lecture_charge_les_cuves_en_une_requete(client, db, auth_headers, products):
+    from sqlalchemy import event, select
+
+    from app.core.db import async_engine
+
+    stations = [await make_station(db, f"ST-{i:03d}") for i in range(6)]
+    for station in stations:
+        await make_order(db, station, products["SUPER"])
+    headers = await auth_headers("manager")
+
+    statements: list[str] = []
+
+    def _count(conn, cursor, statement, *args):
+        statements.append(statement)
+
+    event.listen(async_engine.sync_engine, "before_cursor_execute", _count)
+    try:
+        response = await client.get("/orders", headers=headers)
+    finally:
+        event.remove(async_engine.sync_engine, "before_cursor_execute", _count)
+    body = response.json()
+    assert body["total"] == 6
+    assert all(item["warnings"][0]["code"] == "tank_unknown" for item in body["items"])
+    # Nombre de requêtes indépendant du nombre de commandes (pas de requête par ligne).
+    assert sum("FROM station_tanks" in s for s in statements) <= 2
+
+    # Variante pour les autres modules, sans station chargée : une requête pour tout le lot.
+    orders = (await db.execute(select(Order))).scalars().all()
+    statements.clear()
+    event.listen(async_engine.sync_engine, "before_cursor_execute", _count)
+    try:
+        warnings = await service.order_warnings(db, orders)
+    finally:
+        event.remove(async_engine.sync_engine, "before_cursor_execute", _count)
+    assert len(statements) == 1
+    assert len(warnings) == 6

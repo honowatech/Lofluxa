@@ -33,6 +33,7 @@ from app.orders.service import (
     STATUS_FR,
     apply_status,
     check_tank_capacity,
+    order_warnings,
     transition_error,
 )
 from app.referentials.models import Product, Station
@@ -80,6 +81,12 @@ async def _labels(session: AsyncSession, order: Order) -> tuple[Station, Product
     station = await session.get(Station, order.station_id)
     product = await session.get(Product, order.product_id)
     return station, product
+
+
+async def _out(session: AsyncSession, order: Order) -> OrderOut:
+    """Commande avec ses libellés et ses avertissements F3.4 (commandes `draft` et `confirmed`)."""
+    warnings = (await order_warnings(session, [order])).get(order.id)
+    return _to_out(order, *await _labels(session, order), warnings)
 
 
 async def _usable_station(session: AsyncSession, station_id: uuid.UUID) -> Station:
@@ -169,8 +176,10 @@ async def list_orders(
             .offset(page.offset)
         )
     ).all()
+    # Avertissements F3.4 : les cuves de toutes les commandes de la page sont lues en une requête.
+    warnings = await order_warnings(session, [order for order, _, _ in rows])
     return Page[OrderOut](
-        items=[_to_out(order, station, product) for order, station, product in rows],
+        items=[_to_out(order, station, product, warnings.get(order.id)) for order, station, product in rows],
         total=total,
         limit=page.limit,
         offset=page.offset,
@@ -180,7 +189,7 @@ async def list_orders(
 @router.get("/orders/{order_id}", response_model=OrderOut)
 async def get_order(order_id: uuid.UUID, session: SessionDep, _: CurrentUser) -> OrderOut:
     order = await _get_order(session, order_id)
-    return _to_out(order, *await _labels(session, order))
+    return await _out(session, order)
 
 
 # --- Écriture --------------------------------------------------------------------------------
@@ -205,7 +214,7 @@ async def create_order(payload: OrderIn, session: SessionDep) -> OrderOut:
     )
     session.add(order)
     await _save(session, order)
-    return _to_out(order, station, product)
+    return await _out(session, order)
 
 
 async def _update(session: AsyncSession, order_id: uuid.UUID, changes: dict) -> OrderOut:
@@ -229,15 +238,13 @@ async def _update(session: AsyncSession, order_id: uuid.UUID, changes: dict) -> 
         message = "La fenêtre de livraison est incohérente : le début doit précéder la fin."
         raise ValidationAppError(message, details=[{"field": "window_start", "message": message}])
 
-    warnings: list[dict] = []
     if order.status == OrderStatus.CONFIRMED:
         # Une commande confirmée doit continuer à respecter le contrôle F3.4.
         check = await check_tank_capacity(session, order.station_id, order.product_id, order.requested_l)
         if check.blocking:
             raise _capacity_error(order.id, check.blocking, check.max_l)
-        warnings = check.warnings
     await _save(session, order)
-    return _to_out(order, *await _labels(session, order), warnings)
+    return await _out(session, order)
 
 
 @router.put("/orders/{order_id}", response_model=OrderOut, dependencies=[Dispatcher])
@@ -271,7 +278,7 @@ async def delete_order(order_id: uuid.UUID, session: SessionDep) -> None:
 # --- Transitions de statut -------------------------------------------------------------------
 
 
-async def _confirm(session: AsyncSession, order: Order) -> list[dict]:
+async def _confirm(session: AsyncSession, order: Order) -> None:
     """Confirme une commande (F3.4). Lève une erreur si la transition ou le volume est refusé."""
     if order.status != OrderStatus.DRAFT:
         raise transition_error(order, OrderStatus.CONFIRMED)
@@ -279,7 +286,6 @@ async def _confirm(session: AsyncSession, order: Order) -> list[dict]:
     if check.blocking:
         raise _capacity_error(order.id, check.blocking, check.max_l)
     apply_status(order, OrderStatus.CONFIRMED, idempotent=False)
-    return check.warnings
 
 
 @router.post("/orders/confirm", response_model=BulkConfirmOut, dependencies=[Dispatcher])
@@ -289,20 +295,21 @@ async def confirm_orders(payload: BulkConfirmIn, session: SessionDep) -> BulkCon
     orders = {
         order.id: order for order in (await session.execute(select(Order).where(Order.id.in_(ids)))).scalars()
     }
-    outcomes: list[tuple[uuid.UUID, Order | None, list[dict], AppError | None]] = []
+    outcomes: list[tuple[uuid.UUID, Order | None, AppError | None]] = []
     for order_id in ids:
         order = orders.get(order_id)
         if order is None:
-            outcomes.append((order_id, None, [], NotFoundError("Commande introuvable.")))
+            outcomes.append((order_id, None, NotFoundError("Commande introuvable.")))
             continue
         try:
-            outcomes.append((order_id, order, await _confirm(session, order), None))
+            await _confirm(session, order)
+            outcomes.append((order_id, order, None))
         except AppError as exc:
-            outcomes.append((order_id, order, [], exc))
+            outcomes.append((order_id, order, exc))
     await session.flush()
 
     results = []
-    for order_id, order, warnings, error in outcomes:
+    for order_id, order, error in outcomes:
         if error is not None:
             results.append(
                 BulkConfirmItem(
@@ -311,7 +318,7 @@ async def confirm_orders(payload: BulkConfirmIn, session: SessionDep) -> BulkCon
             )
             continue
         await session.refresh(order)
-        out = _to_out(order, *await _labels(session, order), warnings)
+        out = await _out(session, order)
         results.append(BulkConfirmItem(order_id=order_id, ok=True, order=out, warnings=out.warnings))
     confirmed = sum(1 for item in results if item.ok)
     return BulkConfirmOut(confirmed=confirmed, failed=len(results) - confirmed, results=results)
@@ -322,9 +329,9 @@ async def confirm_order(order_id: uuid.UUID, session: SessionDep) -> OrderOut:
     """`draft → confirmed`, avec le contrôle de volume F3.4 (bloquant si la cuve est connue,
     avertissement dans `warnings` sinon)."""
     order = await _get_order(session, order_id)
-    warnings = await _confirm(session, order)
+    await _confirm(session, order)
     await _save(session, order)
-    return _to_out(order, *await _labels(session, order), warnings)
+    return await _out(session, order)
 
 
 async def _user_transition(session: AsyncSession, order_id: uuid.UUID, target: OrderStatus) -> OrderOut:
@@ -333,7 +340,7 @@ async def _user_transition(session: AsyncSession, order_id: uuid.UUID, target: O
         raise transition_error(order, target)
     apply_status(order, target, idempotent=False)
     await _save(session, order)
-    return _to_out(order, *await _labels(session, order))
+    return await _out(session, order)
 
 
 @router.post("/orders/{order_id}/cancel", response_model=OrderOut, dependencies=[Dispatcher])

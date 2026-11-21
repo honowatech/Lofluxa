@@ -12,7 +12,8 @@ from app.core.db import Base, IdMixin, TimestampMixin
 
 class DailyDepotStock(Base, IdMixin, TimestampMixin):
     """Stock disponible par (dépôt, produit, jour). Historisé : la saisie la plus récente
-    (`entered_at` max) fait foi, les précédentes sont conservées (F2.1)."""
+    (`entered_at` max) fait foi, les précédentes sont conservées (F2.1).
+    `available_l` nul = saisie effacée : le stock redevient « non renseigné » (migration `l4_…`)."""
 
     __tablename__ = "daily_depot_stocks"
     __table_args__ = (UniqueConstraint("depot_id", "product_id", "day", "entered_at"),)
@@ -20,7 +21,7 @@ class DailyDepotStock(Base, IdMixin, TimestampMixin):
     depot_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("depots.id"), index=True)
     product_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("products.id"))
     day: Mapped[date] = mapped_column(Date, index=True)
-    available_l: Mapped[Decimal] = mapped_column(Numeric(12, 2))
+    available_l: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     entered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     entered_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
 
