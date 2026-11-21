@@ -13,6 +13,7 @@ import pytest_asyncio
 import app.planning.engine as engine_pkg
 from app.planning import tasks
 from app.planning.engine import compartments, distance_matrix
+from app.planning.violations import rules
 from tests.integration.planning import fakes
 
 from . import factory
@@ -27,7 +28,7 @@ def engine_doubles(monkeypatch):
         calls.append(kwargs)
         return "task-rejeu-1"
 
-    fake_engine = fakes.FakeEngine(rules=fakes.FakeRules())
+    fake_engine = fakes.FakeEngine(rules=fakes.FakeRules(real_check_plan=rules.check_plan))
     monkeypatch.setattr(distance_matrix, "coord_hash", fakes.fake_coord_hash)
     monkeypatch.setattr(distance_matrix, "build_matrix", fakes.fake_build_matrix)
     monkeypatch.setattr(compartments, "assign_compartments", fakes.fake_assign_compartments)
