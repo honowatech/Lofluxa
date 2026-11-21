@@ -245,7 +245,7 @@ async def test_comparaison_seuil_lu_dans_les_parametres(client, db, plans, auth_
 async def test_comparaison_erreurs(client, db, plans, auth_headers):
     plan_a, _ = plans
     headers = await auth_headers("manager")
-    await db.commit()  # une réponse en erreur annule la transaction en cours de la session de test
+    await db.commit()
     missing = "00000000-0000-0000-0000-000000000001"
     assert (
         await client.get("/comparison", params={"plan_a": str(plan_a), "plan_b": str(plan_a)})
