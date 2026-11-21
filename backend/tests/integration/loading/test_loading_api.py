@@ -341,7 +341,6 @@ async def test_roles_refuses_en_ecriture_mais_lecture_ouverte(client, db, auth_h
     url = f"/trips/{scenario.trip.id}/loading"
     reader, writer = await auth_headers(role), await auth_headers("fleet")
     payload = scenario.loading_payload()
-    # Une réponse en erreur annule la transaction en cours et périme les objets : on valide avant.
     await db.commit()
     assert (await client.post(url, json=payload, headers=reader)).status_code == 403
     assert (await client.post(url, json=payload, headers=writer)).status_code == 200

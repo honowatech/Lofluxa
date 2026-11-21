@@ -22,6 +22,7 @@ from app.planning.models import Plan, Stop, StopDelivery, Trip, TripCompartmentL
 from app.referentials.models import Depot, Driver, Product, Station, Truck, TruckCompartment
 
 DAY = date(2027, 1, 12)
+_AFTER_LOADING = (TripStatus.LOADED, TripStatus.IN_PROGRESS, TripStatus.COMPLETED)
 
 
 def at(hour: int, minute: int = 0, day: date = DAY) -> datetime:
@@ -126,7 +127,8 @@ async def make_trip_scenario(
             station_id=station.id,
             product_id=products[code].id,
             requested_l=Decimal(liters),
-            status=OrderStatus.PLANNED,
+            # Commandes d'un plan publié : `planned`, puis `loaded` une fois la tournée chargée.
+            status=OrderStatus.LOADED if trip_status in _AFTER_LOADING else OrderStatus.PLANNED,
         )
 
     orders = [
