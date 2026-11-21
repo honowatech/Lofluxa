@@ -12,7 +12,7 @@ indiquée est codée et testée. À consolider dans `docs/QUESTIONS.md`.
 | L10-A3 | `GET /events/{event_id}/impact` | F6.3 : tournées encore impactées par une pénurie et options à jour (après une résolution partielle, un rechargement, une nouvelle saisie de stock). |
 | L10-A4 | `GET /events/{event_id}` | Relire un événement du journal (lien depuis une alerte du tableau de bord). |
 | L10-A5 | `GET /events` : filtres `type` (répétable), `trip_id`, `plan_id`, `include_versions` | Journal filtrable (écran 6). `trip_id` retrouve aussi les événements qui citent la tournée (`payload.related_trip_ids`). |
-| L10-A6 | Champs facultatifs des requêtes : `occurred_at`, `reason`, `publish` (panne, chauffeur) ; `day`, `comment` (pénurie) | Saisir un événement constaté plus tôt, garder le motif, choisir de publier ou non. Sans eux, le corps de la spec suffit. |
+| L10-A6 | Champs facultatifs des requêtes : `occurred_at`, `reason`, `publish` (panne, chauffeur) ; `day`, `comment`, `occurred_at` (pénurie) ; `occurred_at` (résolution) | Saisir un événement constaté plus tôt, garder le motif, choisir de publier ou non. Sans eux, le corps de la spec suffit. |
 
 ## Panne de camion (F6.1, RM-19)
 
@@ -45,7 +45,7 @@ indiquée est codée et testée. À consolider dans `docs/QUESTIONS.md`.
 | L10-15 | « Déjà chargé » : volume réel du bon de chargement ou volume planifié ? | Volume planifié des tournées chargées (cohérent avec RM-08, question R5 du lot L1). |
 | L10-16 | Quelles tournées sont « impactées » quand le stock ne couvre plus tout ? | Les tournées non chargées sont servies dans l'ordre de leur heure de départ prévue ; sont impactées celles que le stock restant ne couvre plus en entier. Pour chacune : volume prévu, volume couvert, manque, commandes, dépôts de repli avec leur stock restant. |
 | L10-17 | Quels plans sont examinés ? | La version publiée de chaque lignée de plans calculés du jour (les brouillons seront arrêtés par RM-08 à leur publication). |
-| L10-18 | « Réduire » : de combien, et sur quelles commandes ? | Par défaut, réduction proportionnelle de toutes les livraisons du produit de la tournée, jusqu'au volume que le stock couvre encore (arrondi au litre inférieur). Le dispatcher peut imposer les volumes (`deliveries`). Une réduction sous le seuil de RM-16 reste permise (avertissement). Le reliquat redevient `confirmed` à la publication (mécanisme du lot L5). S'il ne reste rien : 422, il faut reporter ou changer de dépôt. |
+| L10-18 | « Réduire » : de combien, et sur quelles commandes ? | Par défaut, réduction proportionnelle de toutes les livraisons du produit de la tournée, jusqu'au volume couvert annoncé par `GET /events/{id}/impact` (`covered_l`, même calcul, quel que soit l'ordre de traitement des tournées ; arrondi au litre inférieur). Le dispatcher peut imposer les volumes (`deliveries`). Une réduction sous le seuil de RM-16 reste permise (avertissement). Le reliquat redevient `confirmed` à la publication (mécanisme du lot L5). S'il ne reste rien : 422, il faut reporter ou changer de dépôt. |
 | L10-19 | « Reporter » : quelles commandes, et à quel moment changent-elles de statut ? | Par défaut toutes les commandes du produit de la tournée ; sinon celles de `order_ids`. Elles passent `postponed` (statut final, L4-4) **dès la décision**, même si la nouvelle version reste en brouillon ; elles restent listées dans les non servies du plan (L5-20). Un arrêt vidé disparaît, une tournée vidée aussi. |
 | L10-20 | « Changer de dépôt » : pour le produit en pénurie seulement, ou pour toute la tournée ? | Toute la tournée (RM-01 : un seul dépôt de chargement par tournée). Horaires, RM-08 du nouveau dépôt, RM-10 et RM-14 sont recontrôlés ; le dépôt de repli n'est pas refusé s'il manque de stock, la violation le dit. |
 | L10-21 | Une pénurie se résout-elle en une fois ? | Non : tournée par tournée, en un ou plusieurs appels. Tant que RM-08 reste bloquante, la nouvelle version reste en brouillon et les décisions suivantes s'y ajoutent. L'alerte passe de `open` à `resolved` quand plus aucune tournée n'est impactée. |
@@ -61,11 +61,12 @@ indiquée est codée et testée. À consolider dans `docs/QUESTIONS.md`.
 
 ## Remarques pour l'intégration
 
-- **Chargement réel et versions (L5-5).** `loadings.trip_id` reste attaché à la tournée de la version où le
-  chargement a été saisi. Après une panne, la tournée d'origine de la nouvelle version n'a donc pas son
-  chargement tant que le lot L5 n'a pas livré le rattachement ; la tournée de remplacement, elle, reçoit
-  son propre chargement (rechargement au dépôt). La détection « déjà chargé » de la pénurie s'appuie sur
-  le statut de la tournée (copié d'une version à l'autre) et, à défaut, sur le chargement.
+- **Chargement réel et versions (L5-5, traité par le lot L5).** Le chargement enregistré est recopié sur la
+  tournée correspondante d'une nouvelle version : après une panne, la tournée d'origine garde le sien dans
+  la version suivante ; la tournée de remplacement n'en a pas et doit être chargée (rechargement au dépôt).
+  Une tournée d'origine vidée par la panne reste au plan dès qu'elle a commencé **ou** qu'un chargement y
+  est enregistré. Après un report, les autres brouillons qui portent la commande sont recontrôlés
+  (`planning.service.recheck_drafts_for_orders`).
 - **Fichiers hors périmètre modifiés** : `backend/app/planning/violations/rules.py` (L10-5) uniquement.
 - `daily_resource_status` est écrit directement par l'ORM dans `events/service.py::mark_unavailable` : la
   fonction équivalente du lot L4 (`availability/router.py::_set_day_mark`) est privée au routeur. À

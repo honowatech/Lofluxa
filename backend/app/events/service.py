@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import copy
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 
 from sqlalchemy import select
@@ -154,6 +154,7 @@ class SimContext:
     unserved: list[UnservedD]
     status: dict[str, TripStatus]
     baseline: set[tuple[str, int | None, str]]
+    loaded: set[str] = field(default_factory=set)  # tournées ayant un chargement enregistré
 
 
 @dataclass
@@ -199,6 +200,7 @@ async def build_context(session: AsyncSession, plan: Plan) -> SimContext:
         unserved=await checking.checked_unserved(session, plan),
         status={str(row.id): TripStatus(row.status) for row in plan.trips},
         baseline=set(),
+        loaded={str(i) for i in await checking.loaded_trip_ids(session, plan)},
     )
     current = copy.deepcopy(trips)
     checking.schedule_all(current, problem, matrix)
@@ -248,7 +250,7 @@ def simulate_breakdown(
     origin.stops = [s for s in origin.stops if s.status != StopStatus.PENDING.value]
     for index, stop in enumerate(origin.stops, start=1):
         stop.seq = index
-    keep_origin = origin_kept(bool(origin.stops), ctx.status[origin_ref])
+    keep_origin = origin_kept(bool(origin.stops), ctx.status[origin_ref], origin_ref in ctx.loaded)
     if not keep_origin:
         trips.remove(origin)
 
@@ -284,10 +286,11 @@ def simulate_driver_change(ctx: SimContext, trip_ref: str, driver_id: str, event
     return _issues(ctx, trips, target, DRIVER_CODES, truck_id=None, driver_id=driver_id)
 
 
-def origin_kept(has_stops: bool, status: TripStatus) -> bool:
-    """La tournée d'origine reste au plan si elle porte des arrêts réalisés ou si son exécution a
-    commencé (statut ≠ `planned` : son chargement et ses heures réelles ne doivent pas disparaître)."""
-    return has_stops or status != TripStatus.PLANNED
+def origin_kept(has_stops: bool, status: TripStatus, loaded: bool) -> bool:
+    """La tournée d'origine reste au plan si elle porte des arrêts réalisés, si son exécution a
+    commencé (statut ≠ `planned`) ou si elle a un chargement enregistré : ses réalisés (chargement,
+    heures réelles) ne doivent pas disparaître avec elle."""
+    return has_stops or status != TripStatus.PLANNED or loaded
 
 
 def _rule_error(message: str, issues: list[ViolationD]) -> RuleViolationError:
@@ -570,7 +573,7 @@ async def truck_breakdown(session: AsyncSession, payload: TruckBreakdownIn) -> E
     for index, stop in enumerate(sorted(kept, key=lambda s: s.seq), start=1):
         stop.seq = index
     origin_seq, origin_id = origin.seq, origin.id
-    kept_origin = origin_kept(bool(kept), TripStatus(origin.status))
+    kept_origin = origin_kept(bool(kept), TripStatus(origin.status), str(origin.id) in ctx.loaded)
     if kept_origin:
         # La tournée d'origine s'arrête là : ses arrêts réalisés et ses heures réelles sont conservés.
         origin.status = TripStatus.COMPLETED
