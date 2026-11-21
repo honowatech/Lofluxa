@@ -1,8 +1,9 @@
-"""Doublures du moteur (lot L2) et des règles (lot L1) pour les tests du service de plans.
+"""Doublures du moteur (lot L2) pour les tests du service de plans.
 
-Tant que les lots L1 et L2 ne sont pas intégrés, `engine.solve`, `assign_compartments`,
-`build_matrix`, `coord_hash` et `rules.check_plan` lèvent `NotImplementedError`. Ces doublures
-respectent les signatures de docs/CONTRATS.md ; `install(monkeypatch)` les branche.
+Tant que le lot L2 n'est pas intégré, `engine.solve`, `assign_compartments`, `build_matrix` et
+`coord_hash` lèvent `NotImplementedError`. Ces doublures respectent les signatures de
+docs/CONTRATS.md ; `install(monkeypatch)` les branche. Les règles sont les vraies (lot L1),
+enveloppées par `FakeRules` pour pouvoir forcer une violation.
 
 À l'intégration : supprimer l'appel à `install` (fixture `fakes` de `conftest.py`) pour faire
 tourner les mêmes tests avec le vrai moteur et les vraies règles — les assertions qui dépendent
@@ -14,7 +15,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from app.core.enums import OrderPriority, Severity, UnservedReason
+from app.core.enums import OrderPriority, UnservedReason
 from app.core.geo import haversine_m
 from app.planning import timing
 from app.planning.domain import (
@@ -31,7 +32,7 @@ from app.planning.domain import (
     ViolationD,
 )
 from app.planning.engine import compartments, distance_matrix
-from app.planning.violations import eligibility, rules
+from app.planning.violations import rules
 
 FAKE_ENGINE_VERSION = "fake-1.0"
 
@@ -98,44 +99,20 @@ def fake_assign_compartments(
 
 @dataclass
 class FakeRules:
-    """Faux `check_plan` paramétrable.
+    """`check_plan` paramétrable : les vraies règles du lot L1 (`real`), plus des violations forcées.
 
-    - `extra` : violations renvoyées telles quelles à chaque contrôle (ex. une bloquante, un avertissement) ;
-    - `auto` : applique en plus trois contrôles simplifiés — RM-01 (tournée sans chauffeur), RM-04
-      (camion non affectable) et RM-15 (commande urgente non servie), bloquants."""
+    - `extra` : violations ajoutées telles quelles à chaque contrôle (ex. une bloquante, un avertissement) ;
+    - `real = False` : aucune règle réelle, seules les violations de `extra` sont renvoyées."""
 
+    real_check_plan: Callable
     extra: list[ViolationD] = field(default_factory=list)
-    auto: bool = True
+    real: bool = True
     calls: int = 0
 
     def check_plan(self, problem: PlanningProblem, trips, unserved=None, matrix=None) -> list[ViolationD]:
         self.calls += 1
-        violations = list(self.extra)
-        if not self.auto:
-            return violations
-        for trip in trips:
-            if trip.driver_id is None:
-                violations.append(
-                    ViolationD("RM-01", Severity.BLOCKING, f"Tournée {trip.seq} : aucun chauffeur.", trip.seq)
-                )
-            reason = eligibility.truck_block_reason(problem.truck(trip.truck_id))
-            if reason:
-                violations.append(
-                    ViolationD("RM-04", Severity.BLOCKING, f"Tournée {trip.seq} : {reason}", trip.seq)
-                )
-        orders = {o.id: o for o in problem.orders}
-        for item in unserved or []:
-            order = orders.get(item.order_id)
-            if order is not None and order.priority == OrderPriority.URGENT:
-                violations.append(
-                    ViolationD(
-                        "RM-15",
-                        Severity.BLOCKING,
-                        "Commande urgente non servie : à servir ou à reporter explicitement.",
-                        order_id=item.order_id,
-                    )
-                )
-        return violations
+        violations = list(self.real_check_plan(problem, trips, unserved, matrix)) if self.real else []
+        return violations + list(self.extra)
 
 
 @dataclass
@@ -242,7 +219,7 @@ def install(monkeypatch) -> Fakes:
     """Remplace le moteur et les règles par les doublures (signatures du contrat)."""
     import app.planning.engine as engine_pkg
 
-    fake_rules = FakeRules()
+    fake_rules = FakeRules(real_check_plan=rules.check_plan)
     fake_engine = FakeEngine(rules=fake_rules)
     monkeypatch.setattr(distance_matrix, "coord_hash", fake_coord_hash)
     monkeypatch.setattr(distance_matrix, "build_matrix", fake_build_matrix)

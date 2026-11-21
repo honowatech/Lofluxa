@@ -158,9 +158,9 @@ async def test_move_stop_chargement_impossible_et_tournee_videe(client, auth_hea
     trip = body["trips"][0]
     assert [s["station_code"] for s in trip["stops"]] == ["ST-04", "ST-01", "ST-02", "ST-03"]
     assert trip["loads"] == [] and trip["fill_rate"] > 1
-    assert [(v["rule_code"], v["severity"], v["trip_seq"]) for v in body["violations"]] == [
-        ("RM-05", "blocking", 1)
-    ]
+    # RM-05 bloquante (une par produit qui ne tient pas), pas une erreur 500.
+    found = {(v["rule_code"], v["severity"], v["trip_seq"]) for v in body["violations"]}
+    assert found == {("RM-05", "blocking", 1)} and body["publishable"] is False
     assert body["metrics"]["trips_count"] == 1
 
 
@@ -216,7 +216,7 @@ async def test_assign_camion_et_chauffeur(client, auth_headers, db, plan, world)
     trip = _trip(response.json(), 1)
     assert trip["driver_name"] == "Che" and trip["truck_plate"] == "LT-001-AA"
 
-    # Chauffeur retiré : la violation RM-01 est enregistrée, pas refusée (fakes. : contrôle simplifié).
+    # Chauffeur retiré : la violation RM-01 est enregistrée, pas refusée (vraies règles du lot L1).
     body = (await client.post(url, json={"driver_id": None}, headers=headers)).json()
     assert _trip(body, 1)["driver_id"] is None
     assert [v["rule_code"] for v in body["violations"]] == ["RM-01"] and body["publishable"] is False

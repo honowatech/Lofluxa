@@ -337,3 +337,54 @@ async def test_recalcul_d_un_plan_publie_cree_une_version(db, plan, fakes, dispa
     assert (await load_plan(db, plan.id)).status == PlanStatus.PUBLISHED
     # Les commandes du plan, passées `planned`, sont bien replanifiées.
     assert result.metrics["orders_served"] == 5 and len(result.trips) == 2
+
+
+async def test_RM_13_violations_du_chargement_conservees(db, plan, dispatcher):
+    """Les violations RM-13 sont écrites par le chargement (lot L6), pas par `check_plan` : un
+    recontrôle ne les efface pas, et une nouvelle version les reprend sur la tournée copiée."""
+    from app.planning.models import ConstraintViolation
+
+    trip = plan.trips[0]
+    plan.violations.append(
+        ConstraintViolation(
+            trip_id=trip.id,
+            rule_code="RM-13",
+            severity=Severity.WARNING,
+            message="Écart de 3,1 % au chargement.",
+        )
+    )
+    await db.flush()
+
+    await service.recheck_plan(db, plan.id)
+    await service.recheck_plan(db, plan.id)
+    reloaded = await load_plan(db, plan.id)
+    assert [(v.rule_code, v.trip_id) for v in reloaded.violations] == [("RM-13", trip.id)]
+    assert reloaded.metrics["warning_count"] == 1
+
+    # Une modification manuelle (recontrôle complet) la conserve aussi.
+    from app.planning import editing
+
+    edited = await editing.reorder_stops(db, plan.id, trip.id, [s.id for s in reversed(trip.stops)])
+    assert [v.rule_code for v in edited.violations] == ["RM-13"]
+
+    await service.publish_plan(db, plan.id)  # un avertissement ne bloque pas
+    copy, ids = await service.new_version_with_ids(db, plan.id, reason="Panne")
+    assert [(v.rule_code, v.trip_id) for v in copy.violations] == [("RM-13", ids.trip(trip.id))]
+    await service.recheck_plan(db, copy.id)
+    assert [v.rule_code for v in (await load_plan(db, copy.id)).violations] == ["RM-13"]
+
+
+async def test_recalcul_conserve_RM_13_des_tournees_figees_seulement(db, plan, fakes, dispatcher):
+    from app.planning.models import ConstraintViolation
+
+    first, second = plan.trips
+    first.locked = True
+    for trip in (first, second):
+        plan.violations.append(
+            ConstraintViolation(
+                trip_id=trip.id, rule_code="RM-13", severity=Severity.WARNING, message="Écart."
+            )
+        )
+    await db.flush()
+    result = await service.run_recompute(db, plan.id)
+    assert [(v.rule_code, v.trip_id) for v in result.violations] == [("RM-13", first.id)]

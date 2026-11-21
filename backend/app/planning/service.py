@@ -24,6 +24,7 @@ from app.core.enums import EventType, OrderStatus, PlanKind, PlanStatus, Severit
 from app.core.errors import ConflictError, RuleViolationError, ValidationAppError
 from app.core.settings_store import load_params
 from app.core.time import utcnow
+from app.orders import service as orders_service
 from app.orders.models import Order
 from app.planning import checking, editing, engine, mapping, versions
 from app.planning.checking import load_plan, log_event
@@ -280,6 +281,8 @@ async def run_recompute(
     for row in [t for t in plan.trips if str(t.id) not in frozen_ids]:
         plan.trips.remove(row)
     await session.flush()
+    # Les violations des tournées supprimées ont disparu en cascade : relire la collection.
+    await session.refresh(plan, ["violations"])
     by_seq: dict[int, Trip] = {}
     used = {t.seq for t in frozen}
     frozen_by_id = {str(t.id): t for t in frozen}
@@ -477,13 +480,14 @@ async def _sync_order_statuses(
         return 0, 0
     orders = list((await session.execute(select(Order).where(Order.id.in_(ids)))).scalars())
     total = await mapping.planned_elsewhere(session, ids)
-    planned = back = 0
+    to_plan, to_release = [], []
     for order in orders:
         full = total.get(order.id, 0.0) >= float(order.requested_l) - _EPSILON_L
         if full and order.status == OrderStatus.CONFIRMED:
-            order.status = OrderStatus.PLANNED
-            planned += 1
+            to_plan.append(order.id)
         elif not full and order.status == OrderStatus.PLANNED:
-            order.status = OrderStatus.CONFIRMED
-            back += 1
-    return planned, back
+            to_release.append(order.id)
+    # Transitions de statut : machine à états du module commandes (lot L4).
+    await orders_service.mark_planned(session, to_plan)
+    await orders_service.release_to_confirmed(session, to_release)
+    return len(to_plan), len(to_release)
