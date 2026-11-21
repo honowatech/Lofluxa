@@ -358,8 +358,9 @@ export function SelectField<T extends FieldValues>({
   disabled,
   options,
   emptyLabel,
+  autoFocus,
   ...rest
-}: Named<T> & { options: SelectOption[]; emptyLabel?: string }) {
+}: Named<T> & { options: SelectOption[]; emptyLabel?: string; autoFocus?: boolean }) {
   const { control } = useFormContext<T>();
   const error = useFieldError<T>(name);
   return (
@@ -373,6 +374,7 @@ export function SelectField<T extends FieldValues>({
               id={id}
               ref={field.ref}
               name={field.name}
+              autoFocus={autoFocus}
               aria-describedby={describedBy}
               aria-invalid={invalid}
               aria-required={rest.required}

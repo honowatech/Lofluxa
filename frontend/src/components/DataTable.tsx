@@ -17,6 +17,9 @@
  *     onRowActivate={openEditForm}           // Entrée ou double-clic
  *   />
  *
+ * Autres options : `footer` (ligne de totaux), `selectedRowIds` + `onSelectionChange` (sélection pilotée),
+ * `onCellError` / `meta.edit.onError` (échec d'édition), `meta.edit.options` en fonction de la ligne.
+ *
  * Sans `total`, le tableau trie, filtre et pagine lui-même les lignes reçues : c'est le mode à retenir pour
  * tout tableau triable, l'API n'offrant pas de tri (charger les lignes avec `resource.useAll()`).
  *
@@ -80,13 +83,19 @@ export interface CellEdit<T> {
   /** Valeur brute à modifier (défaut : valeur de la colonne). */
   getValue?: (row: T) => CellValue;
   /** Choix d'une colonne `select`. */
-  options?: { value: string; label: string }[];
+  /** Choix d'une colonne `select` : liste fixe, ou fonction de la ligne (choix dépendant de la ligne). */
+  options?: { value: string; label: string }[] | ((row: T) => { value: string; label: string }[]);
   /** Renvoie un message d'erreur, ou `undefined` si la valeur est acceptée. */
   validate?: (value: CellValue, row: T) => string | undefined;
   /** Enregistre la valeur ; une exception laisse la cellule en édition et notifie l'erreur. */
   onCommit: (row: T, value: CellValue) => void | Promise<unknown>;
   /** Désactive l'édition pour certaines lignes. */
   enabled?: (row: T) => boolean;
+  /**
+   * Traitement d'un échec de `onCommit`, à la place de la notification par défaut (ex. afficher les
+   * violations renvoyées). La cellule reste en édition dans tous les cas. Prioritaire sur `onCellError` du tableau.
+   */
+  onError?: (error: unknown, row: T) => void;
 }
 
 declare module "@tanstack/react-table" {
@@ -155,6 +164,20 @@ export interface DataTableProps<T> {
   serverSort?: boolean;
   /** Lignes après recherche, filtres et tri, toutes pages confondues (ex. points à afficher sur la carte). */
   onRowsChange?: (rows: T[]) => void;
+  /**
+   * Sélection pilotée de l'extérieur : identifiants (`getRowId`) des lignes sélectionnées. Fourni, le tableau
+   * ne garde plus la sélection lui-même : la mettre à jour dans `onSelectionChange` ; `[]` la remet à zéro.
+   */
+  selectedRowIds?: string[];
+  /** Appelé à chaque changement de sélection (pilotée ou non) : identifiants et lignes de la page affichée. */
+  onSelectionChange?: (ids: string[], rows: T[]) => void;
+  /**
+   * Pied de tableau (ligne de totaux), entre les lignes et la pagination. Contenu fixe, ou fonction des
+   * lignes retenues par la recherche et les filtres (toutes pages confondues).
+   */
+  footer?: ReactNode | ((rows: T[]) => ReactNode);
+  /** Traitement d'un échec d'édition de cellule, à la place de la notification par défaut. */
+  onCellError?: (error: unknown, row: T) => void;
   loading?: boolean;
   fetching?: boolean;
   error?: unknown;
@@ -265,6 +288,7 @@ function CellEditor<T>({
   initial,
   seed,
   onDone,
+  onError,
 }: {
   edit: CellEdit<T>;
   row: T;
@@ -272,6 +296,8 @@ function CellEditor<T>({
   /** Premier caractère tapé pour entrer en édition (remplace la valeur). */
   seed?: string;
   onDone: (result: "commit" | "cancel", move?: -1 | 1) => void;
+  /** Traitement d'erreur retenu (colonne, sinon tableau) ; absent = notification par défaut. */
+  onError?: (error: unknown, row: T) => void;
 }) {
   const [text, setText] = useState(
     seed ?? (initial === null ? "" : String(initial).replace(".", edit.type === "number" ? "," : ".")),
@@ -306,7 +332,8 @@ function CellEditor<T>({
       settled.current = true;
       onDone("commit", move);
     } catch (caught) {
-      notify.apiError(caught, fr.errors.saveFailed);
+      if (onError) onError(caught, row);
+      else notify.apiError(caught, fr.errors.saveFailed);
       setBusy(false);
     }
   };
@@ -347,7 +374,7 @@ function CellEditor<T>({
             setError(undefined);
           }}
         >
-          {(edit.options ?? []).map((option) => (
+          {(typeof edit.options === "function" ? edit.options(row) : (edit.options ?? [])).map((option) => (
             <option key={option.value} value={option.value}>
               {option.label}
             </option>
@@ -390,6 +417,10 @@ export function DataTable<T>({
   total,
   serverSort,
   onRowsChange,
+  selectedRowIds,
+  onSelectionChange,
+  footer,
+  onCellError,
   loading,
   fetching,
   error,
@@ -409,7 +440,33 @@ export function DataTable<T>({
   className,
 }: DataTableProps<T>) {
   const serverMode = total !== undefined;
-  const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
+  const [internalSelection, setInternalSelection] = useState<RowSelectionState>({});
+  const controlled = selectedRowIds !== undefined;
+  const selectionSignature = selectedRowIds?.join("|");
+  const rowSelection = useMemo<RowSelectionState>(
+    () =>
+      controlled ? Object.fromEntries((selectedRowIds ?? []).map((id) => [id, true])) : internalSelection,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [controlled, selectionSignature, internalSelection],
+  );
+  const selectionRef = useRef({ rowSelection, onSelectionChange, data: [] as T[] });
+  const setRowSelection = useCallback(
+    (updater: RowSelectionState | ((previous: RowSelectionState) => RowSelectionState)) => {
+      const current = selectionRef.current;
+      const next = typeof updater === "function" ? updater(current.rowSelection) : updater;
+      const ids = Object.keys(next).filter((id) => next[id]);
+      const before = Object.keys(current.rowSelection).filter((id) => current.rowSelection[id]);
+      if (ids.length === before.length && ids.every((id) => current.rowSelection[id])) return;
+      if (!controlled) setInternalSelection(next);
+      current.onSelectionChange?.(
+        ids,
+        current.data.filter((row) => next[getRowIdRef.current(row)]),
+      );
+    },
+    [controlled],
+  );
+  const getRowIdRef = useRef(getRowId);
+  getRowIdRef.current = getRowId;
   const [active, setActive] = useState({ row: 0, col: 0 });
   const [editing, setEditing] = useState<{ rowId: string; colId: string; seed?: string } | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
@@ -500,12 +557,20 @@ export function DataTable<T>({
     offset: state.pageIndex * state.pageSize,
   });
   const selectedRows = table.getSelectedRowModel().rows.map((row) => row.original);
+  selectionRef.current = { rowSelection, onSelectionChange, data: rows.map((row) => row.original) };
   const hasActiveFilters = state.search !== "" || Object.values(state.filters).some((v) => v !== "");
 
   // La sélection ne survit pas à un changement de page ou de filtre : pas d'action en masse sur des lignes invisibles.
+  const mounted = useRef(false);
   useEffect(() => {
+    // Pas au montage : une sélection initiale fournie par le parent doit être conservée.
+    if (!mounted.current) {
+      mounted.current = true;
+      return;
+    }
     setRowSelection({});
     setEditing(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.pageIndex, state.pageSize, state.search, filterSignature]);
 
   const allRows = table.getPrePaginationRowModel().rows;
@@ -896,6 +961,7 @@ export function DataTable<T>({
                           {isEditing && edit ? (
                             <CellEditor
                               edit={edit}
+                              onError={edit.onError ?? onCellError}
                               row={row.original}
                               seed={editing.seed}
                               initial={
@@ -944,6 +1010,12 @@ export function DataTable<T>({
           />
         )}
       </div>
+
+      {footer !== undefined && footer !== null && (
+        <div data-testid="table-footer" className="border-t bg-muted/40 px-2 py-1.5 text-xs">
+          {typeof footer === "function" ? footer(allRows.map((row) => row.original)) : footer}
+        </div>
+      )}
 
       {!hidePagination && (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t px-2 py-1 text-xs text-muted-foreground">

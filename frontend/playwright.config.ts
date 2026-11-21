@@ -35,6 +35,10 @@ export default defineConfig({
   webServer: [
     {
       command: "cd ../backend && uv run uvicorn app.main:app_instance --port 8000",
+      // La suite complète se connecte bien plus de 10 fois par minute depuis une seule adresse : le plafond
+      // de connexions est relevé pour l'API lancée par les tests (la protection reste active et testée :
+      // voir `e2e/l9-auth.ts`). Si une API tourne déjà, c'est SON réglage qui s'applique.
+      env: { TOURNEO_RATE_LIMIT_LOGIN: "600/minute" },
       url: "http://localhost:8000/api/v1/health",
       reuseExistingServer: true,
       timeout: 120_000,

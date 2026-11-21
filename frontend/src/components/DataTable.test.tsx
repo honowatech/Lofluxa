@@ -392,3 +392,147 @@ describe("DataTable — mode serveur", () => {
     expect(screen.getByText("Aucune station. Créez-en une.")).toBeInTheDocument();
   });
 });
+
+describe("DataTable — ajouts", () => {
+  it("pied de tableau : totaux des lignes retenues par les filtres, toutes pages confondues", async () => {
+    const user = userEvent.setup();
+    render(
+      <Harness
+        initial={{ pageSize: 2 }}
+        filters={[{ id: "status", label: "Statut", options: [{ value: "open", label: "Ouvert" }] }]}
+        footer={(rows) =>
+          `Total : ${rows.reduce((sum, row) => sum + row.volume, 0)} L sur ${rows.length} lignes`
+        }
+      />,
+    );
+    expect(screen.getByTestId("table-footer")).toHaveTextContent("Total : 49000 L sur 5 lignes");
+    await user.selectOptions(screen.getByRole("combobox", { name: "Statut" }), "open");
+    expect(screen.getByTestId("table-footer")).toHaveTextContent("Total : 32000 L sur 3 lignes");
+  });
+
+  it("sans `footer`, aucun pied ; un contenu fixe est accepté", () => {
+    const { rerender } = render(<Harness />);
+    expect(screen.queryByTestId("table-footer")).not.toBeInTheDocument();
+    rerender(<Harness footer={<strong>Totaux</strong>} />);
+    expect(screen.getByTestId("table-footer")).toHaveTextContent("Totaux");
+  });
+
+  it("sélection pilotée de l'extérieur : lecture, puis remise à zéro par le parent", async () => {
+    const user = userEvent.setup();
+    const seen: string[][] = [];
+    function Controlled() {
+      const [ids, setIds] = useState<string[]>(["2"]);
+      return (
+        <>
+          <button onClick={() => setIds([])}>vider</button>
+          <output>{ids.join(",")}</output>
+          <Harness
+            selectable
+            selectedRowIds={ids}
+            onSelectionChange={(next, rows) => {
+              seen.push(rows.map((row) => row.name));
+              setIds(next);
+            }}
+          />
+        </>
+      );
+    }
+    render(<Controlled />);
+    expect(bodyRows()[1]).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText("1 ligne sélectionnée")).toBeInTheDocument();
+    cell(0, 1).focus();
+    await user.keyboard(" ");
+    expect(screen.getByRole("status").textContent?.split(",").sort()).toEqual(["1", "2"]);
+    expect(seen[seen.length - 1].sort()).toEqual(["Akwa", "Bonanjo"]);
+    await user.click(screen.getByRole("button", { name: "vider" }));
+    expect(screen.queryByText(/sélectionnée/)).not.toBeInTheDocument();
+    expect(bodyRows()[0]).toHaveAttribute("aria-selected", "false");
+  });
+
+  it("`onSelectionChange` sans pilotage : le tableau garde la sélection et la signale", async () => {
+    const user = userEvent.setup();
+    const onSelectionChange = vi.fn();
+    render(<Harness selectable onSelectionChange={onSelectionChange} />);
+    cell(2, 1).focus();
+    await user.keyboard(" ");
+    expect(onSelectionChange).toHaveBeenLastCalledWith(["3"], [ROWS[2]]);
+    expect(screen.getByText("1 ligne sélectionnée")).toBeInTheDocument();
+  });
+
+  it("choix d'une cellule en fonction de la ligne", async () => {
+    const user = userEvent.setup();
+    const cols: ColumnDef<Row, unknown>[] = [
+      { accessorKey: "name", header: "Nom" },
+      {
+        accessorKey: "status",
+        header: "Statut",
+        meta: {
+          edit: {
+            type: "select",
+            onCommit: vi.fn(),
+            options: (row) =>
+              row.status === "open"
+                ? [
+                    { value: "open", label: "Ouvert" },
+                    { value: "closed", label: "Fermer" },
+                  ]
+                : [
+                    { value: "closed", label: "Fermé" },
+                    { value: "open", label: "Rouvrir" },
+                  ],
+          },
+        },
+      },
+    ];
+    render(<Harness columns={cols} />);
+    cell(0, 1).focus();
+    await user.keyboard("{Enter}");
+    expect(
+      within(cell(0, 1))
+        .getAllByRole("option")
+        .map((o) => o.textContent),
+    ).toEqual(["Ouvert", "Fermer"]);
+    await user.keyboard("{Escape}");
+    cell(1, 1).focus();
+    await user.keyboard("{Enter}");
+    expect(
+      within(cell(1, 1))
+        .getAllByRole("option")
+        .map((o) => o.textContent),
+    ).toEqual(["Fermé", "Rouvrir"]);
+  });
+
+  it("échec d'édition : traitement remplaçable par le tableau ou par la colonne (prioritaire)", async () => {
+    const user = userEvent.setup();
+    const failure = new Error("RM-05 : compartiment en surcharge");
+    const onCellError = vi.fn();
+    const onColumnError = vi.fn();
+    const cols: ColumnDef<Row, unknown>[] = [
+      {
+        accessorKey: "name",
+        header: "Nom",
+        meta: { edit: { type: "text", onCommit: vi.fn().mockRejectedValue(failure) } },
+      },
+      {
+        accessorKey: "volume",
+        header: "Volume",
+        meta: {
+          edit: { type: "number", onCommit: vi.fn().mockRejectedValue(failure), onError: onColumnError },
+        },
+      },
+    ];
+    render(<Harness columns={cols} onCellError={onCellError} />);
+    cell(0, 0).focus();
+    await user.keyboard("{Enter}");
+    await user.type(within(cell(0, 0)).getByRole("textbox"), "x{Enter}");
+    await waitFor(() => expect(onCellError).toHaveBeenCalledWith(failure, ROWS[0]));
+    expect(within(cell(0, 0)).getByRole("textbox")).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+
+    cell(0, 1).focus();
+    await user.keyboard("{Enter}");
+    await user.type(within(cell(0, 1)).getByRole("textbox"), "1{Enter}");
+    await waitFor(() => expect(onColumnError).toHaveBeenCalledWith(failure, ROWS[0]));
+    expect(onCellError).toHaveBeenCalledTimes(1);
+  });
+});

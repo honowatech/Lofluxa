@@ -14,6 +14,7 @@ import {
   formatLocalTime,
   formatNumber,
   formatPercent,
+  formatSeconds,
   hmToSeconds,
   isValidDay,
   parseDecimal,
@@ -54,6 +55,13 @@ describe("formatage", () => {
     expect(formatDuration(0, { seconds: true })).toBe(nbsp("0 s"));
     expect(formatDuration(60, { seconds: true })).toBe(nbsp("1 min"));
     expect(formatDuration(7500, { seconds: true })).toBe(nbsp("2 h 05"));
+  });
+
+  it("formatSeconds : durée courte avec décimales", () => {
+    expect(formatSeconds(5.34)).toBe(nbsp("5,3 s"));
+    expect(formatSeconds(0.25, 2)).toBe(nbsp("0,25 s"));
+    expect(formatSeconds(45, 0)).toBe(nbsp("45 s"));
+    expect(formatSeconds(null)).toBe(EMPTY);
   });
 
   it("formatLocalTime : HH:mm en heure de Douala (UTC+1), RM-20", () => {

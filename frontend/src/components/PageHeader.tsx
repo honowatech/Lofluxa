@@ -33,7 +33,7 @@ export function Notice({
   action,
   className,
 }: {
-  tone?: "info" | "warning" | "blocking" | "neutral";
+  tone?: "info" | "success" | "warning" | "blocking" | "neutral";
   icon?: ReactNode;
   children: ReactNode;
   action?: ReactNode;
@@ -41,6 +41,7 @@ export function Notice({
 }) {
   const tones = {
     info: "border-info/30 bg-info-soft text-info",
+    success: "border-success/30 bg-success-soft text-success",
     warning: "border-warning/35 bg-warning-soft text-warning",
     blocking: "border-blocking/35 bg-blocking-soft text-blocking",
     neutral: "border-border bg-muted text-muted-foreground",
