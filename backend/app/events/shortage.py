@@ -328,7 +328,7 @@ async def declare(session: AsyncSession, payload: ProductShortageIn, user: User)
             "related_trip_ids": [item["trip_id"] for item in analysis.impacted],
             "resolutions": [],
         },
-        occurred_at=utcnow(),
+        occurred_at=payload.occurred_at or utcnow(),
         actor_id=user.id,
     )
     session.add(event)
@@ -427,16 +427,11 @@ async def _reduce(
                 )
             changes.append((delivery, float(delivery.planned_l), item.planned_l))
     else:
-        day = date.fromisoformat(payload["day"])
-        depot_id = uuid.UUID(payload["depot_id"])
-        entry = (await availability_service.current_depot_stocks(session, day)).get((depot_id, product_id))
-        stock = float(entry.available_l) if entry is not None else float(payload["new_available_l"])
-        others = 0.0
-        for other_plan in await current_plans(session, day, prefer_draft=True):
-            for other in other_plan.trips:
-                if other.id != trip.id and other.depot_id == depot_id:
-                    others += _volume(other, product_id)
-        target = min(need, max(stock - others, 0.0))
+        # Même calcul que `GET /events/{id}/impact` : ce que l'analyse annonce comme couvert pour
+        # cette tournée est ce que la réduction accorde, quel que soit l'ordre de traitement.
+        live = await _live(session, payload)
+        entry = next((item for item in live.impacted if item["trip_id"] == str(trip.id)), None)
+        target = need if entry is None else float(entry["covered_l"])
         if target <= _EPSILON_L:
             raise ValidationAppError(
                 f"Il ne reste plus de {payload['product_code']} pour la tournée {trip.seq} : la réduction "
@@ -557,11 +552,6 @@ async def resolve(session: AsyncSession, event_id: uuid.UUID, body: ResolveIn) -
     working: dict[uuid.UUID, service.Located] = {}
     records: dict[uuid.UUID, list[dict[str, Any]]] = {}
     for decision in body.resolutions:
-        # Le chargement réel reste attaché à la tournée de la version où il a été saisi : on le
-        # cherche aussi sur la tournée désignée par le client, avant toute création de version.
-        source_loaded = (
-            await session.execute(select(Loading.id).where(Loading.trip_id == decision.trip_id))
-        ).first() is not None
         located = await service.locate(
             session, decision.trip_id, reason="Pénurie produit au dépôt", follow_archived=True
         )
@@ -573,7 +563,7 @@ async def resolve(session: AsyncSession, event_id: uuid.UUID, body: ResolveIn) -
                 f"{payload['depot_code']}.",
                 code="trip_not_concerned",
             )
-        if source_loaded or trip.id in await _loaded_trip_ids(session, [plan]):
+        if trip.id in await _loaded_trip_ids(session, [plan]):
             raise ConflictError(
                 f"La tournée {trip.seq} est déjà chargée : elle n'est pas concernée par la pénurie.",
                 code="trip_already_loaded",
@@ -602,13 +592,17 @@ async def resolve(session: AsyncSession, event_id: uuid.UUID, body: ResolveIn) -
             }
         )
 
+    # Commandes reportées : les autres brouillons qui les portent sont recontrôlés (lot L5).
+    postponed = [uuid.UUID(o) for rows in records.values() for r in rows for o in r.get("order_ids", [])]
+    await planning_service.recheck_drafts_for_orders(session, postponed)
+
     results: list[PlanResultOut] = []
     for plan_id, located in working.items():
         await planning_service.recheck_plan(session, plan_id)
         plan = await load_plan(session, plan_id)
         publish = service.will_publish(plan, body.publish, located.created)
         parts = "; ".join(f"tournée {r['trip_seq']} — {r['text']}" for r in records[plan_id])
-        log_event(
+        edit = log_event(
             session,
             plan,
             EventType.MANUAL_EDIT,
@@ -626,6 +620,8 @@ async def resolve(session: AsyncSession, event_id: uuid.UUID, body: ResolveIn) -
                 "published": publish,
             },
         )
+        if body.occurred_at is not None:
+            edit.occurred_at = body.occurred_at
         await session.flush()
         results.append(
             await service.plan_result(
