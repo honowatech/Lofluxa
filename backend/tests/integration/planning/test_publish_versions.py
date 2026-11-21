@@ -459,3 +459,146 @@ async def test_rejeu_commandes_imposees_sans_toucher_aux_statuts(db, world, fake
         await service.publish_plan(db, replay.id)
     assert excinfo.value.code == "plan_kind_not_publishable"
     assert await _statuses(db, world) == before
+
+
+async def test_build_problem_ressources_desactivees_ou_supprimees_depuis(db, world, fakes):
+    """Rejeu ou journée de référence d'un jour passé : les ressources désignées sont retrouvées
+    même désactivées ou supprimées depuis."""
+    from app.core.time import utcnow
+
+    world.depot.active = False
+    world.trucks["LT-001-AA"].deleted_at = utcnow()
+    world.drivers["Che"].deleted_at = utcnow()
+    world.stations["ST-01"].active = False
+    await db.commit()
+    ids = [world.orders["o1"].id]
+
+    bare = await service.build_problem(db, world.day, order_ids=ids)
+    assert bare.depots == [] and len(bare.trucks) == 1 and len(bare.drivers) == 2
+    assert [s.code for s in bare.stations] == ["ST-01"]  # station des commandes : toujours incluse
+
+    full = await service.build_problem(
+        db,
+        world.day,
+        order_ids=ids,
+        extra_depot_ids=[world.depot.id],
+        extra_truck_ids=[world.trucks["LT-001-AA"].id],
+        extra_driver_ids=[world.drivers["Che"].id],
+    )
+    assert [d.code for d in full.depots] == ["SCDP-DLA"]
+    assert {t.plate for t in full.trucks} == {"LT-001-AA", "LT-002-BB"}
+    assert {d.full_name for d in full.drivers} == {"Abena", "Biya", "Che"}
+
+
+async def test_journee_de_reference_jamais_recontrolee(db, plan, dispatcher):
+    """Aucun chemin du service ne réécrit les métriques, horaires ou violations d'un plan
+    `manual_reference` (estimé une fois à l'import par le lot L7)."""
+    from app.core.enums import PlanKind
+    from app.planning import checking, editing, versions
+    from app.planning.models import ConstraintViolation
+
+    plan.kind = PlanKind.MANUAL_REFERENCE
+    plan.metrics = {**plan.metrics, "comparison": {"total_km": 42.0}}
+    plan.violations.append(
+        ConstraintViolation(rule_code="RM-15", severity=Severity.BLOCKING, message="Urgente non servie.")
+    )
+    await db.commit()
+    plan_id, trip_id = plan.id, plan.trips[0].id
+    stop_ids = [s.id for s in plan.trips[0].stops]
+    before = dict(plan.metrics)
+
+    attempts = [
+        lambda: service.recheck_plan(db, plan_id),
+        lambda: checking.recheck(db, plan),
+        lambda: service.run_recompute(db, plan_id),
+        lambda: service.publish_plan(db, plan_id),
+        lambda: service.new_version(db, plan_id, reason="Essai"),
+        lambda: versions.restore_version(db, plan_id, 1),
+        lambda: editing.reorder_stops(db, plan_id, trip_id, stop_ids),
+        lambda: editing.set_locked(db, plan_id, trip_id, True),
+    ]
+    for attempt in attempts:
+        with pytest.raises(ConflictError):
+            await attempt()
+    await db.rollback()
+
+    reloaded = await load_plan(db, plan_id)
+    assert reloaded.metrics == before and reloaded.metrics["comparison"] == {"total_km": 42.0}
+    assert [v.rule_code for v in reloaded.violations] == ["RM-15"]
+    assert reloaded.status == PlanStatus.DRAFT
+
+
+async def _record_loading(db, trip):
+    from decimal import Decimal as D
+
+    from app.loading.models import Loading, LoadingLine
+
+    load = trip.compartment_loads[0]
+    loading = Loading(
+        trip_id=trip.id,
+        depot_id=trip.depot_id,
+        depot_ticket_no="BL-2027-0042",
+        lines=[
+            LoadingLine(
+                compartment_id=load.compartment_id,
+                product_id=load.product_id,
+                observed_l=D("16100"),
+                observed_temp_c=D("28.5"),
+                volume_15_l=D("15839.18"),
+                planned_l=load.planned_l,
+            )
+        ],
+    )
+    db.add(loading)
+    await db.flush()
+    return loading
+
+
+async def test_RM_19_nouvelle_version_reprend_le_chargement_reel(db, plan, dispatcher):
+    """Le chargement enregistré (lot L6) suit la tournée dans la nouvelle version, avec statuts et
+    réalisés ; la version publiée garde le sien (jamais écrasée)."""
+    from app.core.enums import StopStatus
+    from app.loading.models import Loading
+
+    await service.publish_plan(db, plan.id)
+    published = await load_plan(db, plan.id)
+    trip = published.trips[0]
+    original = await _record_loading(db, trip)
+    trip.status = TripStatus.IN_PROGRESS
+    trip.stops[0].status = StopStatus.DELIVERED
+    trip.stops[0].deliveries[0].actual_l = Decimal("9950")
+    await db.flush()
+
+    copy, ids = await service.new_version_with_ids(db, plan.id, reason="Panne du camion")
+    new_trip = next(t for t in copy.trips if t.id == ids.trip(trip.id))
+    assert new_trip.status == TripStatus.IN_PROGRESS
+    assert new_trip.stops[0].status == StopStatus.DELIVERED
+    assert new_trip.stops[0].deliveries[0].actual_l == Decimal("9950")
+
+    loadings = {x.trip_id: x for x in (await db.execute(select(Loading))).scalars()}
+    assert set(loadings) == {trip.id, new_trip.id}
+    copied = loadings[new_trip.id]
+    assert copied.id != original.id and copied.depot_ticket_no == "BL-2027-0042"
+    assert [(x.observed_l, x.observed_temp_c, x.volume_15_l) for x in copied.lines] == [
+        (Decimal("16100"), Decimal("28.5"), Decimal("15839.18"))
+    ]
+    assert len(loadings[trip.id].lines) == 1  # l'ancienne version garde son relevé
+
+
+async def test_tournee_chargee_ni_videe_ni_recalculee(client, auth_headers, db, plan, fakes):
+    from app.loading.models import Loading
+
+    first, second = plan.trips
+    await _record_loading(db, second)
+    await db.commit()
+    plan_id, second_id = plan.id, second.id
+    move = {"stop_id": str(second.stops[0].id), "to_trip_id": str(first.id), "to_seq": 1}
+    response = await client.post(
+        f"/plans/{plan_id}/trips/{second_id}/move-stop", json=move, headers=await auth_headers()
+    )
+    assert response.status_code == 409 and response.json()["code"] == "trip_already_loaded"
+    assert "chargement" in response.json()["message"]
+
+    result = await service.run_recompute(db, plan_id)
+    assert second_id in {t.id for t in result.trips}  # figée par le recalcul
+    assert (await db.execute(select(Loading.trip_id))).scalars().all() == [second_id]

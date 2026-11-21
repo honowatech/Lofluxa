@@ -24,6 +24,7 @@ from app.core.db import new_id
 from app.core.enums import EventType, PlanKind, PlanStatus
 from app.core.errors import ConflictError, NotFoundError
 from app.events.models import Event
+from app.loading.models import Loading, LoadingLine
 from app.planning.checking import load_plan, log_event, recheck, root_id
 from app.planning.models import (
     ConstraintViolation,
@@ -143,6 +144,7 @@ async def copy_plan(session: AsyncSession, source: Plan, *, version: int) -> tup
     session.add(copy)
     # Les violations désignent tournées et arrêts par simple identifiant : ceux-ci doivent exister.
     await session.flush()
+    await _copy_loadings(session, ids)
     for violation in source.violations:
         copy.violations.append(
             ConstraintViolation(
@@ -154,6 +156,39 @@ async def copy_plan(session: AsyncSession, source: Plan, *, version: int) -> tup
             )
         )
     return copy, ids
+
+
+async def _copy_loadings(session: AsyncSession, ids: IdMap) -> None:
+    """Recopie le chargement réel (lot L6) de chaque tournée sur sa copie : la nouvelle version
+    garde ce qui a déjà été chargé (RM-19), l'ancienne version garde son relevé (jamais écrasée)."""
+    if not ids.trips:
+        return
+    rows = await session.execute(select(Loading).where(Loading.trip_id.in_(ids.trips)))
+    for loading in rows.scalars():
+        session.add(
+            Loading(
+                trip_id=ids.trips[loading.trip_id],
+                depot_id=loading.depot_id,
+                arrived_at=loading.arrived_at,
+                started_at=loading.started_at,
+                finished_at=loading.finished_at,
+                depot_ticket_no=loading.depot_ticket_no,
+                entered_by=loading.entered_by,
+                lines=[
+                    LoadingLine(
+                        compartment_id=line.compartment_id,
+                        product_id=line.product_id,
+                        observed_l=line.observed_l,
+                        observed_temp_c=line.observed_temp_c,
+                        observed_density=line.observed_density,
+                        volume_15_l=line.volume_15_l,
+                        planned_l=line.planned_l,
+                    )
+                    for line in loading.lines
+                ],
+            )
+        )
+    await session.flush()
 
 
 async def create_version(session: AsyncSession, plan: Plan, *, reason: str) -> tuple[Plan, IdMap]:

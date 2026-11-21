@@ -497,7 +497,15 @@ async def estimate_plan(session: AsyncSession, plan: Plan, order_ids: list[uuid.
     pour un plan du moteur : même problème (`build_problem`), même matrice (`build_matrix`), mêmes
     horaires (`schedule_trip`), même répartition par compartiment (`assign_compartments`), mêmes
     règles (`check_plan`) — comparaison à armes égales."""
-    problem: PlanningProblem = await plan_service.build_problem(session, plan.day, order_ids=order_ids)
+    problem: PlanningProblem = await plan_service.build_problem(
+        session,
+        plan.day,
+        order_ids=order_ids,
+        # Ressources de la journée passée, même désactivées ou supprimées depuis (lot L5).
+        extra_depot_ids={t.depot_id for t in plan.trips},
+        extra_truck_ids={t.truck_id for t in plan.trips},
+        extra_driver_ids={t.driver_id for t in plan.trips if t.driver_id},
+    )
 
     depots = {d.id: d for d in problem.depots}
     stations = {s.id: s for s in problem.stations}

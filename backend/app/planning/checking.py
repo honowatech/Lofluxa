@@ -17,11 +17,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.context import current_user_id
-from app.core.enums import EventType, OrderStatus, Severity
-from app.core.errors import NotFoundError
+from app.core.enums import EventType, OrderStatus, PlanKind, Severity
+from app.core.errors import ConflictError, NotFoundError
 from app.core.settings_store import load_params
 from app.core.time import utcnow
 from app.events.models import Event
+from app.loading.models import Loading
 from app.orders.models import Order
 from app.planning import mapping, timing
 from app.planning.domain import Matrix, Params, PlanningProblem, TripD, UnservedD, ViolationD
@@ -57,6 +58,25 @@ async def load_plan(session: AsyncSession, plan_id: uuid.UUID, *, for_update: bo
     if plan is None:
         raise NotFoundError("Plan introuvable.")
     return plan
+
+
+def ensure_not_reference(plan: Plan) -> None:
+    """Une journée de référence (`manual_reference`) est le relevé de ce qui a réellement été fait,
+    estimé une fois à l'import (lot L7) : elle n'est ni modifiée, ni recalculée, ni recontrôlée —
+    ses horaires, violations et métriques ne sont jamais réécrits par le service de plans."""
+    if plan.kind == PlanKind.MANUAL_REFERENCE:
+        raise ConflictError(
+            "Ce plan est une journée de référence importée : il ne peut être ni modifié ni recalculé.",
+            code="plan_is_reference",
+        )
+
+
+async def loaded_trip_ids(session: AsyncSession, plan: Plan) -> set[uuid.UUID]:
+    """Tournées du plan qui ont un chargement enregistré (lot L6)."""
+    ids = [t.id for t in plan.trips]
+    if not ids:
+        return set()
+    return set((await session.execute(select(Loading.trip_id).where(Loading.trip_id.in_(ids)))).scalars())
 
 
 def root_id(plan: Plan) -> uuid.UUID:
@@ -204,6 +224,7 @@ async def recheck(
 ) -> list[ViolationD]:
     """Recalcule et enregistre horaires, distances, plan de chargement, violations et métriques
     d'un plan chargé par `load_plan` (F5.2). Un plan avec violations est enregistré tel quel."""
+    ensure_not_reference(plan)
     await session.flush()
     if problem is None:
         problem = await plan_problem(session, plan)
