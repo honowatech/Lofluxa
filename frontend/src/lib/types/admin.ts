@@ -1,71 +1,40 @@
-import type { IsoDateTime, Role, UUID } from "./common";
-import type { ImportKind, ImportStatus } from "./enums";
+/** Administration (lot L8) et imports (lot L3) : alias des schémas générés. */
+import type { Refine, Schema } from "./schemas";
 
-export interface User {
-  id: UUID;
-  email: string;
-  full_name: string;
-  role: Role;
-  active: boolean;
-  last_login_at: IsoDateTime | null;
-  created_at?: IsoDateTime;
-}
-export interface UserCreateInput {
-  email: string;
-  full_name: string;
-  role: Role;
-  password: string;
-}
-/** Mise à jour partielle ; `password` renseigné = réinitialisation du mot de passe par l'administrateur. */
-export interface UserUpdateInput {
-  full_name?: string;
-  role?: Role;
-  active?: boolean;
-  password?: string;
-}
+export type User = Schema<"UserOut">;
+export type UserCreateInput = Schema<"UserCreate">;
+/** `PUT /users/{id}` : mise à jour partielle. Le mot de passe passe par `POST /users/{id}/reset-password`. */
+export type UserUpdateInput = Schema<"UserUpdate">;
 
 export type SettingValue = string | number | boolean | null;
-/** Une entrée de `GET /settings` (forme normalisée par `normalizeSettings`). */
-export interface Setting {
-  key: string;
-  value: SettingValue;
-  default_value?: SettingValue;
-  description?: string | null;
-  updated_at?: IsoDateTime | null;
-  updated_by?: UUID | null;
-}
+/** Type déclaré par le serveur (`admin/settings_spec.py`). */
+export type SettingType = "int" | "float" | "str" | "bool" | "time" | "timezone" | "json";
+/** Une entrée de `GET /settings`. L'OpenAPI ne type ni la valeur ni le nom du type : précisés ici. */
+export type Setting = Refine<
+  Schema<"SettingOut">,
+  { value: SettingValue; default: SettingValue; type: SettingType; nullable?: boolean }
+>;
 
 export type AuditAction = "insert" | "update" | "delete";
-export interface AuditEntry {
-  id: UUID;
-  table_name: string;
-  row_id: string;
-  action: AuditAction;
-  before: Record<string, unknown> | null;
-  after: Record<string, unknown> | null;
-  actor_id: UUID | null;
-  /** Libellé d'affichage (CONTRATS §7) ; repli sur `actor_id` s'il est absent. */
-  actor_name?: string | null;
-  at: IsoDateTime;
-}
+export type AuditEntry = Refine<
+  Schema<"AuditEntryOut">,
+  { action: AuditAction; before: Record<string, unknown> | null; after: Record<string, unknown> | null }
+>;
 
-/** Une ligne du rapport d'import (forme normalisée par `normalizeImportBatch`). */
+/** Anomalie d'un fichier importé : ligne (`null` ou absente = fichier entier), colonne, valeur fautive, message. */
+export type ImportIssue = Schema<"RowIssue">;
+export type ImportFieldChange = Schema<"FieldChange">;
+/** Effet annoncé d'un enregistrement du fichier. */
+export type ImportItem = Schema<"ImportItem">;
+export type ImportSummary = Schema<"ImportSummary">;
+/** Réponse de `preview`, `apply` et `GET /imports/{id}`. `can_apply` fait foi. */
+export type ImportBatch = Schema<"ImportBatchOut">;
+
+/** @deprecated Ancienne forme supposée du rapport d'import ; utiliser `ImportItem` / `ImportIssue` (ou `importReportRows`). */
 export interface ImportRowReport {
-  /** Numéro de ligne dans le fichier (en-tête = ligne 1). */
   row: number;
   status: "ok" | "error" | "warning";
-  /** create | update | skip, si le serveur le précise. */
   action?: string | null;
   errors: { field?: string | null; message: string }[];
-  /** Données normalisées de la ligne, pour l'aperçu. */
   data?: Record<string, unknown> | null;
-}
-export interface ImportBatch {
-  id: UUID;
-  kind: ImportKind;
-  filename: string;
-  status: ImportStatus;
-  row_count: number;
-  error_count: number;
-  rows: ImportRowReport[];
 }

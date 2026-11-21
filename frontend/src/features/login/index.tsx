@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { fr } from "@/i18n/fr";
-import { errorMessage } from "@/lib/api/errors";
+import { errorMessage, isApiError } from "@/lib/api/errors";
 import { useSession } from "@/lib/auth/session";
 
 const schema = z.object({
@@ -49,7 +49,12 @@ export default function LoginPage() {
       const me = await login(values.email, values.password);
       navigate(target(me.role), { replace: true });
     } catch (error) {
-      setFailure(errorMessage(error));
+      // 429 `rate_limited` : le serveur indique le délai à respecter (en-tête Retry-After).
+      const wait =
+        isApiError(error) && error.isRateLimited && error.retryAfter
+          ? ` ${fr.auth.retryIn(error.retryAfter)}`
+          : "";
+      setFailure(`${errorMessage(error)}${wait}`);
       setFocus("password");
     }
   });

@@ -1,4 +1,3 @@
-import { useQueryClient } from "@tanstack/react-query";
 import type { ColumnDef } from "@tanstack/react-table";
 import { Plus, TriangleAlert, X } from "lucide-react";
 import { Controller, useFieldArray, useFormContext, useWatch } from "react-hook-form";
@@ -28,17 +27,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { fr } from "@/i18n/fr";
 import { EMPTY, formatLiters, formatNumber } from "@/lib/format";
-import {
-  TRUCK_SIZES,
-  TRUCK_STATUSES,
-  type Product,
-  type Truck,
-  type TruckCompartment,
-  type TruckStatus,
-} from "@/lib/types";
+import { TRUCK_SIZES, TRUCK_STATUSES, type Product, type Truck, type TruckStatus } from "@/lib/types";
 
 import { CrudTab } from "./CrudTab";
-import { carriers, products, truckCompartments, trucks } from "./resources";
+import { carriers, products, trucks } from "./resources";
 import { Mono, Muted, options } from "./shared";
 
 /** Liste vide stable (évite de recréer les colonnes tant que les données chargent). */
@@ -51,7 +43,7 @@ const schema = z.object({
   carrier_id: z.string().nullable(),
   size: z.enum(TRUCK_SIZES),
   total_capacity_l: zLiters(),
-  avg_speed_kmh: zOptionalNumber({ min: 5, max: 120 }),
+  avg_speed_kmh: zOptionalNumber({ min: 1, max: 150 }),
   status: z.enum(TRUCK_STATUSES),
   cost_per_km: zOptionalNumber({ min: 0, integer: true }),
   notes: zOptionalText(1000),
@@ -225,60 +217,14 @@ function CompartmentRow({
   );
 }
 
-const sameProducts = (a: string[] | null, b: string[] | null) =>
-  a === null || b === null ? a === b : a.length === b.length && [...a].sort().join() === [...b].sort().join();
-
-/**
- * Rapproche les compartiments. Les positions sont uniques par camion : celles qui changent passent
- * d'abord par une position provisoire (≥ 1000) pour qu'un échange 1 ↔ 2 ne heurte pas la contrainte.
- */
-async function syncCompartments(
-  truckId: string,
-  before: TruckCompartment[],
-  after: z.output<typeof schema>["compartments"],
-) {
-  const kept = new Set(after.map((c) => c.server_id).filter(Boolean));
-  for (const existing of before)
-    if (!kept.has(existing.id)) await truckCompartments.remove(truckId, existing.id);
-
-  const target = after.map((compartment, index) => ({ ...compartment, position: index + 1 }));
-  const moved = target.filter(
-    (c) => c.server_id && before.find((b) => b.id === c.server_id)?.position !== c.position,
-  );
-  for (const c of moved) {
-    await truckCompartments.update(truckId, c.server_id as string, {
-      position: 1000 + c.position,
-      capacity_l: c.capacity_l,
-      allowed_product_ids: c.allowed_product_ids,
-    });
-  }
-  for (const c of target) {
-    const input = {
-      position: c.position,
-      capacity_l: c.capacity_l,
-      allowed_product_ids: c.allowed_product_ids,
-    };
-    const existing = c.server_id ? before.find((b) => b.id === c.server_id) : undefined;
-    if (!existing) await truckCompartments.create(truckId, input);
-    else if (
-      moved.includes(c) ||
-      existing.capacity_l !== c.capacity_l ||
-      !sameProducts(existing.allowed_product_ids, c.allowed_product_ids)
-    ) {
-      await truckCompartments.update(truckId, existing.id, input);
-    }
-  }
-}
-
 export function TrucksTab({ canWrite }: { canWrite: boolean }) {
   const productList = products.useAll().data ?? NONE;
   const carrierList = carriers.useAll().data ?? NONE;
   const create = trucks.useCreate();
   const update = trucks.useUpdate();
-  const queryClient = useQueryClient();
   const carrierOptions = carrierList.map((carrier) => ({ value: carrier.id, label: carrier.name }));
   const setStatus = (rows: Truck[], status: TruckStatus) =>
-    Promise.all(rows.map((row) => update.mutateAsync({ id: row.id, input: { ...toInput(row), status } })));
+    Promise.all(rows.map((row) => update.mutateAsync({ id: row.id, input: { status } })));
 
   // Colonnes mémorisées : une nouvelle définition à chaque rendu remonterait toutes les cellules (menus, édition).
   const columns = useMemo<ColumnDef<Truck, unknown>[]>(
@@ -292,10 +238,7 @@ export function TrucksTab({ canWrite }: { canWrite: boolean }) {
       {
         accessorKey: "carrier_name",
         header: t.carrier,
-        cell: ({ row }) =>
-          row.original.carrier_name ??
-          carrierList.find((c) => c.id === row.original.carrier_id)?.name ??
-          EMPTY,
+        cell: ({ row }) => row.original.carrier_name ?? EMPTY,
       },
       {
         accessorKey: "size",
@@ -362,14 +305,20 @@ export function TrucksTab({ canWrite }: { canWrite: boolean }) {
       },
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [carrierList, canWrite],
+    [canWrite],
   );
 
+  // Les compartiments partent avec le camion ; leur position est leur rang dans la liste.
   const save = async (values: z.output<typeof schema>, row: Truck | null) => {
-    const { compartments, ...input } = values;
-    const saved = row ? await update.mutateAsync({ id: row.id, input }) : await create.mutateAsync(input);
-    await syncCompartments(saved.id, row?.compartments ?? [], compartments);
-    await queryClient.invalidateQueries({ queryKey: trucks.keys.all });
+    const input = {
+      ...values,
+      compartments: values.compartments.map(({ server_id: _id, ...compartment }, index) => ({
+        ...compartment,
+        position: index + 1,
+      })),
+    };
+    if (row) await update.mutateAsync({ id: row.id, input });
+    else await create.mutateAsync(input);
   };
 
   return (
@@ -459,16 +408,4 @@ export function TrucksTab({ canWrite }: { canWrite: boolean }) {
       )}
     />
   );
-}
-
-function toInput(row: Truck) {
-  const {
-    id: _id,
-    compartments: _compartments,
-    carrier_name: _carrier,
-    created_at: _created,
-    updated_at: _updated,
-    ...input
-  } = row;
-  return input;
 }

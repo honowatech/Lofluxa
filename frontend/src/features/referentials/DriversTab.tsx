@@ -48,18 +48,6 @@ const schema = z
   // Sans habilitation, pas de date d'expiration à conserver.
   .transform((values) => (values.hazmat_cert ? values : { ...values, hazmat_expiry: null }));
 
-function toInput(row: Driver) {
-  const {
-    id: _id,
-    carrier_name: _carrier,
-    default_truck_plate: _plate,
-    created_at: _created,
-    updated_at: _updated,
-    ...input
-  } = row;
-  return input;
-}
-
 function HazmatExpiry({ control }: { control: Control<z.input<typeof schema>> }) {
   const certified = useWatch({ control, name: "hazmat_cert" });
   return <DateField name="hazmat_expiry" label={t.hazmatExpiry} disabled={!certified} required={false} />;
@@ -112,23 +100,14 @@ export function DriversTab({ canWrite }: { canWrite: boolean }) {
       {
         accessorKey: "carrier_name",
         header: t.carrier,
-        cell: ({ row }) =>
-          row.original.carrier_name ??
-          carrierList.find((c) => c.id === row.original.carrier_id)?.name ??
-          EMPTY,
+        cell: ({ row }) => row.original.carrier_name ?? EMPTY,
       },
       {
         accessorKey: "default_truck_plate",
         header: t.defaultTruck,
         enableSorting: false,
         meta: { className: "w-32" },
-        cell: ({ row }) => (
-          <Mono>
-            {row.original.default_truck_plate ??
-              truckList.find((tr) => tr.id === row.original.default_truck_id)?.plate ??
-              EMPTY}
-          </Mono>
-        ),
+        cell: ({ row }) => <Mono>{row.original.default_truck_plate ?? EMPTY}</Mono>,
       },
       {
         accessorKey: "status",
@@ -142,7 +121,7 @@ export function DriversTab({ canWrite }: { canWrite: boolean }) {
                 onCommit: (row, value) =>
                   update.mutateAsync({
                     id: row.id,
-                    input: { ...toInput(row), status: value as DriverStatus },
+                    input: { status: value as DriverStatus },
                   }),
               }
             : undefined,
@@ -151,7 +130,7 @@ export function DriversTab({ canWrite }: { canWrite: boolean }) {
       },
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [carrierList, truckList, canWrite],
+    [canWrite],
   );
 
   return (

@@ -144,6 +144,17 @@ def test_repli_haversine_si_osrm_indisponible():
     assert len(cache) == 0  # les valeurs approchées ne polluent pas le cache
 
 
+def test_matrice_jamais_d_exception_si_osrm_lent_ou_url_invalide():
+    def slow(request):
+        raise httpx.ReadTimeout("délai dépassé")
+
+    assert build_matrix(NODES, Params(), client=_client(slow)).approximate is True
+    # Appel tel que le fait le service de plans : URL de la configuration, hôte injoignable.
+    assert build_matrix(NODES, Params(), osrm_url="http://127.0.0.1:1").approximate is True
+    assert build_matrix(NODES, Params(), osrm_url="http://[invalide").approximate is True
+    assert build_matrix([], Params(), osrm_url="http://127.0.0.1:1").node_ids == ()
+
+
 def test_noeuds_d_un_probleme():
     problem, matrix = make_problem(
         stations=[station("S1", 4.10, 9.75), station("S2", 4.00, 9.80)],
