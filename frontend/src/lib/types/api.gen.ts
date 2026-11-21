@@ -393,6 +393,167 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/events/truck-breakdown": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Truck Breakdown
+     * @description F6.1, RM-19 : panne de camion sur une tournée publiée → les arrêts non livrés passent sur une
+     *     nouvelle tournée du camion de remplacement, dans une nouvelle version du plan (RM-18).
+     */
+    post: operations["truck_breakdown_api_v1_events_truck_breakdown_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/events/driver-unavailable": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Driver Unavailable
+     * @description F6.2 : chauffeur indisponible → un remplaçant reprend la tournée, nouvelle version du plan.
+     */
+    post: operations["driver_unavailable_api_v1_events_driver_unavailable_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/events/product-shortage": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Product Shortage
+     * @description F6.3 : Supply met à jour le stock d'un produit au dépôt ; les tournées impactées sont
+     *     signalées avec leurs options (réduire, reporter, changer de dépôt).
+     */
+    post: operations["product_shortage_api_v1_events_product_shortage_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/events/replacement-options": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Replacement Options
+     * @description Assistant de réaffectation (écran 6) : camions et chauffeurs de remplacement possibles pour
+     *     une tournée, avec le motif (`rule_code`) de ceux qui ne sont pas éligibles.
+     */
+    get: operations["replacement_options_api_v1_events_replacement_options_get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/events": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * List Events
+     * @description F6.4 : journal de la journée, du plus récent au plus ancien, tous modules confondus.
+     */
+    get: operations["list_events_api_v1_events_get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/events/{event_id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Get Event */
+    get: operations["get_event_api_v1_events__event_id__get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/events/{event_id}/impact": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Shortage Impact
+     * @description F6.3 : tournées encore impactées par une pénurie déclarée, avec leurs options à jour.
+     */
+    get: operations["shortage_impact_api_v1_events__event_id__impact_get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/events/{event_id}/resolve": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Resolve Shortage
+     * @description F6.3 : décisions du dispatcher sur les tournées impactées (réduire, reporter, changer de
+     *     dépôt) → nouvelle version du plan, recontrôlée.
+     */
+    post: operations["resolve_shortage_api_v1_events__event_id__resolve_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/imports/{kind}/preview": {
     parameters: {
       query?: never;
@@ -1449,6 +1610,26 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
   schemas: {
+    /** AlternativeDepotOut */
+    AlternativeDepotOut: {
+      /**
+       * Depot Id
+       * Format: uuid
+       */
+      depot_id: string;
+      /** Code */
+      code: string;
+      /** Name */
+      name: string;
+      /** Available L */
+      available_l?: number | null;
+      /** Planned L */
+      planned_l: number;
+      /** Remaining L */
+      remaining_l?: number | null;
+      /** Sufficient */
+      sufficient?: boolean | null;
+    };
     /**
      * AssignIn
      * @description Champs absents = inchangés. `driver_id: null` retire le chauffeur de la tournée.
@@ -1880,6 +2061,16 @@ export interface components {
       priority?: components["schemas"]["OrderPriority"] | null;
       order_status?: components["schemas"]["OrderStatus"] | null;
     };
+    /** DeliveryVolumeIn */
+    DeliveryVolumeIn: {
+      /**
+       * Order Id
+       * Format: uuid
+       */
+      order_id: string;
+      /** Planned L */
+      planned_l: number;
+    };
     /** DepotCreate */
     DepotCreate: {
       /** Code */
@@ -2179,6 +2370,41 @@ export interface components {
       /** Items */
       items: components["schemas"]["DriverDayItemIn"][];
     };
+    /** DriverOptionOut */
+    DriverOptionOut: {
+      /**
+       * Driver Id
+       * Format: uuid
+       */
+      driver_id: string;
+      /** Full Name */
+      full_name: string;
+      /** Phone */
+      phone?: string | null;
+      /** Carrier Name */
+      carrier_name?: string | null;
+      /** Assigned Truck Id */
+      assigned_truck_id?: string | null;
+      /** Assigned Truck Plate */
+      assigned_truck_plate?: string | null;
+      /**
+       * Other Trip Seqs
+       * @default []
+       */
+      other_trip_seqs: number[];
+      /**
+       * Is Current
+       * @default false
+       */
+      is_current: boolean;
+      /** Eligible */
+      eligible: boolean;
+      /**
+       * Reasons
+       * @default []
+       */
+      reasons: components["schemas"]["ReasonOut"][];
+    };
     /** DriverOut */
     DriverOut: {
       /**
@@ -2213,6 +2439,28 @@ export interface components {
      * @enum {string}
      */
     DriverStatus: "available" | "rest" | "leave" | "sick";
+    /** DriverUnavailableIn */
+    DriverUnavailableIn: {
+      /**
+       * Trip Id
+       * Format: uuid
+       */
+      trip_id: string;
+      /**
+       * Replacement Driver Id
+       * Format: uuid
+       */
+      replacement_driver_id: string;
+      /**
+       * Occurred At
+       * @description Heure du constat (défaut : maintenant).
+       */
+      occurred_at?: string | null;
+      /** Reason */
+      reason?: string | null;
+      /** Publish */
+      publish?: boolean | null;
+    };
     /** DriverUpdate */
     DriverUpdate: {
       /** Full Name */
@@ -2245,6 +2493,119 @@ export interface components {
       blocked_rm03: number;
       /** Assignable Without Truck */
       assignable_without_truck: number;
+    };
+    /**
+     * EventOut
+     * @description Une ligne du journal de la journée (F6.4).
+     */
+    EventOut: {
+      /**
+       * Id
+       * Format: uuid
+       */
+      id: string;
+      /**
+       * Day
+       * Format: date
+       */
+      day: string;
+      type: components["schemas"]["EventType"];
+      /** Type Label */
+      type_label: string;
+      /** Action */
+      action?: string | null;
+      /** Summary */
+      summary: string;
+      /**
+       * Occurred At
+       * Format: date-time
+       */
+      occurred_at: string;
+      /** Actor Id */
+      actor_id?: string | null;
+      /** Actor Name */
+      actor_name?: string | null;
+      /** Plan Id */
+      plan_id?: string | null;
+      /** Plan Version */
+      plan_version?: number | null;
+      /** Trip Id */
+      trip_id?: string | null;
+      /** Trip Seq */
+      trip_seq?: number | null;
+      /** Truck Plate */
+      truck_plate?: string | null;
+      /** Payload */
+      payload: {
+        [key: string]: unknown;
+      };
+    };
+    /**
+     * EventResultOut
+     * @description Réponse des routes panne de camion et chauffeur indisponible.
+     */
+    EventResultOut: {
+      /**
+       * Plan Id
+       * Format: uuid
+       */
+      plan_id: string;
+      /** Plan Version */
+      plan_version: number;
+      plan_status: components["schemas"]["PlanStatus"];
+      /** Published */
+      published: boolean;
+      /** Version Created */
+      version_created: boolean;
+      /** Previous Plan Id */
+      previous_plan_id?: string | null;
+      /** Previous Plan Version */
+      previous_plan_version?: number | null;
+      previous_plan_status?: components["schemas"]["PlanStatus"] | null;
+      /** Blocking Count */
+      blocking_count: number;
+      /** Warning Count */
+      warning_count: number;
+      /** Violations */
+      violations: components["schemas"]["RuleIssueOut"][];
+      plan: components["schemas"]["PlanOut"];
+      event: components["schemas"]["EventOut"];
+      /**
+       * Source Trip Id
+       * Format: uuid
+       */
+      source_trip_id: string;
+      /** Origin Trip Id */
+      origin_trip_id?: string | null;
+      /** New Trip Id */
+      new_trip_id?: string | null;
+      /**
+       * Trip Id
+       * Format: uuid
+       */
+      trip_id: string;
+      /**
+       * Truck Id
+       * Format: uuid
+       */
+      truck_id: string;
+      /** Driver Id */
+      driver_id?: string | null;
+      /**
+       * Transferred Stop Ids
+       * @default []
+       */
+      transferred_stop_ids: string[];
+      /**
+       * Kept Stop Ids
+       * @default []
+       */
+      kept_stop_ids: string[];
+      /**
+       * Other Impacted Trips
+       * @default []
+       */
+      other_impacted_trips: components["schemas"]["OtherTripOut"][];
     };
     /**
      * EventType
@@ -2283,6 +2644,47 @@ export interface components {
       checks: {
         [key: string]: string;
       };
+    };
+    /** ImpactedTripOut */
+    ImpactedTripOut: {
+      /**
+       * Plan Id
+       * Format: uuid
+       */
+      plan_id: string;
+      /** Plan Version */
+      plan_version: number;
+      plan_status: components["schemas"]["PlanStatus"];
+      /**
+       * Trip Id
+       * Format: uuid
+       */
+      trip_id: string;
+      /** Trip Seq */
+      trip_seq: number;
+      status: components["schemas"]["TripStatus"];
+      /** Truck Plate */
+      truck_plate?: string | null;
+      /** Driver Name */
+      driver_name?: string | null;
+      /** Planned Start At */
+      planned_start_at?: string | null;
+      /** Planned L */
+      planned_l: number;
+      /** Covered L */
+      covered_l: number;
+      /** Shortfall L */
+      shortfall_l: number;
+      /** Options */
+      options: ("reduce" | "postpone" | "change_depot")[];
+      /** Orders */
+      orders: components["schemas"]["ShortageOrderOut"][];
+      /** Alternative Depots */
+      alternative_depots: components["schemas"]["AlternativeDepotOut"][];
+      /** Resolution */
+      resolution?: {
+        [key: string]: unknown;
+      } | null;
     };
     /** ImportBatchOut */
     ImportBatchOut: {
@@ -2865,6 +3267,19 @@ export interface components {
       /** Detail */
       detail?: string | null;
     };
+    /** OtherTripOut */
+    OtherTripOut: {
+      /**
+       * Trip Id
+       * Format: uuid
+       */
+      trip_id: string;
+      /** Seq */
+      seq: number;
+      status: components["schemas"]["TripStatus"];
+      /** Pending Stops */
+      pending_stops: number;
+    };
     /** Page[AuditEntryOut] */
     Page_AuditEntryOut_: {
       /** Items */
@@ -2946,6 +3361,17 @@ export interface components {
     Page_DriverOut_: {
       /** Items */
       items: components["schemas"]["DriverOut"][];
+      /** Total */
+      total: number;
+      /** Limit */
+      limit: number;
+      /** Offset */
+      offset: number;
+    };
+    /** Page[EventOut] */
+    Page_EventOut_: {
+      /** Items */
+      items: components["schemas"]["EventOut"][];
       /** Total */
       total: number;
       /** Limit */
@@ -3236,6 +3662,36 @@ export interface components {
       violations: components["schemas"]["ViolationOut"][];
     };
     /**
+     * PlanResultOut
+     * @description État de la version du plan après un événement (RM-18).
+     */
+    PlanResultOut: {
+      /**
+       * Plan Id
+       * Format: uuid
+       */
+      plan_id: string;
+      /** Plan Version */
+      plan_version: number;
+      plan_status: components["schemas"]["PlanStatus"];
+      /** Published */
+      published: boolean;
+      /** Version Created */
+      version_created: boolean;
+      /** Previous Plan Id */
+      previous_plan_id?: string | null;
+      /** Previous Plan Version */
+      previous_plan_version?: number | null;
+      previous_plan_status?: components["schemas"]["PlanStatus"] | null;
+      /** Blocking Count */
+      blocking_count: number;
+      /** Warning Count */
+      warning_count: number;
+      /** Violations */
+      violations: components["schemas"]["RuleIssueOut"][];
+      plan: components["schemas"]["PlanOut"];
+    };
+    /**
      * PlanStatus
      * @enum {string}
      */
@@ -3280,6 +3736,28 @@ export interface components {
       /** Color */
       color: string;
     };
+    /** ProductShortageIn */
+    ProductShortageIn: {
+      /**
+       * Depot Id
+       * Format: uuid
+       */
+      depot_id: string;
+      /**
+       * Product Id
+       * Format: uuid
+       */
+      product_id: string;
+      /** New Available L */
+      new_available_l: number;
+      /**
+       * Day
+       * @description Jour J (défaut : aujourd'hui, heure locale).
+       */
+      day?: string | null;
+      /** Comment */
+      comment?: string | null;
+    };
     /** ProductUpdate */
     ProductUpdate: {
       /** Code */
@@ -3292,6 +3770,13 @@ export interface components {
       thermal_coeff?: number | null;
       /** Color */
       color?: string | null;
+    };
+    /** ReasonOut */
+    ReasonOut: {
+      /** Rule Code */
+      rule_code?: string | null;
+      /** Message */
+      message: string;
     };
     /** RecomputeIn */
     RecomputeIn: {
@@ -3335,10 +3820,82 @@ export interface components {
       /** Stop Ids */
       stop_ids: string[];
     };
+    /**
+     * ReplacementOptionsOut
+     * @description Assistant de réaffectation (écran 6).
+     */
+    ReplacementOptionsOut: {
+      trip: components["schemas"]["TripBriefOut"];
+      /**
+       * Occurred At
+       * Format: date-time
+       */
+      occurred_at: string;
+      /**
+       * Drivers Evaluated For Truck Id
+       * Format: uuid
+       */
+      drivers_evaluated_for_truck_id: string;
+      /** Trucks */
+      trucks: components["schemas"]["TruckOptionOut"][];
+      /** Drivers */
+      drivers: components["schemas"]["DriverOptionOut"][];
+    };
     /** ReplayOut */
     ReplayOut: {
       /** Task Id */
       task_id: string;
+    };
+    /** ResolveIn */
+    ResolveIn: {
+      /** Resolutions */
+      resolutions: components["schemas"]["ShortageResolutionIn"][];
+      /** Publish */
+      publish?: boolean | null;
+    };
+    /** ResolveOut */
+    ResolveOut: {
+      event: components["schemas"]["EventOut"];
+      /**
+       * Status
+       * @enum {string}
+       */
+      status: "open" | "resolved" | "no_impact";
+      /**
+       * Day
+       * Format: date
+       */
+      day: string;
+      /**
+       * Depot Id
+       * Format: uuid
+       */
+      depot_id: string;
+      /** Depot Code */
+      depot_code: string;
+      /**
+       * Product Id
+       * Format: uuid
+       */
+      product_id: string;
+      /** Product Code */
+      product_code: string;
+      /** Previous Available L */
+      previous_available_l?: number | null;
+      /** New Available L */
+      new_available_l: number;
+      /** Loaded L */
+      loaded_l: number;
+      /** Remaining L */
+      remaining_l: number;
+      /** Planned Unloaded L */
+      planned_unloaded_l: number;
+      /** Shortfall L */
+      shortfall_l: number;
+      /** Impacted Trips */
+      impacted_trips: components["schemas"]["ImpactedTripOut"][];
+      /** Results */
+      results: components["schemas"]["PlanResultOut"][];
     };
     /** ResourceSummary */
     ResourceSummary: {
@@ -3442,6 +3999,18 @@ export interface components {
        */
       severity: "error" | "warning";
     };
+    /** RuleIssueOut */
+    RuleIssueOut: {
+      /** Rule Code */
+      rule_code: string;
+      severity: components["schemas"]["Severity"];
+      /** Message */
+      message: string;
+      /** Trip Id */
+      trip_id?: string | null;
+      /** Trip Seq */
+      trip_seq?: number | null;
+    };
     /** SettingOut */
     SettingOut: {
       /** Key */
@@ -3487,6 +4056,105 @@ export interface components {
      * @enum {string}
      */
     Severity: "blocking" | "warning";
+    /** ShortageOrderOut */
+    ShortageOrderOut: {
+      /**
+       * Order Id
+       * Format: uuid
+       */
+      order_id: string;
+      /**
+       * Stop Id
+       * Format: uuid
+       */
+      stop_id: string;
+      /** Station Code */
+      station_code?: string | null;
+      /** Station Name */
+      station_name?: string | null;
+      /** Planned L */
+      planned_l: number;
+      /** Requested L */
+      requested_l?: number | null;
+      /** Priority */
+      priority?: string | null;
+    };
+    /**
+     * ShortageOut
+     * @description Réponse de la déclaration d'une pénurie (F6.3).
+     */
+    ShortageOut: {
+      event: components["schemas"]["EventOut"];
+      /**
+       * Status
+       * @enum {string}
+       */
+      status: "open" | "resolved" | "no_impact";
+      /**
+       * Day
+       * Format: date
+       */
+      day: string;
+      /**
+       * Depot Id
+       * Format: uuid
+       */
+      depot_id: string;
+      /** Depot Code */
+      depot_code: string;
+      /**
+       * Product Id
+       * Format: uuid
+       */
+      product_id: string;
+      /** Product Code */
+      product_code: string;
+      /** Previous Available L */
+      previous_available_l?: number | null;
+      /** New Available L */
+      new_available_l: number;
+      /** Loaded L */
+      loaded_l: number;
+      /** Remaining L */
+      remaining_l: number;
+      /** Planned Unloaded L */
+      planned_unloaded_l: number;
+      /** Shortfall L */
+      shortfall_l: number;
+      /** Impacted Trips */
+      impacted_trips: components["schemas"]["ImpactedTripOut"][];
+    };
+    /**
+     * ShortageResolutionIn
+     * @description Décision du dispatcher pour une tournée impactée par une pénurie (F6.3).
+     */
+    ShortageResolutionIn: {
+      /**
+       * Trip Id
+       * Format: uuid
+       */
+      trip_id: string;
+      /**
+       * Action
+       * @enum {string}
+       */
+      action: "reduce" | "postpone" | "change_depot";
+      /**
+       * Deliveries
+       * @description `reduce` : nouveaux volumes par commande (défaut : réduction proportionnelle).
+       */
+      deliveries?: components["schemas"]["DeliveryVolumeIn"][] | null;
+      /**
+       * Order Ids
+       * @description `postpone` : commandes à reporter (défaut : toutes celles du produit).
+       */
+      order_ids?: string[] | null;
+      /**
+       * Depot Id
+       * @description `change_depot` : nouveau dépôt de chargement.
+       */
+      depot_id?: string | null;
+    };
     /** StationCreate */
     StationCreate: {
       /** Code */
@@ -3743,6 +4411,64 @@ export interface components {
        */
       token_type: string;
     };
+    /** TripBriefOut */
+    TripBriefOut: {
+      /**
+       * Trip Id
+       * Format: uuid
+       */
+      trip_id: string;
+      /**
+       * Source Trip Id
+       * Format: uuid
+       */
+      source_trip_id: string;
+      /**
+       * Plan Id
+       * Format: uuid
+       */
+      plan_id: string;
+      /** Plan Version */
+      plan_version: number;
+      plan_status: components["schemas"]["PlanStatus"];
+      /** Seq */
+      seq: number;
+      status: components["schemas"]["TripStatus"];
+      /**
+       * Truck Id
+       * Format: uuid
+       */
+      truck_id: string;
+      /** Truck Plate */
+      truck_plate?: string | null;
+      /** Driver Id */
+      driver_id?: string | null;
+      /** Driver Name */
+      driver_name?: string | null;
+      /**
+       * Depot Id
+       * Format: uuid
+       */
+      depot_id: string;
+      /** Depot Code */
+      depot_code?: string | null;
+      /** Pending Stops */
+      pending_stops: number;
+      /** Delivered Stops */
+      delivered_stops: number;
+      /** Skipped Stops */
+      skipped_stops: number;
+      /** Pending L */
+      pending_l: number;
+      /** Pending Station Codes */
+      pending_station_codes: string[];
+      /** Can Replace Truck */
+      can_replace_truck: boolean;
+      /** Can Replace Driver */
+      can_replace_driver: boolean;
+      /** Blocked Reason */
+      blocked_reason?: string | null;
+    };
     /**
      * TripLoadingOut
      * @description Une tournée vue du dépôt : libellés, heures, état de chargement, avancement des arrêts.
@@ -3954,6 +4680,33 @@ export interface components {
       /** Actual Distance M */
       actual_distance_m?: number | null;
     };
+    /** TruckBreakdownIn */
+    TruckBreakdownIn: {
+      /**
+       * Trip Id
+       * Format: uuid
+       */
+      trip_id: string;
+      /**
+       * Replacement Truck Id
+       * Format: uuid
+       */
+      replacement_truck_id: string;
+      /** Replacement Driver Id */
+      replacement_driver_id?: string | null;
+      /**
+       * Occurred At
+       * @description Heure de la panne (défaut : maintenant).
+       */
+      occurred_at?: string | null;
+      /** Reason */
+      reason?: string | null;
+      /**
+       * Publish
+       * @description Publier la nouvelle version si elle n'a aucune violation bloquante. Par défaut : oui si cet appel a créé la version, non si un brouillon était déjà en préparation.
+       */
+      publish?: boolean | null;
+    };
     /** TruckCreate */
     TruckCreate: {
       /** Plate */
@@ -4032,6 +4785,46 @@ export interface components {
     TruckDaysIn: {
       /** Items */
       items: components["schemas"]["TruckDayItemIn"][];
+    };
+    /** TruckOptionOut */
+    TruckOptionOut: {
+      /**
+       * Truck Id
+       * Format: uuid
+       */
+      truck_id: string;
+      /** Plate */
+      plate: string;
+      size: components["schemas"]["TruckSize"];
+      /** Carrier Name */
+      carrier_name?: string | null;
+      /** Total Capacity L */
+      total_capacity_l: number;
+      /** Assigned Driver Id */
+      assigned_driver_id?: string | null;
+      /** Assigned Driver Name */
+      assigned_driver_name?: string | null;
+      /**
+       * Other Trip Seqs
+       * @default []
+       */
+      other_trip_seqs: number[];
+      /** Eligible */
+      eligible: boolean;
+      /**
+       * Reasons
+       * @default []
+       */
+      reasons: components["schemas"]["ReasonOut"][];
+      /** Suggested Driver Id */
+      suggested_driver_id?: string | null;
+      /** Suggested Driver Name */
+      suggested_driver_name?: string | null;
+      /**
+       * Driver Required
+       * @default false
+       */
+      driver_required: boolean;
     };
     /** TruckOut */
     TruckOut: {
@@ -5261,6 +6054,277 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["DashboardOut"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  truck_breakdown_api_v1_events_truck_breakdown_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["TruckBreakdownIn"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["EventResultOut"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  driver_unavailable_api_v1_events_driver_unavailable_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["DriverUnavailableIn"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["EventResultOut"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  product_shortage_api_v1_events_product_shortage_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ProductShortageIn"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ShortageOut"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  replacement_options_api_v1_events_replacement_options_get: {
+    parameters: {
+      query: {
+        trip_id: string;
+        /** @description Évalue les chauffeurs pour la tournée de remplacement de ce camion (F6.1). */
+        replacement_truck_id?: string | null;
+        /** @description Heure de l'événement (défaut : maintenant). */
+        occurred_at?: string | null;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ReplacementOptionsOut"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  list_events_api_v1_events_get: {
+    parameters: {
+      query?: {
+        /** @description Jour J (défaut : aujourd'hui, heure locale) */
+        day?: string | null;
+        /** @description Un ou plusieurs types d'événement. */
+        type?: components["schemas"]["EventType"][] | null;
+        trip_id?: string | null;
+        plan_id?: string | null;
+        /** @description Avec `plan_id` : toutes les versions de la lignée du plan. */
+        include_versions?: boolean;
+        limit?: number;
+        offset?: number;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Page_EventOut_"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  get_event_api_v1_events__event_id__get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        event_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["EventOut"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  shortage_impact_api_v1_events__event_id__impact_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        event_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ShortageOut"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  resolve_shortage_api_v1_events__event_id__resolve_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        event_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ResolveIn"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ResolveOut"];
         };
       };
       /** @description Validation Error */

@@ -24,6 +24,7 @@ from app.events.models import Event
 from app.planning.models import Plan
 
 ALERT_EVENT_TYPES = (EventType.TRUCK_BREAKDOWN, EventType.DRIVER_UNAVAILABLE, EventType.PRODUCT_SHORTAGE)
+SHORTAGE_INACTIVE = ("resolved", "no_impact")
 
 EVENT_MESSAGES = {
     EventType.TRUCK_BREAKDOWN: "Panne de camion",
@@ -176,12 +177,17 @@ async def build_dashboard(session: AsyncSession, day: date) -> dict[str, Any]:
         .all()
     )
     for event in events:
+        payload = event.payload or {}
+        # Une pénurie résolue, ou sans tournée impactée, n'est plus une alerte active (F8.6).
+        if event.type == EventType.PRODUCT_SHORTAGE and payload.get("status") in SHORTAGE_INACTIVE:
+            continue
         alerts.append(
             {
                 "source": "event",
                 "severity": Severity.WARNING,
                 "code": event.type.value,
-                "message": EVENT_MESSAGES[event.type],
+                # Résumé rédigé par le module des événements ; à défaut, libellé générique.
+                "message": payload.get("summary") or EVENT_MESSAGES[event.type],
                 "trip_id": event.trip_id,
                 "trip_seq": None,
                 "event_id": event.id,
