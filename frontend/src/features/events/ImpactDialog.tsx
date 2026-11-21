@@ -20,12 +20,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { NativeSelect } from "@/components/ui/input";
-import { ViolationsPanel } from "@/components/ViolationsPanel";
 import { fr } from "@/i18n/fr";
-import { errorMessage, isApiError } from "@/lib/api";
 import { formatLiters } from "@/lib/format";
 import type { IsoDate } from "@/lib/types";
 
+import { ApiErrorNotice } from "./ApiErrorNotice";
 import {
   useResolveShortage,
   useShortageImpact,
@@ -218,11 +217,15 @@ export function ImpactDialog({
       setShowErrors(true);
       return;
     }
-    const resolutions = chosen.map(([trip_id, decision]): ShortageResolutionIn => ({
-      trip_id,
-      action: decision.action as ShortageAction,
-      ...(decision.action === "change_depot" ? { depot_id: decision.depotId } : {}),
-    }));
+    // Les reports et changements de dépôt d'abord, les réductions ensuite : le serveur applique les décisions
+    // dans l'ordre reçu et calcule une réduction par défaut d'après le volume encore planifié des autres tournées.
+    const resolutions = chosen
+      .map(([trip_id, decision]): ShortageResolutionIn => ({
+        trip_id,
+        action: decision.action as ShortageAction,
+        ...(decision.action === "change_depot" ? { depot_id: decision.depotId } : {}),
+      }))
+      .sort((a, b) => Number(a.action === "reduce") - Number(b.action === "reduce"));
     try {
       setDone(await resolve.mutateAsync({ resolutions }));
       notify.success(t.done.toast);
@@ -310,12 +313,7 @@ export function ImpactDialog({
                   {t.nothingChosen}
                 </p>
               )}
-              {error && (
-                <Notice tone="blocking">
-                  <strong className="font-semibold">{t.failed}.</strong> {errorMessage(error)}
-                </Notice>
-              )}
-              {isApiError(error) && <ViolationsPanel violations={error.violations} hideWhenEmpty />}
+              <ApiErrorNotice title={t.failed} error={error} />
             </DialogBody>
             <DialogFooter>
               <Button variant="ghost" onClick={onClose}>

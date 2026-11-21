@@ -55,6 +55,25 @@ export const eventsTexts = {
     shortage: "Déclarer une pénurie",
   },
 
+  /** Explication par code d'erreur du serveur (le message du serveur est affiché en complément). */
+  errorCodes: {
+    rule_violation: "Une règle métier s'oppose à ce choix : voir le détail ci-dessous.",
+    plan_not_published:
+      "Un événement ne se déclare que sur une tournée d'un plan publié : rechargez le journal, le plan a changé.",
+    trip_completed: "Cette tournée est terminée : il n'y a plus rien à réaffecter.",
+    no_pending_stops:
+      "Tous les arrêts de cette tournée sont déjà livrés ou sautés : rien à transférer (RM-19).",
+    stock_below_loaded:
+      "Le stock saisi est le stock total du jour : il ne peut pas être inférieur à ce qui est déjà chargé.",
+    shortage_not_open: "Cette pénurie n'est plus à traiter : elle est déjà résolue ou sans impact.",
+    trip_already_loaded: "Cette tournée est déjà chargée : la pénurie ne la concerne plus.",
+    trip_started:
+      "Cette tournée a déjà des arrêts réalisés : elle ne peut plus être modifiée par ce traitement.",
+    nothing_left_to_load:
+      "Le stock restant ne laisse rien à cette tournée : choisissez « reporter » ou « changer de dépôt ».",
+    trip_not_impacted: "Le stock couvre déjà cette tournée : il n'y a rien à réduire.",
+  },
+
   /** Phrases communes aux écrans de fin (réaffectation, résolution). */
   planResult: {
     published: (version: number) => `Version ${version} du plan publiée.`,
@@ -127,6 +146,8 @@ export const eventsTexts = {
         `Déjà sur ${plural(seqs.length, "la tournée", "les tournées")} n° ${seqs.join(", ")}`,
       ineligible: "Non éligible",
     },
+    time: "Heure de l'incident",
+    timeHint: "Heure de Douala, le jour J. Vide : maintenant. Les remplaçants sont évalués à cette heure.",
     reason: "Motif",
     reasonPlaceholder: "Ex. : crevaison sur l'axe Ndokoti",
     recap: {
@@ -151,10 +172,11 @@ export const eventsTexts = {
       otherTrips: (seqs: number[]) =>
         `${plural(seqs.length, "Une autre tournée", "D'autres tournées")} du jour ${plural(seqs.length, "utilise", "utilisent")} encore la ressource indisponible (n° ${seqs.join(", ")}) : déclarez l'incident pour ${plural(seqs.length, "elle", "chacune")} ou réaffectez dans l'écran du plan.`,
       toast: "Réaffectation enregistrée",
+      reload:
+        "La tournée de remplacement repart du dépôt : elle doit y être chargée (son chargement se saisit une fois la nouvelle version publiée).",
+      openLoading: "Ouvrir son chargement",
     },
     failed: "Réaffectation refusée",
-    conflictHint:
-      "Le serveur a refusé la réaffectation : la tournée ou le remplaçant a changé d'état, ou une règle métier s'y oppose. Corrigez le choix puis réessayez.",
   },
 
   shortage: {
@@ -166,7 +188,7 @@ export const eventsTexts = {
     choose: "Choisir…",
     newStock: "Nouveau stock disponible",
     newStockHint:
-      "Stock total du jour, en litres, y compris ce qui est déjà chargé. Il ne peut pas être inférieur au volume déjà chargé.",
+      "Stock TOTAL du jour (pas le restant), en litres : ce qui est déjà chargé en fait partie. Il ne peut donc pas être inférieur au volume déjà chargé.",
     submit: "Déclarer",
     submitting: "Déclaration…",
     failed: "Déclaration refusée",

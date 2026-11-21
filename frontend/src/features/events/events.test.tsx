@@ -243,6 +243,11 @@ describe("Journal des événements — assistant de réaffectation", () => {
       "href",
       `/plan?plan=${SAMPLE_NEW_PLAN_ID}&day=${DAY}`,
     );
+    // La tournée de remplacement repart du dépôt : lien vers son chargement.
+    expect(within(dialog).getByRole("link", { name: "Ouvrir son chargement" })).toHaveAttribute(
+      "href",
+      expect.stringMatching(new RegExp(`^/chargement\\?trip=[0-9a-f-]+&day=${DAY}$`)),
+    );
     // Le fil est rechargé : l'événement apparaît.
     await waitFor(() => expect(screen.getAllByTestId("event-row")).toHaveLength(9));
   });
@@ -365,7 +370,7 @@ describe("Journal des événements — assistant de réaffectation", () => {
     const alert = await within(dialog).findByRole("alert");
     expect(alert).toHaveTextContent("Réaffectation refusée");
     expect(alert).toHaveTextContent("Le camion de remplacement n'est pas affectable à cette tournée.");
-    expect(alert).toHaveTextContent(/Le serveur a refusé la réaffectation/);
+    expect(alert).toHaveTextContent("Une règle métier s'oppose à ce choix");
     expect(within(dialog).getByText("RM-14")).toBeInTheDocument();
     expect(within(dialog).getByText(/3 chargements prévus/)).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "Retour" })).toBeEnabled();
@@ -411,6 +416,8 @@ describe("Journal des événements — pénurie produit", () => {
     expect(
       await within(dialog).findByText(/est inférieur au volume déjà chargé aujourd'hui \(22 000 L\)/),
     ).toBeInTheDocument();
+
+    expect(within(dialog).getByText(/Le stock saisi est le stock total du jour/)).toBeInTheDocument();
 
     await user.clear(stock);
     await user.type(stock, "30000");

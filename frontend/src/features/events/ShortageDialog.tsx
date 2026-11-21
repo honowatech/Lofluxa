@@ -4,7 +4,6 @@ import { useEffect, useId, useState } from "react";
 
 import { NumberInput } from "@/components/forms";
 import { notify } from "@/components/notify";
-import { Notice } from "@/components/PageHeader";
 import { ErrorState, LoadingState, Spinner } from "@/components/states";
 import { Button } from "@/components/ui/button";
 import {
@@ -18,11 +17,10 @@ import {
 } from "@/components/ui/dialog";
 import { NativeSelect } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ViolationsPanel } from "@/components/ViolationsPanel";
 import { fr } from "@/i18n/fr";
-import { errorMessage, isApiError } from "@/lib/api";
 import type { IsoDate } from "@/lib/types";
 
+import { ApiErrorNotice } from "./ApiErrorNotice";
 import { useDepots, useProductShortage, useProducts, type ShortageOut } from "./api";
 import { ShortageOverview } from "./ImpactDialog";
 
@@ -209,12 +207,7 @@ export function ShortageDialog({
                   {t.required}
                 </p>
               )}
-              {error && (
-                <Notice tone="blocking">
-                  <strong className="font-semibold">{t.failed}.</strong> {errorMessage(error)}
-                </Notice>
-              )}
-              {isApiError(error) && <ViolationsPanel violations={error.violations} hideWhenEmpty />}
+              <ApiErrorNotice title={t.failed} error={error} />
             </DialogBody>
             <DialogFooter>
               <Button variant="ghost" onClick={() => onOpenChange(false)}>

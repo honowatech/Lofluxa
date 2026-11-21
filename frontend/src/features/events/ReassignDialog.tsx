@@ -5,6 +5,7 @@
  */
 import { CheckCircle2, Truck, UserX } from "lucide-react";
 import { useEffect, useId, useState, type ReactNode } from "react";
+import { Link } from "react-router-dom";
 
 import { notify } from "@/components/notify";
 import { Notice } from "@/components/PageHeader";
@@ -21,15 +22,15 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { TimeInput } from "@/components/forms";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ViolationsPanel } from "@/components/ViolationsPanel";
 import { fr } from "@/i18n/fr";
-import { errorMessage, isApiError } from "@/lib/api";
-import { EMPTY, formatLiters, formatLocalTime } from "@/lib/format";
+import { dayBoundsUtc, EMPTY, formatLiters, formatLocalTime, hmToSeconds } from "@/lib/format";
 import type { IsoDate } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
+import { ApiErrorNotice } from "./ApiErrorNotice";
 import {
   useDriverUnavailable,
   usePublishedTrips,
@@ -42,6 +43,7 @@ import {
   type ReasonOut,
 } from "./api";
 import { PlanResult } from "./PlanResult";
+import { loadingLink } from "./summary";
 
 type IncidentKind = "truck" | "driver";
 
@@ -202,13 +204,25 @@ export function ReassignDialog({
   /** `null` : chauffeur proposé par le serveur (panne de camion uniquement). */
   const [driverId, setDriverId] = useState<string | null>(null);
   const [reason, setReason] = useState("");
+  /** Heure locale de l'incident (`HH:mm`) ; vide : maintenant. */
+  const [time, setTime] = useState("");
+  const timeValid = time === "" || /^([01]\d|2[0-3]):[0-5]\d$/.test(time);
+  const occurredAt =
+    time !== "" && timeValid
+      ? new Date(Date.parse(dayBoundsUtc(day).from) + hmToSeconds(time) * 1000).toISOString()
+      : null;
   const [done, setDone] = useState<EventResultOut | null>(null);
 
   const trips = usePublishedTrips(day, open);
   // Tournée, camions, et chauffeurs pour une reprise de la tournée telle quelle (F6.2).
-  const options = useReplacementOptions(tripId, null, open && !done);
+  const options = useReplacementOptions(tripId, null, occurredAt, open && !done);
   // Chauffeurs évalués pour la tournée de remplacement du camion choisi (F6.1).
-  const forTruck = useReplacementOptions(tripId, truckId, open && !done && kind === "truck" && !!truckId);
+  const forTruck = useReplacementOptions(
+    tripId,
+    truckId,
+    occurredAt,
+    open && !done && kind === "truck" && !!truckId,
+  );
   const truckBreakdown = useTruckBreakdown();
   const driverUnavailable = useDriverUnavailable();
   const mutation = kind === "truck" ? truckBreakdown : driverUnavailable;
@@ -221,6 +235,7 @@ export function ReassignDialog({
     setTruckId(null);
     setDriverId(null);
     setReason("");
+    setTime("");
     setDone(null);
     truckBreakdown.reset();
     driverUnavailable.reset();
@@ -245,7 +260,7 @@ export function ReassignDialog({
   const driver = drivers.find((item) => item.driver_id === driverId) ?? null;
 
   const canContinue =
-    step === 0 ||
+    (step === 0 && timeValid) ||
     (step === 1 && !!selected && !!brief && !blocked) ||
     (step === 2 &&
       (kind === "truck"
@@ -269,7 +284,10 @@ export function ReassignDialog({
 
   const confirm = async () => {
     if (!selected) return;
-    const motive = reason.trim() ? { reason: reason.trim() } : {};
+    const motive = {
+      ...(occurredAt ? { occurred_at: occurredAt } : {}),
+      ...(reason.trim() ? { reason: reason.trim() } : {}),
+    };
     try {
       const result =
         kind === "truck"
@@ -319,6 +337,22 @@ export function ReassignDialog({
                 </p>
               )}
               <PlanResult result={done} day={day} onNavigate={() => onOpenChange(false)} />
+              {done.new_trip_id && (
+                <Notice
+                  tone="neutral"
+                  action={
+                    done.published && (
+                      <Button asChild variant="outline" size="sm" className="text-foreground">
+                        <Link to={loadingLink(done.new_trip_id, day)} onClick={() => onOpenChange(false)}>
+                          {t.done.openLoading}
+                        </Link>
+                      </Button>
+                    )
+                  }
+                >
+                  {t.done.reload}
+                </Notice>
+              )}
               {done.other_impacted_trips.length > 0 && (
                 <Notice tone="warning">
                   {t.done.otherTrips(done.other_impacted_trips.map((item) => item.seq))}
@@ -382,6 +416,22 @@ export function ReassignDialog({
                     </span>
                     <span className="block text-xs text-muted-foreground">{t.kinds.driverHint}</span>
                   </Choice>
+                  <div className="mt-2 flex flex-col gap-1">
+                    <Label htmlFor={`${ids}-time`}>
+                      {t.time}
+                      <span className="ml-1 font-normal text-muted-foreground">({fr.common.optional})</span>
+                    </Label>
+                    <TimeInput
+                      id={`${ids}-time`}
+                      value={time}
+                      onChange={setTime}
+                      aria-invalid={!timeValid}
+                      aria-describedby={`${ids}-time-hint`}
+                    />
+                    <p id={`${ids}-time-hint`} className="text-xs text-muted-foreground">
+                      {t.timeHint}
+                    </p>
+                  </div>
                 </fieldset>
               )}
 
@@ -601,15 +651,7 @@ export function ReassignDialog({
                       onChange={(event) => setReason(event.target.value)}
                     />
                   </div>
-                  {error && (
-                    <Notice tone="blocking">
-                      <strong className="font-semibold">{t.failed}.</strong> {errorMessage(error)}
-                      {isApiError(error) && error.isConflict && (
-                        <span className="mt-0.5 block font-normal">{t.conflictHint}</span>
-                      )}
-                    </Notice>
-                  )}
-                  {isApiError(error) && <ViolationsPanel violations={error.violations} hideWhenEmpty />}
+                  <ApiErrorNotice title={t.failed} error={error} />
                 </>
               )}
             </DialogBody>
