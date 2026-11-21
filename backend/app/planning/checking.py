@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.context import current_user_id
-from app.core.enums import EventType, OrderStatus, PlanKind, Severity
+from app.core.enums import EventType, OrderStatus, PlanKind, Severity, StopStatus
 from app.core.errors import ConflictError, NotFoundError
 from app.core.settings_store import load_params
 from app.core.time import utcnow
@@ -93,7 +93,14 @@ def plan_order_ids(plan: Plan) -> set[uuid.UUID]:
 
 
 def delivered_order_ids(plan: Plan) -> set[uuid.UUID]:
-    return {d.order_id for trip in plan.trips for stop in trip.stops for d in stop.deliveries}
+    """Commandes livrées par un arrêt du plan qui n'a pas été sauté."""
+    return {
+        d.order_id
+        for trip in plan.trips
+        for stop in trip.stops
+        if stop.status != StopStatus.SKIPPED
+        for d in stop.deliveries
+    }
 
 
 def snapshot_override(plan: Plan, override: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -125,7 +132,16 @@ async def plan_problem(
         remainder = float(order.requested_l) - elsewhere.get(order.id, 0.0)
         if 0 < remainder < float(order.requested_l):
             requested[order.id] = remainder
-    return await mapping.assemble_problem(session, plan.day, params, orders, requested=requested, plan=plan)
+    return await mapping.assemble_problem(
+        session,
+        plan.day,
+        params,
+        orders,
+        requested=requested,
+        plan=plan,
+        net_of_published=plan.kind == PlanKind.COMPUTED,
+        exclude_root_id=root_id(plan),
+    )
 
 
 def schedule_all(trips: list[TripD], problem: PlanningProblem, matrix: Matrix) -> None:
@@ -240,7 +256,8 @@ async def recheck(
         mapping.apply_trip_schedule(rows_by_id[trip.ref], trip, plan.day, tz_name)
 
     unserved = await checked_unserved(session, plan)
-    violations = list(rules.check_plan(problem, trips, unserved, matrix))
+    # Vu des règles, un arrêt sauté ne livre rien (RM-15, RM-16).
+    violations = list(rules.check_plan(problem, mapping.without_skipped(trips), unserved, matrix))
     for failure in failures:
         already = any(
             v.trip_seq == failure.trip_seq
@@ -301,6 +318,8 @@ async def refresh_metrics(session: AsyncSession, plan: Plan, extra: dict[str, An
             rates.append(rate)
         for stop in trip.stops:
             stops_count += 1
+            if stop.status == StopStatus.SKIPPED:
+                continue  # un arrêt sauté ne sert ni station ni commande
             stations.add(stop.station_id)
             for delivery in stop.deliveries:
                 delivered[delivery.order_id] += float(delivery.planned_l)
