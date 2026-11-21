@@ -9,7 +9,7 @@ Zones d'ombre rencontrées, valeur par défaut adoptée en attendant la réponse
 | L6-1 | RM-12 : quelle précision et quel arrondi pour le volume à 15 °C ? | Centième de litre (précision de `numeric(12,2)`), arrondi « demi vers le haut » (102,485 → 102,49). Calcul en `Decimal`. |
 | L6-2 | RM-13 : l'écart se juge-t-il par compartiment, par produit ou au total de la tournée ? | **Par compartiment et au total de la tournée.** Un seul avertissement RM-13 par tournée dès qu'un compartiment ou le total sort de la tolérance ; le message détaille les compartiments en cause. Un compartiment planifié mais non chargé compte pour 0 L. |
 | L6-3 | RM-13 : « au-delà de la tolérance » est-il strict ? L'écart vaut-il dans les deux sens ? | Strict (un écart de 2,00 % pile n'alerte pas), en valeur absolue (sur- et sous-chargement). Pourcentage rapporté au volume planifié. |
-| L6-4 | RM-13 / Q3 : les volumes planifiés viennent des commandes, supposées en litres observés (Q3), alors que RM-13 les compare à un volume **à 15 °C**. Faut-il comparer à iso-unité ? | Application littérale de RM-13 : volume à 15 °C chargé contre volume planifié tel quel. À revoir avec la réponse à Q3 (par forte chaleur, la seule correction de température peut approcher la tolérance : ≈ 1,8 % pour du super à 30 °C). |
+| L6-4 | RM-13 / Q3 : les volumes planifiés viennent des commandes, supposées en litres observés (Q3), alors que RM-13 les compare à un volume **à 15 °C**. Faut-il comparer à iso-unité ? | Application littérale de RM-13 : volume à 15 °C chargé contre volume planifié tel quel. À revoir avec la réponse à Q3 (par forte chaleur, la seule correction de température peut approcher la tolérance : ≈ 1,8 % pour du super à 30 °C). En attendant, la réponse du chargement et la fiche PDF décomposent l'écart (part de la correction de température, part de l'écart de volume observé) pour expliquer un avertissement ; la règle est inchangée. |
 | L6-5 | Un chargement sur un compartiment du camion qui n'est pas prévu au plan de chargement, ou avec un autre produit que celui prévu, est-il acceptable ? | Refusé (422) : le compartiment doit appartenir au camion **et** figurer au plan de chargement avec le même produit. Si le dépôt change réellement l'affectation, le dispatcher corrige le plan. |
 | L6-6 | Le chargement doit-il couvrir tous les compartiments planifiés ? | Non : saisie partielle acceptée, mais le manque ressort en écart RM-13 (compartiment et total). |
 | L6-7 | Le numéro de bon de chargement dépôt est-il unique par tournée ou propre à chaque compartiment / produit ? | Un numéro par chargement (colonne `loadings.depot_ticket_no` du schéma §5), pas par ligne. |
@@ -28,7 +28,7 @@ Zones d'ombre rencontrées, valeur par défaut adoptée en attendant la réponse
 | L6-15 | Un volume livré peut-il dépasser le volume planifié ou demandé (RM-16) ? | Pas de contrôle à la saisie des réalisations (RM-16 est une règle de planification) : le volume réel est enregistré tel quel. |
 | L6-16 | Que devient une commande dont le volume livré est 0, ou dont l'arrêt est sauté ? | Elle repart à replanifier : `confirmed` (`orders.service.release_to_confirmed`, convention du lot L4) ; `actual_l` = 0 (livré à 0) ou vide (arrêt sauté). À confirmer pour le cas « livré à 0 », assimilé ici à un arrêt non livré. |
 | L6-17 | Répercussion sur les commandes : lesquelles passent à `loaded` ? | Celles de la tournée qui sont `planned` (une commande annulée ou reportée entre-temps n'est pas touchée). `delivered` dès qu'un volume > 0 est saisi. Toutes les transitions passent par `app/orders/service.py` (lot L4). |
-| L6-18 | Heures réelles non saisies au changement de statut ? | `actual_depart_at` (passage à `in_progress`) et `actual_return_at` (passage à `completed`) prennent l'heure courante à défaut ; `actual_distance_m` reste vide. |
+| L6-18 | Heures réelles non saisies au changement de statut ? | `actual_depart_at` (passage à `in_progress`) prend l'heure courante à défaut. `actual_return_at` (passage à `completed`) prend le plus tardif de l'heure courante et de la dernière heure réelle connue de la tournée (départ, arrêts), pour rester cohérent sur une journée datée dans le futur ; une valeur fournie reste contrôlée (retour ≥ départ). `actual_distance_m` reste vide. |
 | L6-19 | Les changements de statut doivent-ils figurer au journal des événements ? | Non : §5 ne prévoit pas de type d'événement pour cela ; ils sont tracés par le journal d'audit (`trips`). Seuls `loading_recorded` et `delivery_recorded` sont journalisés. |
 
 ## Fiche de chargement (F7.3, §11)
@@ -44,6 +44,8 @@ Zones d'ombre rencontrées, valeur par défaut adoptée en attendant la réponse
 
 - `GET /loadings?day=&depot_id=` — vue Fleet (écran 7) : tournées des plans publiés du jour (défaut : aujourd'hui,
   heure locale), filtrables par dépôt, avec libellés, avancement des arrêts et résumé du chargement. Paginé.
+  Seules les versions en vigueur sont listées (plans `published`, jamais `archived`) ; chaque ligne porte `plan_id`,
+  `plan_version` et `plan_label` pour distinguer deux plans publiés le même jour.
 - `GET /trips/{id}/loading` — relecture du chargement enregistré (404 `loading_not_found` s'il n'existe pas).
 
 ## Remarques pour le socle

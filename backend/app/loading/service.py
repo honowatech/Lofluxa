@@ -98,11 +98,13 @@ class TripContext:
     def rm_13(self) -> Rm13Result:
         """RM-13 sur le chargement enregistré (tolérance : paramètre `loading_tolerance_pct`)."""
         loaded: dict[uuid.UUID, Decimal] = {}
+        observed: dict[uuid.UUID, Decimal] = {}
         for line in self.loading.lines if self.loading else []:
             loaded[line.compartment_id] = loaded.get(line.compartment_id, Decimal(0)) + line.volume_15_l
+            observed[line.compartment_id] = observed.get(line.compartment_id, Decimal(0)) + line.observed_l
         planned = self.planned_by_compartment
         labels = {key: self.compartment_label(key) for key in {*planned, *loaded}}
-        return evaluate_rm_13(planned, loaded, self.tolerance_pct, labels)
+        return evaluate_rm_13(planned, loaded, self.tolerance_pct, labels, observed)
 
     @property
     def all_stops_done(self) -> bool:
@@ -203,6 +205,10 @@ def _line_out(ctx: TripContext, line: LoadingLine, gap: Gap | None) -> LoadingLi
         planned_l=_f(line.planned_l),
         gap_l=_f(gap.gap_l) if gap else None,
         gap_pct=_f(gap.gap_pct) if gap else None,
+        gap_temperature_l=_f(gap.temperature_gap_l) if gap else None,
+        gap_temperature_pct=_f(gap.temperature_gap_pct) if gap else None,
+        gap_observed_l=_f(gap.observed_gap_l) if gap else None,
+        gap_observed_pct=_f(gap.observed_gap_pct) if gap else None,
         out_of_tolerance=bool(gap and gap.out_of_tolerance),
     )
 
@@ -238,9 +244,14 @@ async def loading_out(session: AsyncSession, ctx: TripContext) -> LoadingOut:
         planned_total_l=float(result.total.planned_l),
         gap_l=float(result.total.gap_l),
         gap_pct=_f(result.total.gap_pct),
+        gap_temperature_l=float(result.total.temperature_gap_l),
+        gap_temperature_pct=_f(result.total.temperature_gap_pct),
+        gap_observed_l=float(result.total.observed_gap_l),
+        gap_observed_pct=_f(result.total.observed_gap_pct),
         tolerance_pct=float(result.tolerance_pct),
         out_of_tolerance=result.warning,
         warning_message=result.message,
+        gap_explanation=result.explanation,
         conversion_note=ASTM_NOTE,
     )
 
@@ -265,6 +276,8 @@ def trip_out(ctx: TripContext) -> TripLoadingOut:
     return TripLoadingOut(
         id=trip.id,
         plan_id=trip.plan_id,
+        plan_version=ctx.plan.version,
+        plan_label=ctx.plan.label,
         day=ctx.plan.day.isoformat(),
         seq=trip.seq,
         status=trip.status,
@@ -548,12 +561,20 @@ async def change_trip_status(
             )
         if payload.actual_depart_at is not None:
             trip.actual_depart_at = payload.actual_depart_at
-        actual_return = payload.actual_return_at or utcnow()
-        if trip.actual_depart_at is not None and actual_return < trip.actual_depart_at:
-            raise ValidationAppError(
-                "Heures incohérentes : le retour ne peut pas précéder le départ du dépôt.",
-                code="invalid_times",
-            )
+        if payload.actual_return_at is not None:
+            actual_return = payload.actual_return_at
+            if trip.actual_depart_at is not None and actual_return < trip.actual_depart_at:
+                raise ValidationAppError(
+                    "Heures incohérentes : le retour ne peut pas précéder le départ du dépôt.",
+                    code="invalid_times",
+                )
+        else:
+            # À défaut de saisie : maintenant, sans jamais précéder la dernière heure réelle connue de
+            # la tournée (départ, arrêts) — cas d'une journée datée dans le futur (démonstration, tests).
+            known = [trip.actual_depart_at]
+            for stop in trip.stops:
+                known += [stop.actual_arrival_at, stop.actual_departure_at]
+            actual_return = max([utcnow(), *(moment for moment in known if moment is not None)])
         trip.actual_return_at = actual_return
         if payload.actual_distance_m is not None:
             trip.actual_distance_m = payload.actual_distance_m
@@ -663,6 +684,7 @@ async def list_trip_loadings(
     session: AsyncSession, day: date, depot_id: uuid.UUID | None, page: PageParams
 ) -> Page[TripLoadingOut]:
     """Tournées des plans publiés du jour (éventuellement d'un dépôt), avec leur état de chargement."""
+    # Versions en vigueur uniquement : une version archivée (RM-18) ne se charge plus.
     conditions = [Plan.day == day, Plan.status == PlanStatus.PUBLISHED]
     if depot_id is not None:
         conditions.append(Trip.depot_id == depot_id)

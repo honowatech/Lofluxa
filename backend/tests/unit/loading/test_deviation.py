@@ -90,3 +90,55 @@ def test_RM_13_message_en_francais_avec_tolerance_et_ecart():
         "Écart entre volume chargé à 15 °C et volume planifié au-delà de la tolérance (2 %) — "
         "compartiment 1 : −300 L (−3 %) ; total de la tournée : −300 L (−3 %)."
     )
+
+
+def test_RM_13_decomposition_temperature_et_volume_observe():
+    # Super 9 800 L observés à 28 °C → 9 647,12 L à 15 °C, pour 10 000 L planifiés.
+    gap = compute_gap(Decimal("9647.12"), Decimal("10000"), TOL, observed_l=Decimal("9800"))
+    assert gap.temperature_gap_l == Decimal("-152.88")  # seule correction de température
+    assert gap.observed_gap_l == Decimal("-200")  # volume observé − planifié
+    assert gap.temperature_gap_l + gap.observed_gap_l == gap.gap_l == Decimal("-352.88")
+    assert gap.temperature_gap_pct == Decimal("-1.53")
+    assert gap.observed_gap_pct == Decimal("-2.00")
+    assert gap.out_of_tolerance is True  # la règle, elle, ne change pas : −3,53 % > 2 %
+
+
+def test_RM_13_decomposition_absente_sans_volume_observe():
+    gap = compute_gap(Decimal("9700"), Decimal("10000"), TOL)
+    assert gap.temperature_gap_l is None and gap.observed_gap_l is None
+    assert evaluate_rm_13({"c1": Decimal("10000")}, {"c1": Decimal("9700")}, TOL).explanation is None
+
+
+def test_RM_13_explication_en_une_ligne_par_compartiment_et_au_total():
+    result = evaluate_rm_13(
+        {"c1": Decimal("10000"), "c2": Decimal("5000")},
+        {"c1": Decimal("9647.12")},
+        TOL,
+        labels={"c1": "1", "c2": "2"},
+        observed_by_compartment={"c1": Decimal("9800")},
+    )
+    assert result.total.observed_l == Decimal("9800")
+    assert result.total.temperature_gap_l == Decimal("-152.88")
+    assert result.total.observed_gap_l == Decimal("-5200")
+    assert result.by_compartment["c2"].temperature_gap_l == Decimal("0")
+    assert result.explanation == (
+        "Décomposition de l'écart — "
+        "compartiment 1 : −152,88 L de correction de température, "
+        "−200 L d'écart entre volume observé et volume planifié ; "
+        "compartiment 2 : +0 L de correction de température, "
+        "−5000 L d'écart entre volume observé et volume planifié ; "
+        "total de la tournée : −152,88 L de correction de température, "
+        "−5200 L d'écart entre volume observé et volume planifié."
+    )
+    assert "\n" not in result.explanation
+
+
+def test_RM_13_pas_d_explication_sans_avertissement():
+    result = evaluate_rm_13(
+        {"c1": Decimal("10000")},
+        {"c1": Decimal("9900")},
+        TOL,
+        observed_by_compartment={"c1": Decimal("10000")},
+    )
+    assert result.warning is False and result.explanation is None
+    assert result.total.temperature_gap_l == Decimal("-100")

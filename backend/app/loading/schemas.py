@@ -51,6 +51,11 @@ class LoadingLineOut(BaseModel):
     planned_l: float | None
     gap_l: float | None
     gap_pct: float | None
+    # Décomposition de l'écart : gap_l = gap_temperature_l + gap_observed_l.
+    gap_temperature_l: float | None  # volume à 15 °C − volume observé (seule correction de température)
+    gap_temperature_pct: float | None  # en % du planifié
+    gap_observed_l: float | None  # volume observé − volume planifié
+    gap_observed_pct: float | None
     out_of_tolerance: bool
 
 
@@ -71,10 +76,17 @@ class LoadingOut(BaseModel):
     planned_total_l: float
     gap_l: float
     gap_pct: float | None
+    # Décomposition de l'écart total : gap_l = gap_temperature_l + gap_observed_l.
+    gap_temperature_l: float
+    gap_temperature_pct: float | None
+    gap_observed_l: float
+    gap_observed_pct: float | None
     tolerance_pct: float
     # RM-13 : vrai si un compartiment ou le total sort de la tolérance.
     out_of_tolerance: bool
     warning_message: str | None
+    # Une ligne expliquant l'avertissement (part température / part volume observé) ; None sans avertissement.
+    gap_explanation: str | None
     # Mention à afficher dans l'interface (RM-12).
     conversion_note: str
 
@@ -100,6 +112,8 @@ class TripLoadingOut(BaseModel):
 
     id: uuid.UUID
     plan_id: uuid.UUID
+    plan_version: int
+    plan_label: str | None
     day: str
     seq: int
     status: TripStatus
