@@ -1,7 +1,10 @@
 """Moteur de tournées (spec §7) — point d'entrée unique.
 
->>> LOT L2 : ce paquet est un gabarit. Les signatures ci-dessous sont le contrat ; à implémenter
-    dans or_tools_solver.py, compartments.py, distance_matrix.py, osrm_client.py, objective.py.
+    from app.planning.engine import solve, ENGINE_VERSION
+
+Modules : `or_tools_solver` (orchestration), `routing_model` (modèle OR-Tools), `context`
+(préparation), `plan_builder` / `scheduling` / `drivers` (post-traitement), `rescue` (repêchage),
+`compartments`, `distance_matrix`, `osrm_client`, `objective`, `metrics`.
 """
 
 from __future__ import annotations
@@ -9,8 +12,9 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from app.planning.domain import Matrix, PlanningProblem, PlanningResult
+from app.planning.engine.version import ENGINE_VERSION
 
-ENGINE_VERSION = "0.0.0-gabarit"
+__all__ = ["ENGINE_VERSION", "ProgressCallback", "solve"]
 
 # Rappel de progression : (pourcentage 0-100, message en français).
 ProgressCallback = Callable[[int, str], None]
@@ -30,4 +34,7 @@ def solve(
     - `violations` = `rules.check_plan(...)` sur le résultat ;
     - déterministe : même entrée + même graine (`params.solver_seed`) → même sortie.
     """
-    raise NotImplementedError("Lot L2 — moteur de tournées")
+    # Import différé : OR-Tools n'est chargé qu'au premier calcul (l'API démarre sans lui).
+    from app.planning.engine.or_tools_solver import solve as _solve
+
+    return _solve(problem, matrix, progress)
