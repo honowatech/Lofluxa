@@ -7,6 +7,9 @@ réalisé par Honowa Technologies.
 - Plan de réalisation, lots et vagues : [docs/PLAN.md](docs/PLAN.md)
 - Contrats entre modules : [docs/CONTRATS.md](docs/CONTRATS.md)
 - Questions ouvertes : [docs/QUESTIONS.md](docs/QUESTIONS.md)
+- Démonstrations pas à pas et état des critères d'acceptation : [docs/DEMO.md](docs/DEMO.md)
+- Installation et exploitation (Docker, sauvegardes, restauration) : [docs/EXPLOITATION.md](docs/EXPLOITATION.md)
+- Interface : [frontend/README.md](frontend/README.md)
 - Conventions de développement : [CLAUDE.md](CLAUDE.md)
 
 ## Démarrage rapide (développement, sans Docker)
