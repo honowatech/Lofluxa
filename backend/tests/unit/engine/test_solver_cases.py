@@ -35,6 +35,9 @@ NEAR = [
 def _solve(problem, matrix):
     result = solve(problem, matrix)
     assert check_invariants(problem, matrix, result) == []
+    # Règles réelles (lot L1) : seule une urgente non servie (RM-15) peut bloquer un plan calculé.
+    blocking = [v for v in result.violations if v.severity == Severity.BLOCKING and v.rule_code != "RM-15"]
+    assert blocking == [], blocking
     return result
 
 
@@ -442,6 +445,9 @@ def test_RM_17_tournees_verrouillees_conservees_et_ressources_deduites():
         if trip.truck_id == locked.truck_id:
             assert trip.start_s >= locked.return_s or trip.return_s <= locked.start_s
     assert result.metrics["locked_trips_count"] == 1
+    # Le service de plans apparie les tournées verrouillées par `ref` ; les nouvelles n'en ont pas.
+    assert kept[0].ref == "tournee-verrouillee" and all(t.ref is None for t in others)
+    assert all(t.seq != kept[0].seq for t in others)
 
     # Stock amputé du volume verrouillé : avec 2 000 L de moins, une commande ne passe plus entière.
     problem.depot_stocks = {("DEP", "SUPER"): 24000.0 - 2000.0}
