@@ -17,7 +17,7 @@ from app.core.enums import OrderStatus, PlanKind, PlanStatus, Role
 from app.core.errors import ConflictError
 from app.orders.models import Order
 from app.planning import editing, route_sheet, service, tasks, versions, views
-from app.planning.checking import PLAN_LOAD, load_plan
+from app.planning.checking import PLAN_LOAD, ensure_not_reference, load_plan
 from app.planning.models import Plan
 from app.planning.schemas import (
     AssignIn,
@@ -175,7 +175,7 @@ async def recompute(
     params = payload.params if payload else None
     service.validate_params_override(params)
     plan = await load_plan(session, plan_id)
-    editing.ensure_not_reference(plan)
+    ensure_not_reference(plan)
     if plan.status == PlanStatus.ARCHIVED:
         raise ConflictError("Ce plan est archivé : il ne peut plus être recalculé.", code="plan_archived")
     task_id = await service.launch_recompute(session, plan_id, user_id=user.id, params_override=params)

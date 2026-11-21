@@ -316,6 +316,9 @@ async def assemble_problem(
     *,
     requested: dict[uuid.UUID, float] | None = None,
     plan: Plan | None = None,
+    extra_depot_ids: Iterable[uuid.UUID] = (),
+    extra_truck_ids: Iterable[uuid.UUID] = (),
+    extra_driver_ids: Iterable[uuid.UUID] = (),
 ) -> PlanningProblem:
     """Assemble le problème du jour J : commandes données, toutes les ressources (avec statut et
     disponibilité du jour), affectation du jour, stock dépôt courant, fenêtres du jour.
@@ -323,9 +326,10 @@ async def assemble_problem(
     `plan` : les ressources, dépôts et stations qu'il référence sont inclus même s'ils ont été
     supprimés ou désactivés depuis (un plan existant doit toujours pouvoir être recontrôlé)."""
     requested = requested or {}
-    extra_trucks: set[uuid.UUID] = set()
-    extra_drivers: set[uuid.UUID] = set()
-    extra_depots: set[uuid.UUID] = set()
+    # Ressources à inclure même désactivées ou supprimées depuis (rejeu, journée de référence).
+    extra_trucks: set[uuid.UUID] = set(extra_truck_ids)
+    extra_drivers: set[uuid.UUID] = set(extra_driver_ids)
+    extra_depots: set[uuid.UUID] = set(extra_depot_ids)
     station_ids: set[uuid.UUID] = {o.station_id for o in orders}
     product_ids: set[uuid.UUID] = {o.product_id for o in orders}
     if plan is not None:

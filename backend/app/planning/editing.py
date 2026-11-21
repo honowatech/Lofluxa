@@ -13,9 +13,9 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.enums import EventType, PlanKind, PlanStatus, StopStatus, TripStatus
+from app.core.enums import EventType, PlanStatus, StopStatus, TripStatus
 from app.core.errors import ConflictError, NotFoundError, ValidationAppError
-from app.planning.checking import load_plan, log_event, recheck
+from app.planning.checking import ensure_not_reference, load_plan, loaded_trip_ids, log_event, recheck
 from app.planning.models import Plan, Stop, Trip
 from app.planning.versions import IdMap, create_version
 from app.referentials.models import Driver, Station, Truck
@@ -38,16 +38,6 @@ async def open_for_edit(session: AsyncSession, plan_id: uuid.UUID, *, reason: st
         "Ce plan est archivé : il ne peut plus être modifié. Restaurez cette version pour repartir d'elle.",
         code="plan_archived",
     )
-
-
-def ensure_not_reference(plan: Plan) -> None:
-    """Une journée de référence (`manual_reference`) est le relevé de ce qui a réellement été fait :
-    elle ne se modifie pas, ne se recalcule pas et ne se restaure pas."""
-    if plan.kind == PlanKind.MANUAL_REFERENCE:
-        raise ConflictError(
-            "Ce plan est une journée de référence importée : il ne peut être ni modifié ni recalculé.",
-            code="plan_is_reference",
-        )
 
 
 def find_trip(plan: Plan, trip_id: uuid.UUID) -> Trip:
@@ -99,6 +89,12 @@ async def move_stop(
         raise ValidationAppError(
             f"Position invalide : la tournée {target.seq} accepte une position de 1 à {max_seq}.",
             details=[{"field": "to_seq", "message": f"Valeur attendue entre 1 et {max_seq}."}],
+        )
+    if target is not source and len(source.stops) == 1 and source.id in await loaded_trip_ids(session, plan):
+        raise ConflictError(
+            f"La tournée {source.seq} a déjà un chargement enregistré : son dernier arrêt ne peut pas "
+            "être déplacé (la tournée serait supprimée avec son chargement).",
+            code="trip_already_loaded",
         )
     from_seq = stop.seq
     station = await session.get(Station, stop.station_id)

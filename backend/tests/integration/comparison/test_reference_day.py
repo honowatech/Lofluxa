@@ -3,7 +3,6 @@
 import uuid
 from pathlib import Path
 
-import pytest
 from sqlalchemy import select
 
 from app.core.enums import (
@@ -444,11 +443,6 @@ async def test_import_fichier_trop_volumineux(client, db, world, auth_headers):
     assert response.status_code == 413 and response.json()["code"] == "file_too_large"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Écart L5 : build_problem(order_ids=…) n'inclut que les dépôts actifs ; une journée de "
-    "référence passée par un dépôt désactivé depuis ne peut pas être estimée (409 au lieu de 201).",
-)
 async def test_import_journee_passee_par_un_depot_desactive(client, db, world, auth_headers):
     world.depot.active = False
     await db.commit()
