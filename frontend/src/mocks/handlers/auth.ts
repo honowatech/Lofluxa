@@ -1,4 +1,8 @@
-/** Doublures de l'authentification (mode `full` uniquement : en mode `partial`, la vraie API répond). */
+/**
+ * Doublures de l'authentification (mode `full` uniquement : en mode `partial`, la vraie API répond).
+ * Fidèles au lot L8 : rotation du jeton de rafraîchissement (un jeton ne sert qu'une fois), déconnexion
+ * qui révoque le jeton de rafraîchissement transmis.
+ */
 import { http, HttpResponse } from "msw";
 
 import { db } from "../db";
@@ -25,14 +29,21 @@ export const authHandlers = [
 
   http.post(`${API}/auth/refresh`, async ({ request }) => {
     const body = await readJson(request);
-    const user = readToken(String(body.refresh_token ?? ""), "refresh");
+    const token = String(body.refresh_token ?? "");
+    if (db.revokedTokens.has(token))
+      return errorResponse(401, "token_revoked", "Session terminée. Reconnectez-vous.");
+    const user = readToken(token, "refresh");
     if (!user) return errorResponse(401, "unauthorized", "Jeton invalide ou expiré.");
+    db.revokedTokens.add(token);
     return HttpResponse.json(tokens(user.id));
   }),
 
-  http.post(`${API}/auth/logout`, ({ request }) => {
+  http.post(`${API}/auth/logout`, async ({ request }) => {
     const user = authenticate(request);
-    return user instanceof Response ? user : new HttpResponse(null, { status: 204 });
+    if (user instanceof Response) return user;
+    const body = await readJson(request);
+    if (typeof body.refresh_token === "string") db.revokedTokens.add(body.refresh_token);
+    return new HttpResponse(null, { status: 204 });
   }),
 
   http.get(`${API}/me`, ({ request }) => {

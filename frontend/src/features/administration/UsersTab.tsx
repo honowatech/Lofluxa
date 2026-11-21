@@ -12,7 +12,11 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { fr } from "@/i18n/fr";
-import { toListQuery } from "@/lib/api/pagination";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+
+import { api } from "@/lib/api/client";
+import type { ApiError } from "@/lib/api/errors";
+import { PASSWORD_MIN_LENGTH } from "@/lib/config";
 import { useCurrentUser } from "@/lib/auth/session";
 import { formatDateTime } from "@/lib/format";
 import { ROLES, type Role, type User } from "@/lib/types";
@@ -20,10 +24,10 @@ import { ROLES, type Role, type User } from "@/lib/types";
 import { users } from "./resources";
 
 const t = fr.administration.users;
-const MIN_PASSWORD = 12;
 
+const NONE: never[] = [];
 const roleOptions = ROLES.map((value) => ({ value, label: fr.roles[value] }));
-const zPassword = z.string().min(MIN_PASSWORD, t.passwordTooShort).max(128);
+const zPassword = z.string().min(PASSWORD_MIN_LENGTH, t.passwordTooShort(PASSWORD_MIN_LENGTH)).max(128);
 
 const createSchema = z.object({
   email: z.string().trim().toLowerCase().min(1, fr.common.required).email(fr.fields.emailInvalid),
@@ -51,7 +55,7 @@ function PasswordField({ label }: { label: string }) {
         required
         mono
         autoComplete="off"
-        hint={t.passwordHint}
+        hint={t.passwordHint(PASSWORD_MIN_LENGTH)}
         className="flex-1"
       />
       <Button
@@ -77,7 +81,19 @@ export function UsersTab() {
   const me = useCurrentUser();
   const confirm = useConfirm();
   const [state, setState] = useDataTableState({ sorting: [{ id: "full_name", desc: false }] });
-  const list = users.useList(toListQuery(state));
+  const list = users.useAll({}, { staleTime: 0 });
+  const queryClient = useQueryClient();
+  const refresh = () => queryClient.invalidateQueries({ queryKey: users.keys.all });
+  // Activation, désactivation et réinitialisation ont leurs propres routes (la désactivation ferme les sessions du compte).
+  const toggle = useMutation<User, ApiError, { id: string; active: boolean }>({
+    mutationFn: ({ id, active }) =>
+      api<User>(`/users/${id}/${active ? "activate" : "deactivate"}`, { method: "POST" }),
+    onSuccess: refresh,
+  });
+  const resetPassword = useMutation<void, ApiError, { id: string; password: string }>({
+    mutationFn: ({ id, password }) =>
+      api(`/users/${id}/reset-password`, { method: "POST", body: { password } }),
+  });
   const create = users.useCreate();
   const update = users.useUpdate();
   const [dialog, setDialog] = useState<DialogState>(null);
@@ -94,7 +110,7 @@ export function UsersTab() {
     )
       return;
     try {
-      await update.mutateAsync({ id: user.id, input: { active } });
+      await toggle.mutateAsync({ id: user.id, active });
       notify.success(active ? t.activated(user.full_name) : t.deactivated(user.full_name));
     } catch (error) {
       notify.apiError(error, fr.errors.saveFailed);
@@ -165,6 +181,7 @@ export function UsersTab() {
                 },
                 {
                   label: t.resetPassword,
+                  disabled: isSelf,
                   icon: <KeyRound />,
                   onSelect: () => setDialog({ mode: "reset", user }),
                 },
@@ -197,8 +214,7 @@ export function UsersTab() {
       <DataTable<User>
         caption={fr.administration.tabs.users}
         columns={columns}
-        data={list.data?.items ?? []}
-        total={list.data?.total}
+        data={list.data ?? NONE}
         state={state}
         onStateChange={setState}
         loading={list.isLoading}
@@ -238,7 +254,7 @@ export function UsersTab() {
         defaultValues={{ email: "", full_name: "", role: "dispatcher", password: "" }}
         submitLabel={fr.common.create}
         onSubmit={async (values) => {
-          await create.mutateAsync(values);
+          await create.mutateAsync({ ...values, active: true });
           notify.success(t.created(values.full_name));
         }}
       >
@@ -263,7 +279,11 @@ export function UsersTab() {
         }}
         onSubmit={async (values) => {
           if (!editing) return;
-          await update.mutateAsync({ id: editing.id, input: values });
+          // Son propre compte : ni rôle ni état (refusés par le serveur), seulement le nom.
+          await update.mutateAsync({
+            id: editing.id,
+            input: editingSelf ? { full_name: values.full_name } : values,
+          });
           notify.success(t.updated(values.full_name));
         }}
       >
@@ -285,7 +305,7 @@ export function UsersTab() {
         submitLabel={t.resetPassword}
         onSubmit={async (values) => {
           if (!resetting) return;
-          await update.mutateAsync({ id: resetting.id, input: { password: values.password } });
+          await resetPassword.mutateAsync({ id: resetting.id, password: values.password });
           notify.success(t.resetDone(resetting.full_name));
         }}
       >

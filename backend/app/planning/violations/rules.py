@@ -291,6 +291,14 @@ def rm_02_no_overlap(problem: PlanningProblem, trips: list[TripD]) -> list[Viola
 # --------------------------------------------------------------------------- RM-03 / RM-04
 
 
+def _is_done(trip: TripD) -> bool:
+    """Tournée dont plus aucun arrêt n'est en attente (tous livrés ou sautés, ou tournée vidée par
+    une panne, RM-19). L'affectabilité (RM-03, RM-04) vaut pour ce qui reste à faire : un camion
+    tombé en panne ou un chauffeur devenu indisponible en cours de journée ne rend pas fautive la
+    tournée qu'il a déjà réalisée (ajout du lot L10, F6.1 / F6.2)."""
+    return all(stop.status != "pending" for stop in trip.stops)
+
+
 def rm_03_driver_eligible(problem: PlanningProblem, trips: list[TripD]) -> list[ViolationD]:
     """RM-03 : un chauffeur dont le permis ou l'habilitation matières dangereuses est expiré à la
     date J n'est pas affectable (bloquant). Un chauffeur indisponible (statut du référentiel ou
@@ -299,7 +307,7 @@ def rm_03_driver_eligible(problem: PlanningProblem, trips: list[TripD]) -> list[
     violations = []
     for trip in trips:
         driver = index.drivers.get(trip.driver_id) if trip.driver_id else None
-        if driver is None:
+        if driver is None or _is_done(trip):
             continue
         reason = driver_unavailable_reason(driver, problem.day)
         if reason:
@@ -322,7 +330,7 @@ def rm_04_truck_eligible(problem: PlanningProblem, trips: list[TripD]) -> list[V
     violations = []
     for trip in trips:
         truck = index.trucks.get(trip.truck_id)
-        if truck is None:
+        if truck is None or _is_done(trip):
             continue
         reason = truck_block_reason(truck)
         if reason:

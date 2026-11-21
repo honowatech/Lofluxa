@@ -1,5 +1,5 @@
 /** Ressources de l'API utilisées par l'écran Référentiels (routes du lot L3). */
-import { createChildResource, createResource } from "@/lib/api/resource";
+import { createResource } from "@/lib/api/resource";
 import type {
   Carrier,
   CarrierInput,
@@ -11,11 +11,7 @@ import type {
   ProductInput,
   Station,
   StationInput,
-  StationTank,
-  StationTankInput,
   Truck,
-  TruckCompartment,
-  TruckCompartmentInput,
   TruckInput,
 } from "@/lib/types";
 
@@ -27,9 +23,3 @@ export const carriers = createResource<Carrier, CarrierInput>("/carriers", {
 });
 export const trucks = createResource<Truck, TruckInput>("/trucks", { invalidates: [["/drivers"]] });
 export const drivers = createResource<Driver, DriverInput>("/drivers");
-
-export const stationTanks = createChildResource<StationTank, StationTankInput>("/stations", "tanks");
-export const truckCompartments = createChildResource<TruckCompartment, TruckCompartmentInput>(
-  "/trucks",
-  "compartments",
-);

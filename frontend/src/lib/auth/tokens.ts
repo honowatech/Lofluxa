@@ -31,6 +31,12 @@ export function getTokens(): StoredTokens | null {
   return cache;
 }
 
+/** Relit le stockage (un autre onglet a pu rafraîchir les jetons entre-temps). */
+export function reloadTokens(): StoredTokens | null {
+  cache = read();
+  return cache;
+}
+
 export function setTokens(tokens: StoredTokens | null): void {
   cache = tokens;
   try {

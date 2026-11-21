@@ -13,7 +13,7 @@ const rowOf = (text: string) => screen.getByText(text).closest("tr") as HTMLElem
 const dataRows = (table: HTMLElement) => within(table).getAllByRole("row").slice(1);
 
 describe("Référentiels — stations", () => {
-  it("liste paginée côté serveur, triée par code, avec la carte des stations de la page", async () => {
+  it("toutes les stations, dans l'ordre du serveur (code), avec la carte des stations affichées", async () => {
     loginAs("admin");
     renderApp("/referentiels");
     const table = await grid("Stations");
@@ -27,7 +27,7 @@ describe("Référentiels — stations", () => {
     expect(map.querySelectorAll('[opacity="0.45"]')).toHaveLength(1);
   });
 
-  it("recherche et filtre envoyés au serveur", async () => {
+  it("recherche, filtre et tri locaux ; la carte suit les lignes retenues", async () => {
     loginAs("admin");
     const { user } = renderApp("/referentiels?tab=stations");
     const table = await grid("Stations");
@@ -45,7 +45,19 @@ describe("Référentiels — stations", () => {
     await user.selectOptions(screen.getByRole("combobox", { name: "Gabarit max" }), "medium");
     await waitFor(() => expect(dataRows(table)).toHaveLength(1));
     expect(within(dataRows(table)[0]).getByText("OLA Bonapriso")).toBeInTheDocument();
-    expect(screen.getByText("1–1 sur 1")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        screen.getByRole("figure", { name: "Stations" }).querySelectorAll('[data-kind="station"]'),
+      ).toHaveLength(1),
+    );
+
+    // Tri par clic sur l'en-tête : fait par le tableau, sans nouvelle requête.
+    await user.click(screen.getByRole("button", { name: "Effacer les filtres" }));
+    await waitFor(() => expect(dataRows(table)).toHaveLength(30));
+    await user.click(within(screen.getByRole("columnheader", { name: /Nom/ })).getByRole("button"));
+    expect(within(dataRows(table)[0]).getByText("OLA Akwa Boulevard")).toBeInTheDocument();
+    await user.click(within(screen.getByRole("columnheader", { name: /Nom/ })).getByRole("button"));
+    expect(within(dataRows(table)[0]).getByText("OLA Yassa")).toBeInTheDocument();
   });
 
   it("création : validation, coordonnées, cuves, puis ligne visible", async () => {
@@ -119,8 +131,13 @@ describe("Référentiels — stations", () => {
     await user.clear(within(dialog).getByLabelText(/^Code/));
     await user.type(within(dialog).getByLabelText(/^Code/), "DLA-002");
     await user.click(within(dialog).getByRole("button", { name: "Enregistrer" }));
-    expect(await within(dialog).findByText("Station : « DLA-002 » existe déjà.")).toBeInTheDocument();
-    expect(within(dialog).getByLabelText(/^Code/)).toHaveAccessibleDescription("Valeur déjà utilisée");
+    expect(await within(dialog).findAllByText("Le code station « DLA-002 » est déjà utilisé.")).toHaveLength(
+      2,
+    );
+    // 409 `duplicate` : le message du serveur est reporté sous le champ en cause.
+    expect(within(dialog).getByLabelText(/^Code/)).toHaveAccessibleDescription(
+      "Le code station « DLA-002 » est déjà utilisé.",
+    );
 
     await user.clear(within(dialog).getByLabelText(/^Code/));
     await user.type(within(dialog).getByLabelText(/^Code/), "DLA-001");

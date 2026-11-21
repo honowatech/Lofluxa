@@ -2,25 +2,38 @@
 
 Aucune ne bloque : une valeur par défaut est adoptée et isolée en un seul endroit du code.
 
-## Conventions de l'API non fixées par la spec §9 ni par CONTRATS §7
+## Tranché par l'API réelle (lots L3 et L8, intégrés) — le front est aligné
 
-| # | Question | Valeur adoptée côté front | Où la changer |
+| # | Question de départ | Réponse constatée dans l'API | Conséquence dans le front |
 |---|---|---|---|
-| L9-Q1 | Verbe de mise à jour d'une ressource CRUD : `PUT` (objet complet) ou `PATCH` (partiel) ? | `PUT /ressource/{id}`. Les formulaires envoient l'objet complet ; les éditions en ligne (statut d'un camion, libellé d'un produit) renvoient aussi l'objet complet, donc `PUT` strict convient. Exception : `/users/{id}` reçoit un objet partiel (`{active}`, `{password}`). | `createResource(path, { updateMethod })` — `src/lib/api/resource.ts` |
-| L9-Q2 | Tri, recherche et filtres des listes : noms des paramètres ? | `sort=champ` / `sort=-champ`, `q=` (recherche plein texte), un paramètre par filtre exact portant le nom de la colonne (`active=true`, `status=available`, `carrier_id=…`). | `toListQuery` — `src/lib/api/pagination.ts` |
-| L9-Q5 | Forme du rapport d'import (`import_batches.report`) et du retour de `preview` / `apply` ? | Lot sérialisé `{id, kind, filename, status, row_count, error_count, report: {rows: [{row, status, action, errors: [{field, message}], data}]}}`. Le front tolère `batch_id`, `report.lines`, `line`, des erreurs en simples chaînes, `warnings`. Fichier envoyé dans le champ multipart `file`. | `normalizeImportBatch` — `src/lib/api/imports.ts` |
-| L9-Q6 | Forme de `GET /settings` et corps de `PUT /settings` ? | `GET` → `Page` de `{key, value, default_value, description, updated_at, updated_by}` (une liste simple ou un dictionnaire `{clé: valeur}` sont aussi acceptés). `PUT` → dictionnaire des seules clés modifiées `{clé: valeur}`, réponse identique à `GET`. Il serait utile que l'API renvoie `default_value` et `description` (présents dans `DEFAULTS`) : sinon le front retombe sur son catalogue local. | `normalizeSettings` — `src/lib/api/settings.ts` |
-| L9-Q7 | Journal d'audit : noms des filtres acteur et période, libellé de l'acteur ? | `GET /audit?table=&row_id=&actor_id=&from=&to=` (`from` inclus, `to` exclu, horodatages ISO UTC), tri antéchronologique côté serveur, champ d'affichage `actor_name` (repli sur la liste des utilisateurs puis sur `actor_id`). | `src/features/administration/AuditTab.tsx` |
-| L9-Q8 | Réinitialisation du mot de passe : route dédiée ou champ de la mise à jour ? | `PUT /users/{id}` avec `{password}` (la spec ne liste que `CRUD /users`). Pas de suppression d'utilisateur dans l'interface : on désactive (`active=false`), l'historique d'audit reste lisible. | `src/features/administration/UsersTab.tsx` |
-| L9-Q9 | Cuves et compartiments : écrits avec leur parent ou par les sous-routes ? | Lecture : `tanks` / `compartments` imbriqués dans la station / le camion (relations `selectin` du modèle). Écriture : sous-routes `/stations/{id}/tanks` et `/trucks/{id}/compartments`, une requête par ligne modifiée. Conséquence : un réordonnancement de compartiments passe par des positions provisoires (≥ 1000) pour ne pas heurter l'unicité `(truck_id, position)`. Un `PUT /trucks/{id}` acceptant `compartments` en bloc serait plus simple et atomique. | `syncCompartments` — `src/features/referentials/TrucksTab.tsx` |
+| L9-Q1 | Verbe de mise à jour | `PUT` = `PATCH` = mise à jour partielle | `createResource` envoie `PUT` ; les éditions en ligne n'envoient que le champ modifié |
+| L9-Q2 | Tri, recherche, filtres des listes | `q` + filtres exacts ; **aucun paramètre de tri** (ordre fixe : code, immatriculation, nom, date décroissante) | Les tableaux triables chargent toutes leurs lignes (`useAll`) et trient localement ; `DataTable` en mode serveur n'est triable que sur option (`serverSort`) |
+| L9-Q5 | Forme du rapport d'import | `{summary, issues[], items[]}` + `can_apply` ; 409 `import_has_errors` / `already_applied` / `stale_preview` | `ImportDialog` affiche l'effet de chaque ligne (création, mise à jour avec avant → après, inchangée) et les anomalies ; `can_apply` fait foi |
+| L9-Q6 | Forme de `/settings` | `Page[SettingOut]` avec type, bornes, défaut, description ; `PUT {"values": {…}}`, tout ou rien | Type et bornes viennent du serveur ; le front ne garde que le groupe d'affichage et l'unité de chaque clé |
+| L9-Q7 | Filtres de `/audit` | `table`, `row_id` (exact), `actor_id`, `action`, `date_from`, `date_to` (jours locaux inclus) ; `actor_name`, `actor_email` | Filtre « action » ajouté ; les jours sont transmis tels quels |
+| L9-Q8 | Réinitialisation du mot de passe | `POST /users/{id}/reset-password`, `activate`, `deactivate` ; son propre mot de passe : `PUT /me/password` | Routes dédiées utilisées ; réinitialisation de son propre compte désactivée dans le menu |
+| L9-Q9 | Cuves et compartiments | Acceptés en ligne par `POST` / `PUT` du parent (rapprochés par produit / par position) | Une seule requête, atomique ; plus de positions provisoires |
+| L9-Q10 | Longueur minimale du mot de passe | 8 par défaut, réglable côté serveur (`TOURNEO_PASSWORD_MIN_LENGTH`) | 8 à la saisie (`PASSWORD_MIN_LENGTH`) ; un refus du serveur s'affiche sous le champ |
+| L9-Q11 | Somme des compartiments et capacité totale | Le serveur refuse (422) une somme **supérieure** à la capacité totale ; une somme inférieure est acceptée | Avertissement dans la fiche camion dès que les deux diffèrent, bouton « Utiliser la somme » ; le refus du serveur s'affiche sous « Capacité totale » |
 
-## Zones d'ombre fonctionnelles
+## Écarts constatés entre la spec et l'API réelle
+
+| Sujet | Spec (§9) | API réelle |
+|---|---|---|
+| Tri des listes | « toutes paginées, filtrables » — rien sur le tri | Pas de tri côté serveur. Sans effet pour les référentiels (quelques centaines de lignes), mais un tableau long et paginé côté serveur (commandes, audit) ne pourra pas être trié par l'utilisateur. À décider en vague 2 si un écran en a besoin. |
+| Utilisateurs | `CRUD /users` | `DELETE /users/{id}` désactive (ne supprime pas) ; routes d'action supplémentaires ; `PUT /me/password` (pas d'écran « mon mot de passe » dans la spec §10 : non construit) |
+| Audit | `GET /audit?table=&row_id=` | Filtres supplémentaires ; accès limité à `admin` et `manager` (l'écran Administration reste réservé à `admin`) |
+| Paramètres | F9.2 liste 9 paramètres | 25 clés servies, dont 2 absentes du catalogue d'affichage du front : elles apparaissent dans le groupe « Autres », avec leurs bornes |
+| Imports | `→ batch_id + rapport` | Réponse 201 ; une clé supprimée qui réapparaît dans un fichier est **réactivée** (annoncée comme mise à jour « supprimé → réactivé ») ; `GET /imports` (historique) existe mais aucun écran ne l'affiche |
+| Authentification | JWT accès 15 min, rafraîchissement 7 jours | Rotation du jeton de rafraîchissement et révocation à la déconnexion ; 429 `rate_limited` (10 connexions/min par adresse) : traités (voir README) |
+
+## Toujours ouvert
 
 | # | Constat | Valeur adoptée |
 |---|---|---|
-| L9-Q3 | « Permis / habilitation proches de l'expiration » : aucun seuil dans la spec ni dans `settings_store.DEFAULTS`. | 30 jours, constante `EXPIRY_WARNING_DAYS` (`src/lib/config.ts`). Simple aide visuelle, sans effet sur RM-03 (contrôlée par le serveur). À déplacer dans `settings` (clé proposée : `document_expiry_warning_days`) si OLA veut le régler. |
-| L9-Q4 | Spec §2 : rôles décrits par leurs tâches, mais pas la liste des écrans visibles par rôle. CONTRATS §7 dit « lecture ouverte à tous les rôles authentifiés ». | Navigation filtrée par métier (`SCREEN_ROLES`, `src/lib/auth/roles.ts`) : `fleet` ne voit pas Commandes, Comparaison, Référentiels ; `supply` voit Journée, Commandes, Disponibilité, Plan ; `dispatcher` et `manager` voient tout sauf Administration ; `admin` voit tout. Droits d'écriture (`CAPABILITIES`) : référentiels et administration = `admin` seul ; le reste suit le tableau de la spec §2. Le serveur reste seul juge (403). |
-| L9-Q10 | Longueur minimale d'un mot de passe : non précisée. | 12 caractères à la création et à la réinitialisation (le compte du seed en fait 14). À aligner sur la règle du lot L8. |
-| L9-Q11 | Camion : la somme des compartiments doit-elle égaler `total_capacity_l` ? Aucune règle RM ne le dit. | Avertissement non bloquant dans la fiche camion, avec un bouton « Utiliser la somme ». Aucune validation bloquante ajoutée. |
-| L9-Q12 | Fuseau d'affichage : le paramètre `timezone` est modifiable, mais le front a besoin du fuseau avant d'avoir chargé les paramètres. | Constante `APP_TIMEZONE = "Africa/Douala"` (`src/lib/config.ts`), toutes les fonctions de formatage acceptent un fuseau en argument. Brancher sur `/settings` si un autre fuseau devient nécessaire. |
-| L9-Q13 | Zone d'alertes de la coquille : la spec ne dit pas quelles alertes y figurent hors de l'écran Journée. | Mécanisme générique (`usePublishAlerts`) ; la coquille y publie dès maintenant les permis / habilitations expirés ou proches. Les écrans de vague 2 y ajouteront les leurs (calcul en échec, violations bloquantes, pénurie…). |
+| L9-Q3 | « Permis / habilitation proches de l'expiration » : aucun seuil dans la spec ni dans les paramètres. | 30 jours, constante `EXPIRY_WARNING_DAYS` (`src/lib/config.ts`). Simple aide visuelle, sans effet sur RM-03. À déplacer dans `settings` si OLA veut le régler. |
+| L9-Q4 | Spec §2 : rôles décrits par leurs tâches, pas par la liste des écrans visibles. | Navigation filtrée par métier (`SCREEN_ROLES`, `src/lib/auth/roles.ts`) ; écritures des référentiels et de l'administration réservées à `admin` (confirmé par l'API). Le serveur reste seul juge (403). |
+| L9-Q12 | Fuseau d'affichage : le paramètre `timezone` est modifiable, mais le front en a besoin avant d'avoir chargé les paramètres. | Constante `APP_TIMEZONE = "Africa/Douala"` ; toutes les fonctions de formatage acceptent un fuseau en argument. |
+| L9-Q13 | Zone d'alertes de la coquille : contenu non précisé hors de l'écran Journée. | Mécanisme générique (`usePublishAlerts`) ; la coquille y publie les permis / habilitations expirés ou proches. Les écrans de vague 2 y ajouteront les leurs. |
+| L9-Q14 | Limitation de débit : 10 connexions par minute **et par adresse IP**. Derrière le proxy du site d'OLA, tous les postes partagent probablement la même adresse. | Rien à faire côté front (message et délai affichés). À vérifier avec L8 : prise en compte de l'adresse réelle derrière Caddy, ou plafond par compte. |
+| L9-Q15 | Types TypeScript : écrits à la main d'après l'OpenAPI réelle (`src/lib/types/`). | À remplacer par les types générés (lot L15) ; tout le code importe depuis `@/lib/types`. |

@@ -8,7 +8,7 @@ import { Notice } from "@/components/PageHeader";
 import { ErrorState, LoadingState } from "@/components/states";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Input, NativeSelect } from "@/components/ui/input";
 import { fr } from "@/i18n/fr";
 import { isApiError } from "@/lib/api/errors";
 import { useSettings, useUpdateSettings } from "@/lib/api/settings";
@@ -42,15 +42,12 @@ export function SettingsTab() {
 
   const rows = useMemo<Row[]>(
     () =>
-      (query.data ?? []).map((setting) => {
-        const meta = metaFor(setting.key, setting.value);
-        return {
-          setting,
-          meta,
-          defaultValue: setting.default_value !== undefined ? setting.default_value : meta.fallbackDefault,
-          description: setting.description || meta.fallbackDescription,
-        };
-      }),
+      (query.data ?? []).map((setting) => ({
+        setting,
+        meta: metaFor(setting),
+        defaultValue: setting.default,
+        description: setting.description,
+      })),
     [query.data],
   );
 
@@ -199,13 +196,22 @@ export function SettingsTab() {
                         <span className="num text-xs text-muted-foreground">{key}</span>
                       </td>
                       <td className="border-b px-3 py-1.5 align-top">
-                        {row.meta.type === "number" || row.meta.type === "integer" ? (
+                        {row.meta.type === "int" || row.meta.type === "float" ? (
                           <NumberInput
                             {...common}
                             unit={row.meta.unit}
                             value={value as number | null}
                             onChange={(next) => setValue(key, next)}
                           />
+                        ) : row.meta.type === "bool" ? (
+                          <NativeSelect
+                            {...common}
+                            value={String(value)}
+                            onChange={(event) => setValue(key, event.target.value === "true")}
+                          >
+                            <option value="true">{fr.common.yes}</option>
+                            <option value="false">{fr.common.no}</option>
+                          </NativeSelect>
                         ) : row.meta.type === "time" ? (
                           <TimeInput
                             {...common}
@@ -255,8 +261,13 @@ export function SettingsTab() {
                       <td className="border-b px-3 py-1.5 align-top text-xs text-muted-foreground">
                         {dirty ? (
                           <Badge tone="warning">{t.modified}</Badge>
-                        ) : row.setting.updated_at ? (
-                          <span className="num">{formatDateTime(row.setting.updated_at)}</span>
+                        ) : row.setting.updated_at && !row.setting.is_default ? (
+                          <span title={row.setting.updated_by_name ?? undefined}>
+                            <span className="num">{formatDateTime(row.setting.updated_at)}</span>
+                            {row.setting.updated_by_name && (
+                              <span className="block truncate">{row.setting.updated_by_name}</span>
+                            )}
+                          </span>
                         ) : null}
                       </td>
                     </tr>

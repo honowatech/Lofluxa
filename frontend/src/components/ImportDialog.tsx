@@ -1,12 +1,13 @@
 /**
  * Import d'un fichier Excel / CSV en deux temps (F1.6) :
  * choisir le fichier → prévisualiser (rapport d'erreurs ligne par ligne) → appliquer.
- * Rien n'est écrit avant « Appliquer » ; un fichier contenant des erreurs ne peut pas être appliqué.
+ * Rien n'est écrit avant « Appliquer » ; un fichier contenant des erreurs ne peut pas être appliqué
+ * (`can_apply` du serveur fait foi).
  *
  *   <ImportDialog kind="stations" open={open} onOpenChange={setOpen} onApplied={() => stations.invalidate()} />
  */
 import { CircleAlert, CircleCheck, Download, FileSpreadsheet, TriangleAlert, Upload } from "lucide-react";
-import { useEffect, useRef, useState, type DragEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -20,8 +21,9 @@ import {
 } from "@/components/ui/dialog";
 import { fr } from "@/i18n/fr";
 import { errorMessage } from "@/lib/api/errors";
-import { applyImport, downloadImportTemplate, previewImport } from "@/lib/api/imports";
-import type { ImportBatch, ImportKind, ImportRowReport } from "@/lib/types";
+import { applyImport, downloadImportTemplate, importReportRows, previewImport } from "@/lib/api/imports";
+import { EMPTY } from "@/lib/format";
+import type { ImportBatch, ImportItem, ImportKind } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 import { notify } from "./notify";
@@ -41,12 +43,32 @@ export interface ImportDialogProps {
   fields?: Record<string, string>;
 }
 
-function previewText(data: ImportRowReport["data"]): string {
-  if (!data) return "";
-  return Object.values(data)
-    .filter((value) => value !== null && value !== "" && typeof value !== "object")
-    .slice(0, 4)
-    .join(" · ");
+const shown = (value: unknown): string =>
+  value === null || value === undefined || value === ""
+    ? EMPTY
+    : typeof value === "object"
+      ? JSON.stringify(value)
+      : String(value);
+
+/** Effet annoncé d'une ligne : champs modifiés « avant → après » pour une mise à jour. */
+function ItemEffect({ item }: { item: ImportItem }) {
+  const changes = item.changes ?? [];
+  return (
+    <div>
+      <span className="font-medium">{item.label || item.key}</span>
+      {item.action === "update" && changes.length > 0 && (
+        <ul className="mt-0.5 flex flex-col gap-0.5 text-muted-foreground">
+          {changes.map((change) => (
+            <li key={change.field}>
+              {change.label} : <span className="num line-through">{shown(change.before)}</span>
+              {" → "}
+              <span className="num text-foreground">{shown(change.after)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
 }
 
 export function ImportDialog({ kind, open, onOpenChange, onApplied, fields }: ImportDialogProps) {
@@ -69,13 +91,11 @@ export function ImportDialog({ kind, open, onOpenChange, onApplied, fields }: Im
 
   const busy = phase !== "idle";
   const step = batch ? "preview" : "file";
-  const validRows = batch ? batch.rows.filter((row) => row.status !== "error").length : 0;
-  const canApply = !!batch && batch.error_count === 0 && batch.row_count > 0;
-  const visibleRows = batch
-    ? onlyErrors
-      ? batch.rows.filter((row) => row.status !== "ok")
-      : batch.rows
-    : [];
+  const rows = useMemo(() => (batch ? importReportRows(batch) : []), [batch]);
+  const summary = batch?.report.summary;
+  const toWrite = summary ? summary.created + summary.updated : 0;
+  const canApply = !!batch && batch.can_apply;
+  const visibleRows = onlyErrors ? rows.filter((row) => row.status !== "ok") : rows;
 
   const pick = (next: File | null | undefined) => {
     if (!next) return;
@@ -109,7 +129,7 @@ export function ImportDialog({ kind, open, onOpenChange, onApplied, fields }: Im
     setError(null);
     try {
       const result = await applyImport(batch.id);
-      notify.success(t.applied(result.row_count || validRows));
+      notify.success(t.applied(result.report.summary.created + result.report.summary.updated));
       onApplied?.(result);
       onOpenChange(false);
     } catch (caught) {
@@ -208,13 +228,17 @@ export function ImportDialog({ kind, open, onOpenChange, onApplied, fields }: Im
             </p>
           )}
 
-          {batch && (
+          {batch && summary && (
             <section aria-label={t.steps.preview} className="flex min-h-0 flex-col gap-2">
-              <div className="flex flex-wrap items-center gap-3">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                 <p className="text-sm font-medium" data-testid="import-summary">
                   {t.summary(batch.row_count, batch.error_count)}
                 </p>
-                {batch.rows.length > 0 && (
+                <p className="num text-xs text-muted-foreground" data-testid="import-effects">
+                  {t.effects(summary.created, summary.updated, summary.unchanged)}
+                  {summary.warnings > 0 && ` · ${t.warnings(summary.warnings)}`}
+                </p>
+                {rows.length > 0 && (
                   <label className="ml-auto flex items-center gap-1.5 text-xs">
                     <input
                       type="checkbox"
@@ -225,12 +249,14 @@ export function ImportDialog({ kind, open, onOpenChange, onApplied, fields }: Im
                   </label>
                 )}
               </div>
-              {batch.row_count === 0 ? (
-                <Notice tone="warning">{t.noRows}</Notice>
-              ) : batch.error_count > 0 ? (
+              {batch.error_count > 0 || batch.status === "rejected" ? (
                 <Notice tone="blocking" icon={<CircleAlert className="size-3.5" />}>
                   {t.hasErrors}
                 </Notice>
+              ) : batch.row_count === 0 ? (
+                <Notice tone="warning">{t.noRows}</Notice>
+              ) : toWrite === 0 ? (
+                <Notice tone="neutral">{t.nothingToApply}</Notice>
               ) : (
                 <Notice tone="info" icon={<CircleCheck className="size-3.5" />}>
                   {t.allValid}
@@ -245,7 +271,7 @@ export function ImportDialog({ kind, open, onOpenChange, onApplied, fields }: Im
                         <th scope="col" className="w-14 border-b px-2 py-1 text-right font-semibold">
                           {t.row}
                         </th>
-                        <th scope="col" className="w-24 border-b px-2 py-1 font-semibold">
+                        <th scope="col" className="w-28 border-b px-2 py-1 font-semibold">
                           {t.status}
                         </th>
                         <th scope="col" className="border-b px-2 py-1 font-semibold">
@@ -256,47 +282,59 @@ export function ImportDialog({ kind, open, onOpenChange, onApplied, fields }: Im
                     <tbody>
                       {visibleRows.map((row) => (
                         <tr
-                          key={row.row}
+                          key={row.row ?? "fichier"}
                           data-status={row.status}
                           className={cn(
                             row.status === "error" && "bg-blocking-soft/60",
                             row.status === "warning" && "bg-warning-soft/60",
                           )}
                         >
-                          <td className="num border-b px-2 py-1 text-right align-top">{row.row}</td>
+                          <td className="num border-b px-2 py-1 text-right align-top">
+                            {row.row ?? t.wholeFile}
+                          </td>
                           <td className="border-b px-2 py-1 align-top">
                             {row.status === "error" ? (
                               <span className="flex items-center gap-1 font-medium text-blocking">
                                 <CircleAlert className="size-3" aria-hidden />
                                 {t.rowError}
                               </span>
-                            ) : row.status === "warning" ? (
-                              <span className="flex items-center gap-1 font-medium text-warning">
-                                <TriangleAlert className="size-3" aria-hidden />
-                                {t.rowWarning}
-                              </span>
                             ) : (
-                              <span className="text-success">
-                                {(row.action && (t.actions as Record<string, string>)[row.action]) || t.rowOk}
+                              <span
+                                className={cn(
+                                  "flex items-center gap-1",
+                                  row.status === "warning"
+                                    ? "font-medium text-warning"
+                                    : row.item?.action === "unchanged"
+                                      ? "text-muted-foreground"
+                                      : "text-success",
+                                )}
+                              >
+                                {row.status === "warning" && <TriangleAlert className="size-3" aria-hidden />}
+                                {row.item ? t.actions[row.item.action] : t.rowWarning}
                               </span>
                             )}
                           </td>
                           <td className="border-b px-2 py-1 align-top">
-                            {row.errors.length > 0 ? (
+                            {row.item && <ItemEffect item={row.item} />}
+                            {row.issues.length > 0 && (
                               <ul className="flex flex-col gap-0.5">
-                                {row.errors.map((entry, index) => (
-                                  <li key={index}>
-                                    {entry.field && (
+                                {row.issues.map((issue, index) => (
+                                  <li
+                                    key={index}
+                                    className={issue.severity === "warning" ? "text-warning" : undefined}
+                                  >
+                                    {issue.column && (
                                       <span className="num mr-1 rounded-sm bg-card px-1 text-foreground/70">
-                                        {entry.field}
+                                        {issue.column}
                                       </span>
                                     )}
-                                    {entry.message}
+                                    {issue.message}
+                                    {issue.value !== null && issue.value !== "" && (
+                                      <span className="num ml-1 text-muted-foreground">({issue.value})</span>
+                                    )}
                                   </li>
                                 ))}
                               </ul>
-                            ) : (
-                              <span className="text-muted-foreground">{previewText(row.data)}</span>
                             )}
                           </td>
                         </tr>
@@ -316,7 +354,7 @@ export function ImportDialog({ kind, open, onOpenChange, onApplied, fields }: Im
           {batch ? (
             <Button disabled={!canApply || busy} onClick={() => void runApply()}>
               {phase === "applying" && <Spinner className="text-current" />}
-              {phase === "applying" ? t.applying : t.applyCount(validRows)}
+              {phase === "applying" ? t.applying : canApply ? t.applyCount(toWrite) : t.apply}
             </Button>
           ) : (
             <Button disabled={!file || busy} onClick={() => void runPreview()}>
