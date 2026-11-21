@@ -1,7 +1,8 @@
 """Fabrique de données et doublures du lot L7 (plans, tournées, commandes créés par l'ORM).
 
-Les lots L2 (matrice), L1 (règles) et L5 (service de plans) ne sont pas livrés dans cette branche :
-`fake_build_problem`, `fake_build_matrix` et `fake_check_plan` les remplacent dans les tests.
+Les lots L2 (matrice, compartiments) et L5 (service de plans) ne sont pas livrés dans cette branche :
+`fake_build_problem`, `fake_build_matrix` et `fake_assign_compartments` les remplacent dans les tests.
+Les règles (`rules.check_plan`, lot L1) sont livrées : ce sont les vraies qui s'exécutent.
 Les codes du monde de test sont ceux de l'exemple du fichier modèle `reference_day.xlsx`.
 """
 
@@ -31,6 +32,7 @@ from app.core.time import opening_windows, seconds_to_utc
 from app.orders.models import Order
 from app.planning.domain import (
     CompartmentD,
+    CompartmentLoadD,
     DepotD,
     DriverD,
     Matrix,
@@ -40,7 +42,6 @@ from app.planning.domain import (
     ProductD,
     StationD,
     TruckD,
-    ViolationD,
 )
 from app.planning.models import ConstraintViolation, Plan, Stop, StopDelivery, Trip, UnservedOrder
 from app.referentials.models import Carrier, Depot, Driver, Product, Station, Truck, TruckCompartment
@@ -84,11 +85,10 @@ async def make_world(db: AsyncSession, products: dict[str, Product]) -> World:
             plate="LT-456-BB", carrier_id=carrier.id, size=TruckSize.MEDIUM, total_capacity_l=Decimal("20000")
         ),
     }
-    for truck in trucks.values():
-        half = truck.total_capacity_l / 2
-        truck.compartments = [
-            TruckCompartment(position=1, capacity_l=half),
-            TruckCompartment(position=2, capacity_l=half),
+    for plate, capacities in {"LT-123-AA": (16000, 12000, 12000), "LT-456-BB": (10000, 10000)}.items():
+        trucks[plate].compartments = [
+            TruckCompartment(position=position, capacity_l=Decimal(capacity))
+            for position, capacity in enumerate(capacities, start=1)
         ]
     drivers = {
         "Jean Mbarga": Driver(
@@ -262,15 +262,21 @@ def fake_build_matrix(nodes, params: Params, *, osrm_url=None, cache=None) -> Ma
     return Matrix(tuple(n[0] for n in nodes), distances, durations, approximate=True)
 
 
-def fake_check_plan(problem, trips, unserved=None, matrix=None) -> list[ViolationD]:
-    """Doublure de `rules.check_plan` (lot L1) : un avertissement sur le premier arrêt de la tournée 1."""
-    if not trips:
-        return []
-    return [
-        ViolationD(
-            "RM-10", Severity.WARNING, "Arrivée hors fenêtre (doublure de test).", trip_seq=1, stop_seq=1
-        )
-    ]
+def fake_assign_compartments(truck, volumes_by_product, safety_margin_pct):
+    """Doublure de `assign_compartments` (lot L2) : glouton, plus gros volume → plus gros compartiment
+    libre, un seul produit par compartiment, marge de sécurité déduite. `None` si rien ne tient."""
+    free = sorted(truck.compartments, key=lambda c: -c.capacity_l)
+    loads = []
+    for product_id, volume in sorted(volumes_by_product.items(), key=lambda item: -item[1]):
+        while volume > 1e-6:
+            compartment = next((c for c in free if c.accepts(product_id)), None)
+            if compartment is None:
+                return None
+            free.remove(compartment)
+            part = min(volume, compartment.capacity_l * (1 - safety_margin_pct / 100))
+            loads.append(CompartmentLoadD(compartment.id, product_id, part))
+            volume -= part
+    return loads
 
 
 def leg_m(a: tuple[float, float], b: tuple[float, float], factor: float = 1.3) -> int:

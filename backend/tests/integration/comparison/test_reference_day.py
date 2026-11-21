@@ -18,7 +18,7 @@ from app.core.enums import (
 from app.imports.models import ImportBatch
 from app.imports.reference_day import TEMPLATE_ORDERS, TEMPLATE_TRIPS, build_workbook
 from app.orders.models import Order
-from app.planning.models import Plan
+from app.planning.models import Plan, TripCompartmentLoad
 
 from . import factory
 from .factory import DAY, DEPOT, STATIONS, at, leg_m
@@ -120,10 +120,19 @@ async def test_import_du_fichier_modele_cree_le_plan_de_reference(client, db, wo
     (unserved,) = plan.unserved
     assert bundle.orders[unserved.order_id].station_id == world.stations["ST-DLA-004"].id
 
-    # Violations rendues par les règles (doublure) et rattachées à la tournée et à l'arrêt.
-    (violation,) = plan.violations
-    assert (violation.rule_code, violation.severity) == ("RM-10", Severity.WARNING)
-    assert violation.trip_id == trip1.id and violation.stop_id == stop1.id
+    # Plan de chargement réparti comme pour un plan calculé (le fichier ne donne pas les compartiments).
+    loads = (
+        await db.execute(select(TripCompartmentLoad).where(TripCompartmentLoad.trip_id == trip1.id))
+    ).scalars()
+    by_product: dict[str, float] = {}
+    for load in loads:
+        code = bundle.products[load.product_id].code
+        by_product[code] = by_product.get(code, 0.0) + float(load.planned_l)
+    assert by_product == {"SUPER": 22000.0, "GASOIL": 8000.0}
+
+    # Violations : les vraies règles (lot L1). Aucune bloquante ; le stock du dépôt n'est pas saisi (RM-08).
+    assert sorted((v.rule_code, v.severity) for v in plan.violations) == [("RM-08", Severity.WARNING)] * 2
+    assert plan.metrics["violations_blocking"] == 0 and plan.metrics["violations_warning"] == 2
 
     # Métriques enregistrées sur le plan.
     assert plan.metrics["distance_actual_m"] == 140_000
@@ -171,6 +180,45 @@ async def test_import_rapport_d_erreurs_ligne_par_ligne(client, db, world, auth_
     batch = await db.get(ImportBatch, body["batch_id"])
     assert batch.status == ImportStatus.REJECTED and batch.error_count == 6
     assert len(batch.report["errors"]) == 6
+
+
+async def test_import_violations_du_plan_manuel_rattachees_a_la_tournee(client, db, world, auth_headers):
+    """Chargement impossible (3 produits pour 2 compartiments) et station fermée : les règles le disent."""
+    world.stations["ST-DLA-002"].opening_hours = {"tue": [["06:00", "07:00"]]}
+    trips = [
+        (
+            1,
+            "LT-456-BB",
+            "Paul Etoa",
+            "SCDP-DLA",
+            1,
+            "ST-DLA-001",
+            "SUPER",
+            5000,
+            None,
+            None,
+            None,
+            None,
+            None,
+        ),
+        (1, None, None, None, 1, "ST-DLA-001", "GASOIL", 5000, None, None, None, None, None),
+        (1, None, None, None, 2, "ST-DLA-002", "PETROLE", 5000, None, None, None, None, None),
+    ]
+    content = build_workbook(day="2027-01-12", trips=trips)
+    response = await _import(client, await auth_headers("dispatcher"), content)
+    assert response.status_code == 201, response.text
+
+    from app.comparison.service import load_bundle, plan_metrics
+
+    bundle = await load_bundle(db, response.json()["plan_id"])
+    (trip,) = bundle.trips
+    stop2 = trip.stops[1]
+    found = {(v.rule_code, v.severity.value, v.trip_id, v.stop_id) for v in bundle.plan.violations}
+    assert ("RM-05", "blocking", trip.id, None) in found  # aucun plan de chargement possible
+    assert ("RM-10", "blocking", trip.id, stop2.id) in found  # arrivée après la fermeture de la station
+    blocking = sum(1 for v in bundle.plan.violations if v.severity == Severity.BLOCKING)
+    assert plan_metrics(bundle).violations_blocking == blocking >= 4
+    assert (await db.execute(select(TripCompartmentLoad))).first() is None
 
 
 async def test_import_fichier_illisible(client, db, world, auth_headers):
@@ -270,8 +318,8 @@ async def test_import_existant_409_puis_remplacement(client, db, world, auth_hea
 async def test_import_et_rejeu_reserves_au_dispatcher(client, db, world, auth_headers):
     headers = {role: await auth_headers(role) for role in ("manager", "fleet", "supply", "admin")}
     plan = await factory.make_plan(db, world, [], kind=PlanKind.MANUAL_REFERENCE, day=factory.OTHER_DAY)
-    plan_id = plan.id  # lu avant les erreurs : un rollback expire les objets de la session de test
-    await db.commit()  # une réponse en erreur annule la transaction en cours de la session de test
+    plan_id = plan.id
+    await db.commit()
     for role in ("manager", "fleet", "supply"):
         response = await _import(client, headers[role])
         assert response.status_code == 403, role

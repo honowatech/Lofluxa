@@ -9,6 +9,8 @@ Conventions adoptées (voir docs/questions/l7-comparaison.md) :
 - la journée a réellement eu lieu : tournées `completed`, arrêts `delivered`, volume réel = volume
   du fichier ; commandes livrées `delivered`, commandes non livrées `postponed` et listées dans
   `unserved_orders` ; le plan reste `draft` (il n'est jamais publié) ;
+- le fichier ne donne pas les compartiments : le plan de chargement est réparti par
+  `assign_compartments`, comme pour un plan calculé ;
 - les heures prévues sont calculées par `schedule_trip` ; si l'heure réelle de départ du dépôt est
   connue, le calcul part de cette heure, sinon les tournées d'un même camion ou chauffeur s'enchaînent.
 """
@@ -49,13 +51,14 @@ from app.orders.models import Order
 from app.planning import service as plan_service
 from app.planning import timing
 from app.planning.domain import DeliveryD, PlanningProblem, StopD, TripD, UnservedD
-from app.planning.engine import distance_matrix
+from app.planning.engine import compartments, distance_matrix
 from app.planning.models import (
     ConstraintViolation,
     Plan,
     Stop,
     StopDelivery,
     Trip,
+    TripCompartmentLoad,
     UnservedOrder,
 )
 from app.planning.violations import rules
@@ -416,7 +419,8 @@ async def import_reference_day(
 async def estimate_plan(session: AsyncSession, plan: Plan, order_ids: list[uuid.UUID], tz_name: str) -> None:
     """Kilomètres estimés, horaires prévus et violations d'un plan saisi à la main, calculés comme
     pour un plan du moteur : même problème (`build_problem`), même matrice (`build_matrix`), mêmes
-    horaires (`schedule_trip`), mêmes règles (`check_plan`) — comparaison à armes égales."""
+    horaires (`schedule_trip`), même répartition par compartiment (`assign_compartments`), mêmes
+    règles (`check_plan`) — comparaison à armes égales."""
     problem: PlanningProblem = await plan_service.build_problem(session, plan.day, order_ids=order_ids)
 
     depots = {d.id: d for d in problem.depots}
@@ -477,6 +481,25 @@ async def estimate_plan(session: AsyncSession, plan: Plan, order_ids: list[uuid.
         for resource in resources:
             last_return[resource] = max(last_return.get(resource, 0), trip_d.return_s)
         trips_d.append(trip_d)
+
+        # Plan de chargement : le fichier ne donne pas les compartiments, on les répartit comme le
+        # fait le moteur. Sans répartition possible, la tournée reste sans plan de chargement et
+        # les règles le signalent (RM-05).
+        loads = compartments.assign_compartments(
+            problem.truck(trip_d.truck_id),
+            trip_d.volumes_by_product(),
+            problem.params.compartment_safety_margin_pct,
+        )
+        trip_d.loads = list(loads or [])
+        for load in trip_d.loads:
+            session.add(
+                TripCompartmentLoad(
+                    trip_id=trip.id,
+                    compartment_id=uuid.UUID(load.compartment_id),
+                    product_id=uuid.UUID(load.product_id),
+                    planned_l=Decimal(str(round(load.planned_l, 2))),
+                )
+            )
 
         trip.planned_start_at = seconds_to_utc(plan.day, trip_d.start_s, tz_name)
         trip.planned_depart_at = seconds_to_utc(plan.day, trip_d.depart_s, tz_name)
