@@ -112,7 +112,7 @@ function route(
   return {
     trip_id: id,
     seq,
-    color: "#1f77b4",
+    color: ["#1d6fb8", "#0f8a7a", "#7a4fc4"][(seq - 1) % 3],
     truck_id: `truck-${plate}`,
     truck_plate: plate,
     driver_id: driver ? `driver-${driver}` : null,
@@ -236,7 +236,7 @@ function deltasOf(a: PlanMetrics, b: PlanMetrics): MetricDelta[] {
       a: va,
       b: vb,
       delta,
-      delta_pct: va === 0 ? null : Math.round((delta / va) * 10000) / 100,
+      delta_pct: va === 0 ? (vb === 0 ? 0 : null) : Math.round((delta / va) * 10000) / 100,
       better: lowerIsBetter === null ? null : delta === 0 ? "equal" : delta < 0 === lowerIsBetter ? "b" : "a",
     };
   });
@@ -567,17 +567,24 @@ export function comparisonHandlers(
           { sheet: "Tournées", row: 3, column: "Code station", message: "Station inconnue : ST-XXX." },
           { sheet: "Tournées", row: 5, column: "Camion", message: "Camion inconnu : LT 999 ZZ." },
         ];
+        const warnings = [
+          { sheet: "Tournées", row: 3, column: "Code station", message: "Livraison sans commande." },
+        ];
         return HttpResponse.json(
           {
             code: "import_rejected",
             message: "Fichier rejeté : 2 erreur(s). Aucune donnée n'a été créée.",
-            details: errors,
+            // Comme l'API réelle : `details` mêle erreurs et avertissements, distingués par `severity`.
+            details: [
+              ...errors.map((issue) => ({ ...issue, severity: "error" })),
+              ...warnings.map((issue) => ({ ...issue, severity: "warning" })),
+            ],
             ...base,
             status: "rejected",
             error_count: 2,
             errors,
-            warnings: [],
-            summary: {},
+            warnings,
+            summary: { orders: 16, trips: 6, stops: 14 },
           },
           { status: 422 },
         );

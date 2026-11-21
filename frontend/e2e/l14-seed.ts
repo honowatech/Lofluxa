@@ -682,6 +682,7 @@ interface PlanDetail {
     id: string;
     seq: number;
     status: string;
+    truck_id: string;
     planned_depart_at: string;
     planned_return_at: string;
     stops: PlanStop[];
@@ -853,9 +854,72 @@ async function progressDayB(admin: string, plan: PlanDetail): Promise<void> {
   }
 }
 
+/**
+ * Panne de camion sur la dernière tournée encore « planifiée » du plan publié du jour
+ * (`POST /events/truck-breakdown`) : le serveur crée et publie une nouvelle version du plan.
+ * Renvoie la version publiée après la panne.
+ */
+export async function declareBreakdown(day: string): Promise<{ planId: string; version: number }> {
+  const admin = await login(ADMIN);
+  const published = (await listPlans(admin, day))
+    .filter((plan) => plan.kind === "computed" && plan.status === "published")
+    .sort((x, y) => y.version - x.version)[0];
+  if (!published) throw new Error(`Aucun plan publié le ${day}`);
+  // Déjà fait lors d'un passage précédent : on ne recrée pas une panne à chaque exécution.
+  if (published.version >= 2) return { planId: published.id, version: published.version };
+  const plan = await call<PlanDetail>(admin, `/plans/${published.id}`);
+  // Une tournée encore planifiée dont le camion n'en fait pas d'autre : sinon le camion en panne laisse une
+  // violation bloquante (RM-04) sur son autre tournée et la nouvelle version reste en brouillon.
+  const target = [...plan.trips]
+    .sort((x, y) => y.seq - x.seq)
+    .find(
+      (trip) =>
+        trip.status === "planned" &&
+        plan.trips.filter((other) => other.truck_id === trip.truck_id).length === 1,
+    );
+  if (!target) throw new Error("Aucune tournée planifiée dont le camion ne fait qu'une tournée");
+  // Le serveur dit quels camions peuvent reprendre la tournée (capacité, gabarit, disponibilité) ;
+  // on essaie les camions admissibles l'un après l'autre : l'heure de la panne peut encore en écarter.
+  const occurredAt = shift(target.planned_depart_at, -20);
+  const options = await call<{
+    trucks: { truck_id: string; eligible: boolean; suggested_driver_id: string | null }[];
+  }>(admin, `/events/replacement-options?trip_id=${target.id}`);
+  const eligible = options.trucks.filter((truck) => truck.eligible);
+  if (eligible.length === 0) throw new Error("Aucun camion de remplacement admissible");
+  let lastError: unknown = null;
+  for (const replacement of eligible) {
+    try {
+      const result = await call<{ plan_id: string; plan_version: number; published: boolean }>(
+        admin,
+        "/events/truck-breakdown",
+        jsonBody("POST", {
+          trip_id: target.id,
+          replacement_truck_id: replacement.truck_id,
+          replacement_driver_id: replacement.suggested_driver_id,
+          occurred_at: occurredAt,
+          reason: "Fuite sur le circuit de freinage constatée au dépôt",
+          publish: true,
+        }),
+      );
+      if (!result.published) throw new Error("La version créée par la panne n'a pas pu être publiée");
+      return { planId: result.plan_id, version: result.plan_version };
+    } catch (error) {
+      lastError = error;
+      // Une version en brouillon existe désormais : inutile d'essayer un autre camion.
+      if (error instanceof Error && error.message.includes("n'a pas pu être publiée")) break;
+    }
+  }
+  throw lastError;
+}
+
 if (process.argv[1]?.endsWith("l14-seed.ts")) {
   const day = process.argv[2] ?? "2027-01-12";
-  (process.argv[3] === "b" ? seedDayB(day).then((plan) => ({ planB: plan })) : seedComparison(day)).then(
+  (process.argv[3] === "b"
+    ? seedDayB(day).then((plan) => ({ planB: plan }))
+    : process.argv[3] === "panne"
+      ? declareBreakdown(day)
+      : seedComparison(day)
+  ).then(
     (plans) => console.log(JSON.stringify({ day, ...plans })),
     (error) => {
       console.error(error);

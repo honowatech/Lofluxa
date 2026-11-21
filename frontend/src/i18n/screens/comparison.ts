@@ -116,7 +116,6 @@ export const comparisonTexts = {
     better: { a: "Plan A", b: "Plan B", equal: "Égalité" },
     betterLabel: { a: "Avantage au plan A", b: "Avantage au plan B", equal: "Égalité", none: "Sans objet" },
     points: "pt",
-    underMinute: "< 1 min",
     unknownHint: "Valeur inconnue",
     partialActual: (side: string, known: number, total: number) =>
       `Plan ${side} : km réels connus pour ${known} tournée${known > 1 ? "s" : ""} sur ${total} — total partiel.`,

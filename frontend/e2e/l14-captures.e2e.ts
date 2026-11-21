@@ -6,6 +6,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
 import {
+  declareBreakdown,
   DISPATCHER,
   listPlans,
   login as apiLogin,
@@ -16,7 +17,7 @@ import {
 } from "./l14-seed";
 
 const DAY_A = "2027-01-12";
-const DAY_B = "2027-01-20";
+const DAY_B = "2027-01-28";
 const OUT = "docs/captures";
 const XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
@@ -61,7 +62,11 @@ test("captures de l'écran Comparaison A / B", async ({ page }) => {
   await fullShot(page, "02-page-entiere");
 
   // Cartes côte à côte, une tournée du plan B détaillée.
-  await page.getByTestId("plan-b").getByRole("button", { name: "Tournée 1", exact: true }).click();
+  await page
+    .getByTestId("plan-b")
+    .locator("tr[data-trip]")
+    .getByRole("button", { name: "Tournée 1", exact: true })
+    .click();
   await page.getByRole("heading", { name: "Tournées sur la carte" }).scrollIntoViewIfNeeded();
   await page.evaluate(() => {
     const main = document.querySelector("#contenu");
@@ -121,7 +126,8 @@ test("captures de l'écran Comparaison A / B", async ({ page }) => {
   await shot(page, "09-rejeu-en-cours");
   await expect(page.getByTestId("replay-progress")).toBeHidden({ timeout: 180_000 });
 
-  // Suivi de la journée B.
+  // Suivi de la journée B, après une panne de camion (nouvelle version publiée).
+  await declareBreakdown(DAY_B);
   await page.goto(`/comparaison?day=${DAY_B}&vue=suivi`);
   await expect(page.getByTestId("dashboard-trips")).toBeVisible();
   await page.waitForTimeout(500);
