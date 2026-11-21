@@ -5,14 +5,15 @@
 | 1 | Rejeu de la journée A sans violation bloquante, au moins autant de commandes servies | oui, sur la journée fabriquée |
 | 2 | Kilométrage calculé inférieur d'au moins `ab_success_threshold_pct` | oui, sur la journée fabriquée |
 | 3 | Calcul < 60 s sur `demo_scale` | oui (`-m slow`) |
-| 4 | Dispatcher autonome après une heure de formation | non automatisable (recette chez OLA) |
-| 5 | RM-01 à RM-20 testées ; couverture de `planning` ≥ 80 % | présence d'un `test_RM_xx` par règle |
-| 6 | Redémarrage sans perte, sauvegarde restaurable en 30 min | non vérifiable ici (pas de Docker) |
+| 4 | Dispatcher autonome après une heure de formation | la séquence des cinq gestes est faisable de bout en bout par l'API ; l'autonomie après formation se constate chez OLA |
+| 5 | RM-01 à RM-20 testées ; couverture de `planning` ≥ 80 % | un `test_RM_xx` par règle, 20 sur 20 ; couverture mesurée à part |
+| 6 | Redémarrage sans perte, sauvegarde restaurable en 30 min | non vérifiable ici (pas de Docker) : `docs/EXPLOITATION.md` §12 |
 | 7 | Aucun fichier Excel lu hors de `imports/` | oui (application et scripts) |
 
 La journée A réelle d'OLA n'est pas encore fournie : les critères 1 et 2 sont vérifiés sur la journée
 manuelle fabriquée par `scripts/demo/make_reference_day.py` (voir `docs/DEMO.md`). L'état de chaque
-critère, y compris les 4 et 6, est tenu dans `docs/DEMO.md`.
+critère, y compris ce qui ne peut être vérifié que chez OLA ou sur une machine avec Docker, est tenu
+dans `docs/DEMO.md` §4.
 """  # noqa: E501
 
 from __future__ import annotations
@@ -21,9 +22,11 @@ import ast
 import re
 from pathlib import Path
 
+import export_fixture
 import pytest
+import run_day
 
-from tests.e2e.conftest import load, run_ab, timed_compute
+from tests.e2e.conftest import ADMIN, compute_day, load, run_ab, timed_compute
 from tests.unit.imports.test_isolation import FORBIDDEN_CALLS, FORBIDDEN_MODULES
 from tests.unit.imports.test_isolation import violations as excel_reads
 
@@ -81,11 +84,51 @@ async def test_critere_3_calcul_en_moins_de_60_s_sur_demo_scale(api, db, tasks):
     assert plan["blocking_count"] == 0
 
 
+# ------------------------------------------------------------------ critère 4 (part automatisable)
+
+
+async def test_critere_4_les_cinq_gestes_du_dispatcher_s_enchainent_de_bout_en_bout(api, db, tasks):
+    """« Import des commandes, calcul, déplacement d'un arrêt, publication, traitement d'une panne » :
+    la séquence est réalisable avec le seul compte dispatcher, sans intervention technique. Ce test
+    ne dit rien de l'heure de formation : il garantit que rien, dans le logiciel, n'empêche la
+    séquence. Les mêmes gestes à l'écran sont décrits dans `docs/DEMO.md`."""
+    summary = await load(api, "demo_douala", orders=False)  # référentiels et stocks en place
+    day = summary.day.isoformat()
+    # 1. import des commandes (prévisualiser → appliquer), puis confirmation
+    content = (export_fixture.import_dir("demo_douala") / "orders.xlsx").read_bytes()
+    batch = await api.import_file("orders", "orders.xlsx", content, "dispatcher", day=day)
+    assert batch["status"] == "applied" and batch["report"]["summary"]["created"] == 20
+    assert await api.confirm_draft_orders(summary.day) == (20, 0)
+    # 2. calcul
+    plan = await compute_day(api, db, tasks, summary)
+    assert plan["unserved"] == [] and plan["publishable"] is True
+    # 3. déplacement d'un arrêt
+    plan, target_id = await run_day.move_one_stop(api, plan)
+    assert plan["last_edit"]["action"] == "move_stop" and plan["blocking_count"] == 0
+    assert any(t["id"] == target_id for t in plan["trips"])
+    # 4. publication
+    published = (await api.call("POST", f"/plans/{plan['id']}/publish", "dispatcher")).json()
+    assert published["status"] == "published"
+    # 5. traitement d'une panne (Fleet fait partir le camion ; le dispatcher déclare et remplace)
+    victim = run_day.breakdown_candidate(published)
+    for trip in run_day.by_departure(published["trips"]):
+        if trip["id"] == victim["id"]:
+            break
+        await run_day.run_trip(api, trip)
+    result = await run_day.break_down(api, victim)
+    assert result["published"] is True and result["plan_version"] == 2
+    assert result["blocking_count"] == 0 and result["transferred_stop_ids"]
+    # Tout a été fait par le dispatcher (et Fleet pour l'exécution) : l'administrateur n'a servi qu'à
+    # charger les référentiels.
+    actors = {e["actor_name"] for e in await api.get_all("/events", "dispatcher", day=day)}
+    assert actors == {"Dispatcher Démo", "Fleet Démo"} and ADMIN[0] not in actors
+
+
 # ------------------------------------------------------------------ critère 5
 
 RULES = [f"RM-{n:02d}" for n in range(1, 21)]
-# Règles sans test nommé `test_RM_xx…` à ce jour, avec le lot qui doit le fournir.
-# Règles encore sans test : aucune (RM-19 est couverte depuis la livraison du lot L10).
+# Règles sans test nommé `test_RM_xx…`, avec le lot qui doit le fournir : aucune à ce jour (RM-19 est
+# couverte depuis la livraison du lot L10). Une règle ajoutée ici passe en `xfail(strict)` ci-dessous.
 MISSING: dict[str, str] = {}
 
 

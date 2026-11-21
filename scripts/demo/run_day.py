@@ -3,25 +3,35 @@
 
     cd backend && uv run python ../scripts/demo/run_day.py demo_douala --until publish    # J3
     cd backend && uv run python ../scripts/demo/run_day.py demo_douala                    # J4
+    cd backend && uv run python ../scripts/demo/run_day.py demo_douala --shortage --breakdown
     cd backend && uv run python ../scripts/demo/run_day.py demo_douala --pdf-dir /tmp/pdf
 
-Le jeu doit avoir été chargé (`load_demo.py <nom>`). Tant que les écrans ne sont pas livrés, ce script
-tient lieu de dispatcher et d'agent Fleet : il n'appelle que l'API, avec les comptes de démonstration.
+Le jeu doit avoir été chargé (`load_demo.py <nom>`). Ce script tient lieu de dispatcher, d'agent
+Supply et d'agent Fleet : il n'appelle que l'API, avec les comptes de démonstration. Les mêmes gestes
+se font à l'écran (voir `docs/DEMO.md`).
 
 Étapes :
 
 1. dispatcher — calcul du plan du jour (`POST /plans/compute`) s'il n'y a pas déjà un brouillon ;
-2. dispatcher — déplacement d'un arrêt d'une tournée à une autre (le premier qui ne crée aucune
-   violation bloquante ; les essais refusés par les règles sont annulés et comptés) ;
+2. dispatcher — déplacement d'un arrêt d'une tournée à une autre (les essais refusés par les règles
+   sont annulés et affichés) ;
 3. dispatcher — verrouillage de la tournée modifiée, puis « recalculer en conservant » ;
 4. dispatcher — publication ; feuilles de route PDF                               ← fin de J3
-5. fleet — pour chaque tournée : arrivée au dépôt, chargement (27 °C ; 36 °C sur la deuxième pour
-   montrer l'avertissement RM-13), fiche de chargement PDF, « chargée », départ ;
-6. fleet — livraisons ; le dernier arrêt de la dernière tournée est sauté (station fermée) ;
-7. fleet — tournées terminées ; tableau de bord du jour (direction).              ← fin de J4
+5. `--shortage` : Supply déclare une pénurie de gasoil (5 000 L de moins que le plan), le dispatcher
+   reporte les commandes de la tournée impactée → nouvelle version publiée (F6.3) ;
+6. fleet — pour chaque tournée, dans l'ordre des départs : arrivée au dépôt, chargement (27 °C ;
+   36 °C sur la deuxième pour montrer l'avertissement RM-13), fiche PDF, « chargée », départ,
+   livraisons, clôture ; le dernier arrêt de la dernière tournée est sauté (station fermée) ;
+   `--breakdown` : un camion tombe en panne après son premier arrêt ; le dispatcher choisit un
+   remplaçant éligible → nouvelle version publiée, seuls les arrêts en attente sont transférés
+   (RM-19), la tournée de remplacement est chargée puis livrée (F6.1) ;
+7. dispatcher — second calcul du jour pour les commandes de l'arrêt sauté : second plan publié,
+   exécuté à son tour ;
+8. direction — tableau de bord du jour, journal des événements, statuts des commandes. ← fin de J4
 
 Il faut un worker Celery (ou `TOURNEO_CELERY_ALWAYS_EAGER=true` côté API) pour les calculs.
-Le script n'est pas rejouable sur un plan déjà publié : recharger une base vide ou changer de `--day`.
+Après `--until publish`, relancer le script reprend à l'exécution du plan publié. Une journée
+entièrement déroulée ne se rejoue pas : recharger une base vide ou changer de `--day`.
 """
 
 from __future__ import annotations
@@ -47,6 +57,9 @@ from app.planning.fixtures import load_problem  # noqa: E402
 
 HOT_TEMPERATURE_C = 36.0
 TEMPERATURE_C = 27.0
+SKIP_REASON = "Station fermée à l'arrivée"
+SHORTAGE_PRODUCT = "GASOIL"
+SHORTAGE_L = 5000.0  # litres manquants par rapport au plan publié
 
 
 def _ts(value: str) -> datetime:
@@ -86,11 +99,25 @@ async def get_plan(api: DemoApi, plan_id: str, role: str = "dispatcher") -> dict
     return (await api.call("GET", f"/plans/{plan_id}", role)).json()
 
 
+async def published_plan(api: DemoApi, day: date) -> dict[str, Any] | None:
+    """Plan calculé publié du jour qui a encore des tournées à faire (le script est alors repris à
+    l'exécution) ; None s'il n'y en a pas."""
+    plans = await api.get_all("/plans", "dispatcher", day=day.isoformat())
+    for summary in plans:
+        if summary["kind"] == "computed" and summary["status"] == "published":
+            plan = await get_plan(api, summary["id"])
+            if any(t["status"] != "completed" for t in plan["trips"]):
+                return plan
+    return None
+
+
 async def draft_plan(api: DemoApi, day: date, params: dict[str, Any]) -> dict[str, Any]:
     """Brouillon calculé du jour ; à défaut, lance le calcul."""
     plans = await api.get_all("/plans", "dispatcher", day=day.isoformat())
     if any(p["kind"] == "computed" and p["status"] == "published" for p in plans):
-        raise DemoError(f"Un plan est déjà publié pour le {day:%d/%m/%Y} : la journée a déjà été déroulée.")
+        raise DemoError(
+            f"La journée du {day:%d/%m/%Y} a déjà été déroulée : toutes les tournées sont terminées."
+        )
     drafts = [p for p in plans if p["kind"] == "computed" and p["status"] == "draft"]
     if drafts:
         api.log("→ Plan brouillon du jour déjà calculé")
@@ -162,107 +189,324 @@ async def correct_and_publish(
     return published
 
 
-async def execute(api: DemoApi, plan: dict[str, Any], pdf_dir: Path | None) -> None:
-    """Étapes 5 à 7 : dépôt, chargement, livraisons, clôture, tableau de bord."""
-    trips = sorted(plan["trips"], key=lambda t: t["planned_depart_at"])
-    for index, trip in enumerate(trips):
-        trip_id, status = trip["id"], f"/trips/{trip['id']}/status"
-        start, depart = _ts(trip["planned_start_at"]), _ts(trip["planned_depart_at"])
-        temperature = HOT_TEMPERATURE_C if index == 1 else TEMPERATURE_C
-        await api.call("PUT", status, "fleet", json={"status": "at_depot"})
-        loading = (
-            await api.call(
-                "POST",
-                f"/trips/{trip_id}/loading",
-                "fleet",
-                json={
-                    "arrived_at": _iso(start),
-                    "started_at": _iso(start + timedelta(minutes=80)),
-                    "finished_at": _iso(depart - timedelta(minutes=5)),
-                    "depot_ticket_no": f"BC-{index + 1:04d}",
-                    "lines": [
-                        {
-                            "compartment_id": line["compartment_id"],
-                            "product_id": line["product_id"],
-                            "observed_l": line["planned_l"],
-                            "observed_temp_c": temperature,
-                        }
-                        for line in trip["loads"]
-                    ],
-                },
-            )
-        ).json()
-        api.log(
-            f"→ Tournée {trip['seq']} ({trip['truck_plate']}) chargée à {temperature:g} °C : "
-            f"{_l(loading['observed_total_l'])} observés, {_l(loading['volume_15_total_l'])} à 15 °C "
-            f"(écart {loading['gap_pct']:+.2f} %)"
-            + (f" ⚠ {loading['warning_message']}" if loading["out_of_tolerance"] else "")
-        )
-        if pdf_dir is not None:
-            sheet = await api.call("GET", f"/trips/{trip_id}/loading-sheet.pdf", "fleet")
-            (pdf_dir / f"fiche_chargement_tournee_{trip['seq']}.pdf").write_bytes(sheet.content)
-        await api.call("PUT", status, "fleet", json={"status": "loaded"})
-        body = {"status": "in_progress", "actual_depart_at": _iso(depart + timedelta(minutes=10))}
-        await api.call("PUT", status, "fleet", json=body)
+def by_departure(trips: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return sorted(trips, key=lambda t: (t["planned_depart_at"], t["seq"]))
 
-        for stop in trip["stops"]:
-            arrival = _ts(stop["planned_arrival_at"]) + timedelta(minutes=20)
-            if index == len(trips) - 1 and stop is trip["stops"][-1]:
-                body = {"skip_reason": "Station fermée à l'arrivée", "actual_arrival_at": _iso(arrival)}
-                await api.call("PUT", f"/stops/{stop['id']}/delivery", "fleet", json=body)
-                api.log(f"   arrêt {stop['station_code']} sauté (station fermée) : commandes à replanifier")
-                continue
-            body = {
-                "actual_arrival_at": _iso(arrival),
-                "actual_departure_at": _iso(arrival + timedelta(minutes=40)),
-                "deliveries": [
-                    {"order_id": d["order_id"], "actual_l": d["planned_l"]} for d in stop["deliveries"]
-                ],
+
+def loading_body(trip: dict[str, Any], temperature: float, ticket: str) -> dict[str, Any]:
+    """Chargement conforme au plan de chargement : une ligne par compartiment chargé de
+    `trips[].compartments` (les compartiments vides, `planned_l = 0`, ne sont pas saisis)."""
+    start, depart = _ts(trip["planned_start_at"]), _ts(trip["planned_depart_at"])
+    return {
+        "arrived_at": _iso(start),
+        "started_at": _iso(start + timedelta(minutes=80)),
+        "finished_at": _iso(depart - timedelta(minutes=5)),
+        "depot_ticket_no": ticket,
+        "lines": [
+            {
+                "compartment_id": c["compartment_id"],
+                "product_id": c["product_id"],
+                "observed_l": c["planned_l"],
+                "observed_temp_c": temperature,
             }
-            await api.call("PUT", f"/stops/{stop['id']}/delivery", "fleet", json=body)
-        body = {
-            "status": "completed",
-            "actual_return_at": _iso(_ts(trip["planned_return_at"]) + timedelta(minutes=25)),
-            "actual_distance_m": trip["distance_m"] + 1500,
-        }
-        await api.call("PUT", status, "fleet", json=body)
-        api.log(f"   tournée {trip['seq']} terminée ({len(trip['stops'])} arrêt(s))")
+            for c in trip["compartments"]
+            if c["planned_l"] > 0
+        ],
+    }
 
-    day = plan["day"]
-    board = (await api.call("GET", "/dashboard", "manager", params={"day": day})).json()["summary"]
+
+async def load_and_depart(
+    api: DemoApi, trip: dict[str, Any], *, temperature: float = TEMPERATURE_C, pdf_dir: Path | None = None
+) -> dict[str, Any]:
+    """Fleet : arrivée au dépôt, chargement, fiche PDF, « chargée », départ. Renvoie le chargement."""
+    status = f"/trips/{trip['id']}/status"
+    await api.call("PUT", status, "fleet", json={"status": "at_depot"})
+    body = loading_body(trip, temperature, f"BC-{trip['seq']:04d}")
+    loading = (await api.call("POST", f"/trips/{trip['id']}/loading", "fleet", json=body)).json()
+    api.log(
+        f"→ Tournée {trip['seq']} ({trip['truck_plate']}) chargée à {temperature:g} °C : "
+        f"{_l(loading['observed_total_l'])} observés, {_l(loading['volume_15_total_l'])} à 15 °C "
+        f"(écart {loading['gap_pct']:+.2f} %)"
+        + (f" ⚠ {loading['warning_message']}" if loading["out_of_tolerance"] else "")
+    )
+    if pdf_dir is not None:
+        sheet = await api.call("GET", f"/trips/{trip['id']}/loading-sheet.pdf", "fleet")
+        (pdf_dir / f"fiche_chargement_tournee_{trip['seq']}.pdf").write_bytes(sheet.content)
+    await api.call("PUT", status, "fleet", json={"status": "loaded"})
+    depart = _ts(trip["planned_depart_at"]) + timedelta(minutes=10)
+    await api.call("PUT", status, "fleet", json={"status": "in_progress", "actual_depart_at": _iso(depart)})
+    return loading
+
+
+async def deliver_stop(api: DemoApi, stop: dict[str, Any]) -> dict[str, Any]:
+    """Livraison complète d'un arrêt, 20 minutes après l'heure prévue."""
+    arrival = _ts(stop["planned_arrival_at"]) + timedelta(minutes=20)
+    body = {
+        "actual_arrival_at": _iso(arrival),
+        "actual_departure_at": _iso(arrival + timedelta(minutes=40)),
+        "deliveries": [{"order_id": d["order_id"], "actual_l": d["planned_l"]} for d in stop["deliveries"]],
+    }
+    return (await api.call("PUT", f"/stops/{stop['id']}/delivery", "fleet", json=body)).json()
+
+
+async def skip_stop(api: DemoApi, stop: dict[str, Any], reason: str = SKIP_REASON) -> dict[str, Any]:
+    arrival = _ts(stop["planned_arrival_at"]) + timedelta(minutes=20)
+    body = {"skip_reason": reason, "actual_arrival_at": _iso(arrival)}
+    done = (await api.call("PUT", f"/stops/{stop['id']}/delivery", "fleet", json=body)).json()
+    api.log(f"   arrêt {stop['station_code']} sauté ({reason.lower()}) : commandes à replanifier")
+    return done
+
+
+async def close_trip(api: DemoApi, trip: dict[str, Any]) -> dict[str, Any]:
+    body = {
+        "status": "completed",
+        "actual_return_at": _iso(_ts(trip["planned_return_at"]) + timedelta(minutes=25)),
+        "actual_distance_m": trip["distance_m"] + 1500,
+    }
+    closed = (await api.call("PUT", f"/trips/{trip['id']}/status", "fleet", json=body)).json()
+    api.log(f"   tournée {trip['seq']} terminée ({len(trip['stops'])} arrêt(s))")
+    return closed
+
+
+async def run_trip(
+    api: DemoApi,
+    trip: dict[str, Any],
+    *,
+    temperature: float = TEMPERATURE_C,
+    skip_last: bool = False,
+    pdf_dir: Path | None = None,
+) -> None:
+    """Une tournée de bout en bout ; `skip_last` : son dernier arrêt est sauté (station fermée)."""
+    await load_and_depart(api, trip, temperature=temperature, pdf_dir=pdf_dir)
+    for stop in trip["stops"]:
+        if skip_last and stop is trip["stops"][-1]:
+            await skip_stop(api, stop)
+        else:
+            await deliver_stop(api, stop)
+    await close_trip(api, trip)
+
+
+# --------------------------------------------------------------------------- événements du jour (F6)
+
+
+def planned_volume(plan: dict[str, Any], product_code: str, depot_id: str | None = None) -> float:
+    """Volume du produit planifié sur les arrêts non sautés du plan (au départ d'un dépôt donné)."""
+    return sum(
+        d["planned_l"]
+        for t in plan["trips"]
+        if depot_id is None or t["depot_id"] == depot_id
+        for s in t["stops"]
+        if s["status"] != "skipped"
+        for d in s["deliveries"]
+        if d["product_code"] == product_code
+    )
+
+
+async def declare_shortage(
+    api: DemoApi, plan: dict[str, Any], *, product_code: str = SHORTAGE_PRODUCT, missing_l: float = SHORTAGE_L
+) -> dict[str, Any]:
+    """Supply : le stock du produit au dépôt tombe `missing_l` litres sous ce que le plan publié
+    prévoit (`POST /events/product-shortage`). Renvoie l'alerte, avec les tournées impactées."""
+    depot_id = by_departure(plan["trips"])[0]["depot_id"]
+    stocks = await api.get_all("/availability/depot-stocks", "supply", day=plan["day"])
+    stock = next(s for s in stocks if s["depot_id"] == depot_id and s["product_code"] == product_code)
+    body = {
+        "depot_id": depot_id,
+        "product_id": stock["product_id"],
+        "new_available_l": planned_volume(plan, product_code, depot_id) - missing_l,
+        "day": plan["day"],
+        "comment": "Bac indisponible (démonstration)",
+    }
+    shortage = (await api.call("POST", "/events/product-shortage", "supply", json=body)).json()
+    api.log(f"→ Pénurie déclarée par Supply : {shortage['event']['summary']}")
+    for trip in shortage["impacted_trips"]:
+        orders = ", ".join(f"{o['station_code']} {_l(o['planned_l'])}" for o in trip["orders"])
+        api.log(
+            f"   tournée {trip['trip_seq']} impactée : {_l(trip['planned_l'])} prévus, "
+            f"{_l(trip['covered_l'])} couverts, options {trip['options']} — {orders}"
+        )
+    return shortage
+
+
+async def resolve_shortage(
+    api: DemoApi, shortage: dict[str, Any], action: str = "postpone"
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    """Dispatcher : même décision pour chaque tournée impactée (`POST /events/{id}/resolve`).
+    Renvoie la réponse et le plan en vigueur après la décision (None si rien n'était impacté)."""
+    if not shortage["impacted_trips"]:
+        return shortage, None
+    body = {"resolutions": [{"trip_id": t["trip_id"], "action": action} for t in shortage["impacted_trips"]]}
+    resolved = (
+        await api.call("POST", f"/events/{shortage['event']['id']}/resolve", "dispatcher", json=body)
+    ).json()
+    result = resolved["results"][-1]
+    api.log(
+        f"→ Pénurie traitée par le dispatcher ({action}) : alerte « {resolved['status']} », "
+        f"version {result['plan_version']} {'publiée' if result['published'] else 'en brouillon'}"
+    )
+    return resolved, result["plan"]
+
+
+def breakdown_candidate(plan: dict[str, Any]) -> dict[str, Any] | None:
+    """Tournée sur laquelle simuler la panne : la première, dans l'ordre des départs, qui n'a pas
+    commencé, a au moins deux arrêts et est la dernière de son camion ce jour-là (sinon les autres
+    tournées du camion en panne laisseraient la nouvelle version en brouillon, question L10-6)."""
+    trips = by_departure(plan["trips"])
+    last_of_truck = {t["truck_id"]: t["id"] for t in trips}
+    return next(
+        (
+            t
+            for t in trips
+            if t["status"] == "planned" and len(t["stops"]) >= 2 and last_of_truck[t["truck_id"]] == t["id"]
+        ),
+        None,
+    )
+
+
+async def break_down(api: DemoApi, trip: dict[str, Any], pdf_dir: Path | None = None) -> dict[str, Any]:
+    """La tournée part, livre son premier arrêt, puis le camion tombe en panne : le dispatcher
+    choisit le premier camion de remplacement éligible proposé par l'assistant et déclare la panne
+    (`POST /events/truck-breakdown`). Renvoie la réponse (nouvelle version du plan dans `plan`)."""
+    await load_and_depart(api, trip, pdf_dir=pdf_dir)
+    first = trip["stops"][0]
+    delivered = await deliver_stop(api, first)
+    occurred = _iso(_ts(delivered["actual_departure_at"]) + timedelta(minutes=10))
+    options = (
+        await api.call(
+            "GET",
+            "/events/replacement-options",
+            "dispatcher",
+            params={"trip_id": trip["id"], "occurred_at": occurred},
+        )
+    ).json()
+    for truck in options["trucks"]:
+        reasons = ", ".join(r["rule_code"] or r["message"] for r in truck["reasons"])
+        verdict = "oui" if truck["eligible"] else f"non — {reasons}"
+        api.log(f"   remplaçant possible ? {truck['plate']} : {verdict}")
+    eligible = next((t for t in options["trucks"] if t["eligible"]), None)
+    if eligible is None:
+        raise DemoError(f"Aucun camion de remplacement éligible pour la tournée {trip['seq']}.")
+    body = {
+        "trip_id": trip["id"],
+        "replacement_truck_id": eligible["truck_id"],
+        "occurred_at": occurred,
+        "reason": "Panne mécanique (démonstration)",
+    }
+    result = (await api.call("POST", "/events/truck-breakdown", "dispatcher", json=body)).json()
+    api.log(f"→ {result['event']['summary']}")
+    return result
+
+
+# --------------------------------------------------------------------------- journée
+
+
+async def execute(
+    api: DemoApi,
+    plan: dict[str, Any],
+    pdf_dir: Path | None,
+    *,
+    breakdown: bool = False,
+    skip_last: bool = True,
+) -> dict[str, Any]:
+    """Étapes 5 à 7 : toutes les tournées du plan publié, dans l'ordre des départs. Renvoie le plan
+    en vigueur à la fin (une panne crée une nouvelle version)."""
+    victim = breakdown_candidate(plan) if breakdown else None
+    if breakdown and victim is None:
+        api.log("   (aucune tournée ne se prête à la panne : étape ignorée)")
+    hot = by_departure(plan["trips"])[1]["seq"] if len(plan["trips"]) > 1 else None
+    while True:
+        todo = [t for t in by_departure(plan["trips"]) if t["status"] == "planned"]
+        if not todo:
+            return plan
+        trip = todo[0]
+        if victim is not None and trip["seq"] == victim["seq"]:
+            victim = None
+            plan = (await break_down(api, trip, pdf_dir))["plan"]
+            continue
+        temperature = HOT_TEMPERATURE_C if trip["seq"] == hot else TEMPERATURE_C
+        await run_trip(
+            api, trip, temperature=temperature, skip_last=skip_last and len(todo) == 1, pdf_dir=pdf_dir
+        )
+        plan = await get_plan(api, plan["id"], "fleet")
+
+
+async def replan_skipped(api: DemoApi, day: str, params: dict[str, Any]) -> dict[str, Any] | None:
+    """Second calcul du jour pour les commandes revenues à « confirmed » (arrêt sauté) : second plan
+    publié, de lignée distincte, puis exécuté. Renvoie ce plan (None s'il n'y a rien à replanifier)."""
+    waiting = await api.get_all("/orders", "dispatcher", day=day, status="confirmed")
+    if not waiting:
+        return None
+    api.log(f"→ Second calcul du jour : {len(waiting)} commande(s) à replanifier")
+    plan = await get_plan(api, await api.wait_task(await api.start_compute(date.fromisoformat(day), params)))
+    describe(plan, api.log)
+    for unserved in plan["unserved"]:
+        api.log(
+            f"   non servie : {unserved['station_code']} {unserved['product_code']} "
+            f"({unserved['reason_code']}) — {unserved['reason_text']}"
+        )
+    if not plan["trips"]:
+        return plan
+    published = (await api.call("POST", f"/plans/{plan['id']}/publish", "dispatcher")).json()
+    return await execute(api, published, None, skip_last=False)
+
+
+async def report(api: DemoApi, day: str) -> None:
+    """Tableau de bord du jour, journal des événements et statuts des commandes."""
+    board = (await api.call("GET", "/dashboard", "manager", params={"day": day})).json()
+    summary = board["summary"]
     orders = await api.get_all("/orders", "manager", day=day)
     statuses: dict[str, int] = {}
     for order in orders:
         statuses[order["status"]] = statuses.get(order["status"], 0) + 1
+    events: dict[str, int] = {}
+    for event in await api.get_all("/events", "manager", day=day):
+        events[event["type_label"]] = events.get(event["type_label"], 0) + 1
     api.log("")
-    api.log(f"Tableau de bord du {day} :")
-    api.log(f"  tournées : {json.dumps(board['trips_by_status'], ensure_ascii=False)}")
+    api.log(f"Tableau de bord du {day} (plan publié version {board['plan']['version']}) :")
+    api.log(f"  tournées : {json.dumps(summary['trips_by_status'], ensure_ascii=False)}")
     api.log(
-        f"  arrêts : {board['stops_delivered']} livré(s), {board['stops_skipped']} sauté(s), "
-        f"{board['stops_pending']} en attente"
+        f"  arrêts : {summary['stops_delivered']} livré(s), {summary['stops_skipped']} sauté(s), "
+        f"{summary['stops_pending']} en attente"
     )
-    api.log(
-        f"  volumes : {_l(board['volume_delivered_l'])} livrés sur {_l(board['volume_planned_l'])} planifiés"
-    )
-    api.log(f"  retards : {board['trips_late']} tournée(s), au plus {board['max_delay_s'] // 60} min")
-    api.log(f"  alertes : {board['alerts_total']} (dont {board['alerts_blocking']} bloquante(s))")
+    delivered, planned = _l(summary["volume_delivered_l"]), _l(summary["volume_planned_l"])
+    api.log(f"  volumes : {delivered} livrés sur {planned} planifiés")
+    api.log(f"  retards : {summary['trips_late']} tournée(s), au plus {summary['max_delay_s'] // 60} min")
+    api.log(f"  alertes : {summary['alerts_total']} (dont {summary['alerts_blocking']} bloquante(s))")
+    api.log(f"  journal : {json.dumps(events, ensure_ascii=False)}")
     api.log(f"  commandes : {statuses}")
 
 
 async def run_day(
-    api: DemoApi, name: str, *, day: date | None = None, until: str = "delivered", pdf_dir: Path | None = None
+    api: DemoApi,
+    name: str,
+    *,
+    day: date | None = None,
+    until: str = "delivered",
+    pdf_dir: Path | None = None,
+    breakdown: bool = False,
+    shortage: bool = False,
 ) -> None:
     problem = load_problem(name)
     day = day or problem.day
     params = export_fixture.compute_payload(problem)["params"]
-    for role in ("dispatcher", "fleet", "manager"):
+    for role in ("dispatcher", "fleet", "manager", "supply"):
         await api.login(role, load_demo.DEMO_USERS[role][0], load_demo.DEMO_PASSWORD)
-    plan = await draft_plan(api, day, params)
-    describe(plan, api.log)
-    published = await correct_and_publish(api, plan, params, pdf_dir)
+    published = await published_plan(api, day)
+    if published is not None:
+        api.log(f"→ Plan déjà publié (version {published['version']}) : reprise de l'exécution")
+        describe(published, api.log)
+    else:
+        plan = await draft_plan(api, day, params)
+        describe(plan, api.log)
+        published = await correct_and_publish(api, plan, params, pdf_dir)
     if until == "publish":
         return
-    await execute(api, published, pdf_dir)
+    if shortage:
+        _, after = await resolve_shortage(api, await declare_shortage(api, published))
+        published = after or published
+    await execute(api, published, pdf_dir, breakdown=breakdown)
+    await replan_skipped(api, day.isoformat(), params)
+    await report(api, day.isoformat())
 
 
 async def _main(args: argparse.Namespace) -> None:
@@ -272,7 +516,15 @@ async def _main(args: argparse.Namespace) -> None:
     if args.pdf_dir is not None:
         args.pdf_dir.mkdir(parents=True, exist_ok=True)
     async with httpx.AsyncClient(base_url=base_url, timeout=120.0) as client:
-        await run_day(DemoApi(client), args.name, day=args.day, until=args.until, pdf_dir=args.pdf_dir)
+        await run_day(
+            DemoApi(client),
+            args.name,
+            day=args.day,
+            until=args.until,
+            pdf_dir=args.pdf_dir,
+            breakdown=args.breakdown,
+            shortage=args.shortage,
+        )
 
 
 def main() -> None:
@@ -285,6 +537,16 @@ def main() -> None:
         choices=("publish", "delivered"),
         default="delivered",
         help="s'arrêter après la publication (J3) ou aller jusqu'aux livraisons (J4, défaut)",
+    )
+    parser.add_argument(
+        "--shortage",
+        action="store_true",
+        help="après la publication : pénurie de gasoil déclarée par Supply, traitée par un report (F6.3)",
+    )
+    parser.add_argument(
+        "--breakdown",
+        action="store_true",
+        help="en cours de journée : panne d'un camion après son premier arrêt, remplacement (F6.1)",
     )
     parser.add_argument(
         "--pdf-dir", type=Path, help="enregistrer ici feuilles de route et fiches de chargement"

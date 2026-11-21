@@ -8,6 +8,8 @@ de leur code). Elle est importée par `POST /reference-days/import`, rejouée pa
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from tests.e2e.conftest import artifacts_dir, load, run_ab
@@ -99,6 +101,11 @@ async def test_journee_a_fabriquee_importee_rejouee_et_comparee(api, db, tasks):
     assert len(pdf.content) > 20_000
     if (target := artifacts_dir()) is not None:
         (target / "comparaison_AB_demo_douala.pdf").write_bytes(pdf.content)
+        keys = ("distance_estimated_m", "distance_actual_m", "trucks_used", "drivers_used", "trips_count")
+        keys += ("orders_served", "service_duration_s", "fill_rate_avg_pct", "violations_blocking")
+        measured = {"a": {k: a[k] for k in keys}, "b": {k: b[k] for k in keys}, "verdict": verdict}
+        measured["b"]["computed_in_ms"] = plan_b["computed_in_ms"]
+        (target / "preuve_ab.json").write_text(json.dumps(measured, ensure_ascii=False, indent=1))
 
 
 async def test_la_journee_de_reference_cohabite_avec_les_commandes_du_jour(api, db, tasks):
