@@ -17,7 +17,6 @@ Conventions adoptées (voir docs/questions/l7-comparaison.md) :
 
 from __future__ import annotations
 
-import asyncio
 import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, time
@@ -28,7 +27,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.comparison import service as comparison_service
-from app.core.config import get_config
 from app.core.db import new_id
 from app.core.enums import (
     ImportKind,
@@ -50,11 +48,11 @@ from app.imports.models import ImportBatch
 from app.imports.reference_day import SHEET_DAY, SHEET_ORDERS, SHEET_TRIPS, ReferenceDayData, RowIssue
 from app.orders.models import Order
 from app.planning import checking as plan_checking
+from app.planning import mapping as plan_mapping
 from app.planning import service as plan_service
 from app.planning import timing
-from app.planning.distance_cache import DbDistanceCache
 from app.planning.domain import DeliveryD, PlanningProblem, StopD, TripD, UnservedD
-from app.planning.engine import compartments, distance_matrix
+from app.planning.engine import compartments
 from app.planning.models import (
     ConstraintViolation,
     Plan,
@@ -503,7 +501,6 @@ async def estimate_plan(session: AsyncSession, plan: Plan, order_ids: list[uuid.
 
     depots = {d.id: d for d in problem.depots}
     stations = {s.id: s for s in problem.stations}
-    nodes: dict[str, tuple[str, float, float]] = {}
     missing: set[str] = set()
     for trip in plan.trips:
         for node_id, known in [(str(trip.depot_id), depots)] + [
@@ -512,8 +509,6 @@ async def estimate_plan(session: AsyncSession, plan: Plan, order_ids: list[uuid.
             node = known.get(node_id)
             if node is None:
                 missing.add(node_id)
-            else:
-                nodes[node_id] = (node_id, node.lat, node.lon)
     if missing:
         raise ConflictError(
             "Journée de référence inexploitable : un dépôt ou une station de ses tournées est absent du "
@@ -522,17 +517,9 @@ async def estimate_plan(session: AsyncSession, plan: Plan, order_ids: list[uuid.
             details=[{"node_id": node_id} for node_id in sorted(missing)],
         )
 
-    # Même matrice que le moteur, avec le cache de distances en base (lot L5).
-    cache = DbDistanceCache()
-    await cache.preload(session, [distance_matrix.coord_hash(lat, lon) for _, lat, lon in nodes.values()])
-    matrix = await asyncio.to_thread(
-        distance_matrix.build_matrix,
-        list(nodes.values()),
-        problem.params,
-        osrm_url=get_config().osrm_url or None,
-        cache=cache,
-    )
-    await cache.flush(session)
+    # Même matrice que le moteur : tous les nœuds du problème, OSRM ou repli, cache de distances
+    # en base (préchargé puis enregistré par le service de plans).
+    matrix = await plan_mapping.build_plan_matrix(session, problem)
 
     trips_d: list[TripD] = []
     last_return: dict[str, int] = {}
