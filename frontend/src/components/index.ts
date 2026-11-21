@@ -1,11 +1,14 @@
 /** Catalogue des composants partagés (voir README, section « Composants partagés »). */
 export * from "./ConfirmDialog";
 export * from "./DataTable";
+export * from "./FilterChip";
 export * from "./ImportDialog";
 export * from "./PageHeader";
 export * from "./PdfButton";
+export * from "./SegmentedProgress";
 export * from "./SortableList";
 export * from "./StatusBadge";
+export * from "./Steps";
 export * from "./ViolationsPanel";
 export * from "./map";
 export * from "./notify";

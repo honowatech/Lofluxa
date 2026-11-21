@@ -1,5 +1,5 @@
 /** Gardes de routes : authentification, puis rôle. */
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { Link, Navigate, useLocation, useRouteError } from "react-router-dom";
 
 import { LoadingState } from "@/components/states";
@@ -17,7 +17,31 @@ export function homePathFor(role: Parameters<typeof canSee>[0]): string {
 
 export function RequireAuth({ children }: { children: ReactNode }) {
   const status = useSession((state) => state.status);
+  const bootstrapError = useSession((state) => state.bootstrapError);
+  const bootstrap = useSession((state) => state.bootstrap);
   const location = useLocation();
+  // Serveur injoignable au démarrage : la session est conservée, on réessaie dès que le réseau revient.
+  useEffect(() => {
+    if (status !== "loading" || !bootstrapError) return;
+    const retry = () => void bootstrap();
+    window.addEventListener("online", retry);
+    return () => window.removeEventListener("online", retry);
+  }, [status, bootstrapError, bootstrap]);
+  if (status === "loading" && bootstrapError) {
+    return (
+      <div className="h-screen">
+        <MessagePage
+          title={fr.auth.unreachableTitle}
+          body={`${bootstrapError} ${fr.auth.unreachableBody}`}
+          action={
+            <Button className="mt-2" onClick={() => void bootstrap()}>
+              {fr.common.retry}
+            </Button>
+          }
+        />
+      </div>
+    );
+  }
   if (status === "loading") return <LoadingState label={fr.auth.checking} className="h-screen" />;
   if (status === "anonymous") {
     return <Navigate to={LOGIN_PATH} replace state={{ from: `${location.pathname}${location.search}` }} />;

@@ -1,6 +1,7 @@
 /**
  * Pastilles de statut : même libellé et même couleur partout pour un même statut.
  *   <StatusBadge kind="truck" value={truck.status} />
+ *   <StatusBadge kind="event" value={event.type} />
  *   <ExpiryBadge date={driver.license_expiry} />
  */
 import { AlertTriangle, CircleAlert } from "lucide-react";
@@ -37,6 +38,16 @@ const TONES = {
   active: { true: "success", false: "muted" },
   severity: { blocking: "blocking", warning: "warning" },
   audit: { insert: "success", update: "info", delete: "blocking" },
+  event: {
+    truck_breakdown: "blocking",
+    driver_unavailable: "blocking",
+    product_shortage: "warning",
+    manual_edit: "neutral",
+    publish: "success",
+    replan: "info",
+    loading_recorded: "primary",
+    delivery_recorded: "primary",
+  },
 } as const satisfies Record<string, Record<string, Tone>>;
 
 export type StatusKind = keyof typeof TONES;

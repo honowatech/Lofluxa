@@ -28,11 +28,21 @@ test("captures des écrans livrés", async ({ page }) => {
   await page.waitForTimeout(600);
   await shot(page, "02-coquille-journee-demonstration");
 
-  // Page d'attente d'un écran non encore livré.
-  await page.goto("/chargement?day=2027-01-12");
+  // Écrans Chargement, Suivi et Journal : leurs doublures portent sur le jour courant (pas de `?day=`).
+  await page.goto("/chargement");
   await expect(page.getByTestId("screen-loading")).toBeVisible();
-  await shot(page, "02b-coquille-page-attente");
+  await page.waitForTimeout(600);
+  await shot(page, "02b-demonstration-chargement");
+  await page.goto("/suivi");
+  await expect(page.getByRole("heading", { level: 1, name: "Suivi des livraisons" })).toBeVisible();
+  await page.waitForTimeout(600);
+  await shot(page, "02c-demonstration-suivi");
+  await page.goto("/journal");
+  await expect(page.getByRole("heading", { level: 1, name: "Journal des événements" })).toBeVisible();
+  await page.waitForTimeout(600);
+  await shot(page, "02d-demonstration-journal");
 
+  await page.goto("/journee?day=2027-01-12");
   await page.getByRole("button", { name: /Alertes/ }).click();
   await expect(page.getByText(/permis ou une habilitation expiré/)).toBeVisible();
   await shot(page, "03-coquille-alertes");

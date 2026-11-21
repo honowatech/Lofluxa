@@ -120,6 +120,17 @@ export function TextAreaField<T extends FieldValues>({
   );
 }
 
+const SIZING = /^(?:[a-z0-9-]+:)*(?:w|min-w|max-w|flex|grow|shrink|basis|col-span|justify-self|self)(?:-|$)/;
+/** Sépare les classes de dimension / placement (reportées sur l'enveloppe) des autres (laissées au champ). */
+function splitSizing(className: string | undefined): { sizing: string; rest: string } {
+  const sizing: string[] = [];
+  const rest: string[] = [];
+  for (const token of (className ?? "").split(/\s+/).filter(Boolean)) {
+    (SIZING.test(token) ? sizing : rest).push(token);
+  }
+  return { sizing: sizing.join(" "), rest: rest.join(" ") };
+}
+
 /** Saisie numérique contrôlée : valeur de formulaire `number | null`, virgule ou point acceptés. */
 export const NumberInput = forwardRef<
   HTMLInputElement,
@@ -130,8 +141,16 @@ export const NumberInput = forwardRef<
     /** Affiche les milliers groupés hors saisie (volumes). */
     grouped?: boolean;
     fractionDigits?: number;
+    /** Classes de l'enveloppe (champ + unité). Les classes de largeur de `className` y sont reportées d'office. */
+    wrapperClassName?: string;
   }
->(function NumberInput({ value, onChange, onBlur, unit, grouped, fractionDigits, className, ...props }, ref) {
+>(function NumberInput(
+  { value, onChange, onBlur, unit, grouped, fractionDigits, className, wrapperClassName, ...props },
+  ref,
+) {
+  // Une largeur fixée sur le champ (`w-24`…) doit dimensionner l'enveloppe : sinon l'unité, placée à droite
+  // de l'enveloppe, se retrouve loin du champ. Les classes de dimension passent donc à l'enveloppe.
+  const { sizing, rest: inputClassName } = splitSizing(className);
   const [draft, setDraft] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const editing = draft !== null;
@@ -157,7 +176,7 @@ export const NumberInput = forwardRef<
         ? formatNumber(value, fractionDigits ?? (Number.isInteger(value) ? 0 : 2))
         : String(value).replace(".", ","));
   return (
-    <div className="relative">
+    <div className={cn("relative", sizing, wrapperClassName)}>
       <Input
         ref={(node) => {
           inputRef.current = node;
@@ -187,7 +206,7 @@ export const NumberInput = forwardRef<
           onBlur?.(event);
         }}
         style={unit ? { paddingRight: `${unit.length * 0.45 + 1.1}rem` } : undefined}
-        className={cn("num text-right", className)}
+        className={cn("num text-right", inputClassName, sizing && "w-full")}
       />
       {unit && (
         <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">

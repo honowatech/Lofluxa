@@ -4,22 +4,26 @@ import { useSearchParams } from "react-router-dom";
 import { PageHeader } from "@/components/PageHeader";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { fr } from "@/i18n/fr";
+import { useCan } from "@/lib/auth/session";
 
 import { AuditTab } from "./AuditTab";
 import { SettingsTab } from "./SettingsTab";
 import { UsersTab } from "./UsersTab";
 
-const TABS = [
+const ALL_TABS = [
   ["users", UsersTab],
   ["settings", SettingsTab],
   ["audit", AuditTab],
 ] as const;
-type TabId = (typeof TABS)[number][0];
+type TabId = (typeof ALL_TABS)[number][0];
 
 export default function AdministrationPage() {
   const [params, setParams] = useSearchParams();
+  // Utilisateurs et paramètres : `admin` seulement. La direction (`manager`) ne consulte que le journal d'audit.
+  const isAdmin = useCan("administration.write");
+  const TABS = isAdmin ? ALL_TABS : ALL_TABS.filter(([id]) => id === "audit");
   const requested = params.get("tab");
-  const tab: TabId = TABS.some(([id]) => id === requested) ? (requested as TabId) : "users";
+  const tab: TabId = TABS.some(([id]) => id === requested) ? (requested as TabId) : TABS[0][0];
 
   return (
     <div className="flex h-full flex-col gap-3 p-4" data-testid="screen-administration">

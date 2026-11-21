@@ -12,6 +12,7 @@ import { Input, NativeSelect } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { fr } from "@/i18n/fr";
 import { toListQuery } from "@/lib/api/pagination";
+import { useCan } from "@/lib/auth/session";
 import { formatDateTime } from "@/lib/format";
 import type { AuditEntry } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -122,7 +123,9 @@ export function AuditTab() {
   const [state, setState] = useDataTableState();
   const [filters, setFilters] = useState(EMPTY_FILTERS);
   const [selected, setSelected] = useState<AuditEntry | null>(null);
-  const actors = users.useAll().data ?? NONE;
+  // La liste des utilisateurs est réservée à `admin` : sans elle, le filtre « auteur » n'est pas proposé.
+  const isAdmin = useCan("administration.write");
+  const actors = users.useAll({}, { enabled: isAdmin }).data ?? NONE;
   const periodInvalid = !!filters.from && !!filters.to && filters.to < filters.from;
 
   // Jours locaux (Douala), bornes incluses : le serveur fait la conversion vers l'UTC. `row_id` : valeur exacte.
@@ -248,22 +251,24 @@ export function AuditTab() {
             className="num h-7 w-56 text-xs"
           />
         </div>
-        <div className="flex flex-col gap-0.5">
-          <Label htmlFor="audit-actor">{t.actor}</Label>
-          <NativeSelect
-            id="audit-actor"
-            value={filters.actor_id}
-            onChange={(event) => patch({ actor_id: event.target.value })}
-            className="h-7 w-48 text-xs"
-          >
-            <option value="">{t.allActors}</option>
-            {actors.map((user) => (
-              <option key={user.id} value={user.id}>
-                {user.full_name}
-              </option>
-            ))}
-          </NativeSelect>
-        </div>
+        {isAdmin && (
+          <div className="flex flex-col gap-0.5">
+            <Label htmlFor="audit-actor">{t.actor}</Label>
+            <NativeSelect
+              id="audit-actor"
+              value={filters.actor_id}
+              onChange={(event) => patch({ actor_id: event.target.value })}
+              className="h-7 w-48 text-xs"
+            >
+              <option value="">{t.allActors}</option>
+              {actors.map((user) => (
+                <option key={user.id} value={user.id}>
+                  {user.full_name}
+                </option>
+              ))}
+            </NativeSelect>
+          </div>
+        )}
         <div className="flex flex-col gap-0.5">
           <Label htmlFor="audit-action">{t.action}</Label>
           <NativeSelect

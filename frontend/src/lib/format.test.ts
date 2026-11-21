@@ -15,6 +15,8 @@ import {
   formatNumber,
   formatPercent,
   formatSeconds,
+  formatSigned,
+  formatSignedPercent,
   hmToSeconds,
   isValidDay,
   parseDecimal,
@@ -62,6 +64,18 @@ describe("formatage", () => {
     expect(formatSeconds(0.25, 2)).toBe(nbsp("0,25 s"));
     expect(formatSeconds(45, 0)).toBe(nbsp("45 s"));
     expect(formatSeconds(null)).toBe(EMPTY);
+  });
+
+  it("formatSigned, formatSignedPercent : écarts avec signe typographique", () => {
+    expect(formatSigned(1250)).toBe(nbsp("+1 250"));
+    expect(formatSigned(-3.5, 1)).toBe("−3,5");
+    expect(formatSigned(0)).toBe("0");
+    expect(formatSigned(-0.004, 2)).toBe("0,00");
+    expect(formatSigned(-120, 0, "L")).toBe(nbsp("−120 L"));
+    expect(formatSigned(null)).toBe(EMPTY);
+    expect(formatSignedPercent(1.84, 2)).toBe(nbsp("+1,84 %"));
+    expect(formatSignedPercent(-100)).toBe(nbsp("−100 %"));
+    expect(formatSignedPercent(undefined)).toBe(EMPTY);
   });
 
   it("formatLocalTime : HH:mm en heure de Douala (UTC+1), RM-20", () => {

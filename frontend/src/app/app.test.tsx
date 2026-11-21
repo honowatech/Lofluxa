@@ -93,6 +93,35 @@ describe("connexion", () => {
     expect(useSession.getState().user?.email).toBe("admin@honowa.tech");
   });
 
+  it("serveur injoignable au démarrage : session conservée, bouton Réessayer", async () => {
+    const admin = mockUser("admin");
+    const tokens = {
+      access_token: makeToken("access", admin.id),
+      refresh_token: makeToken("refresh", admin.id),
+    };
+    setTokens(tokens);
+    useSession.setState({ status: "loading", user: null, bootstrapError: null });
+    server.use(http.get(`${API}/me`, () => HttpResponse.error(), { once: true }));
+    const { user } = renderApp("/referentiels");
+    await act(() => useSession.getState().bootstrap());
+    expect(await screen.findByRole("heading", { name: "Démarrage impossible" })).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("Votre session est conservée");
+    expect(getTokens()).toEqual(tokens);
+    await user.click(screen.getByRole("button", { name: "Réessayer" }));
+    expect(await screen.findByRole("heading", { level: 1, name: "Référentiels" })).toBeInTheDocument();
+  });
+
+  it("direction : l'administration se limite au journal d'audit, sans filtre par auteur", async () => {
+    loginAs("manager");
+    renderApp("/administration?tab=users");
+    expect(await screen.findByRole("tab", { name: "Journal d'audit" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(screen.getAllByRole("tab")).toHaveLength(1);
+    expect(screen.queryByLabelText("Auteur")).not.toBeInTheDocument();
+  });
+
   it("session expirée en cours d'utilisation : retour à la connexion avec explication", async () => {
     const admin = loginAs("admin");
     renderApp("/administration?tab=users");
@@ -155,7 +184,10 @@ describe("coquille", () => {
         "Suivi des livraisons",
       ],
     ],
-    ["supply", ["Journée", "Commandes du jour", "Disponibilité du jour", "Plan de tournées"]],
+    [
+      "supply",
+      ["Journée", "Commandes du jour", "Disponibilité du jour", "Plan de tournées", "Journal des événements"],
+    ],
     [
       "manager",
       [
@@ -168,6 +200,7 @@ describe("coquille", () => {
         "Suivi des livraisons",
         "Comparaison A / B",
         "Référentiels",
+        "Administration",
       ],
     ],
   ] as const)("navigation filtrée pour le rôle %s", async (role, expected) => {
@@ -274,9 +307,9 @@ describe("coquille", () => {
 });
 
 describe("rôles (spec §2)", () => {
-  it("chaque rôle voit au moins la journée ; l'administration est réservée à admin", () => {
+  it("chaque rôle voit au moins la journée ; l'administration est réservée à admin et à la direction", () => {
     for (const role of ROLES) expect(canSee(role, "day")).toBe(true);
-    expect(ROLES.filter((role) => canSee(role, "administration"))).toEqual(["admin"]);
+    expect(ROLES.filter((role) => canSee(role, "administration"))).toEqual(["manager", "admin"]);
     expect(SCREEN_IDS.every((id) => canSee("admin", id))).toBe(true);
     expect(canSee(null, "day")).toBe(false);
   });
@@ -292,7 +325,7 @@ describe("rôles (spec §2)", () => {
     expect(can("supply", "orders.write")).toBe(false);
     expect(
       (Object.keys(CAPABILITIES) as Capability[]).filter((capability) => can("manager", capability)),
-    ).toEqual([]);
+    ).toEqual(["audit.read"]); // lecture seule : aucune écriture
     expect(can(null, "orders.write")).toBe(false);
   });
 });

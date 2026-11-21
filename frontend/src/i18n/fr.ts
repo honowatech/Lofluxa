@@ -158,6 +158,8 @@ export const fr = {
     loggedOut: "Vous êtes déconnecté.",
     retryIn: (seconds: number) => `Nouvel essai possible dans ${seconds} s.`,
     checking: "Vérification de la session…",
+    unreachableTitle: "Démarrage impossible",
+    unreachableBody: "Votre session est conservée : réessayez dans un instant.",
     noAccount: "Pas de compte ? Adressez-vous à l'administrateur Tournéo.",
   },
 
@@ -385,6 +387,16 @@ export const fr = {
       other: "Autre motif",
     },
     audit: { insert: "Création", update: "Modification", delete: "Suppression" },
+    event: {
+      truck_breakdown: "Panne de camion",
+      driver_unavailable: "Chauffeur indisponible",
+      product_shortage: "Pénurie produit",
+      manual_edit: "Modification du plan",
+      publish: "Publication",
+      replan: "Recalcul",
+      loading_recorded: "Chargement",
+      delivery_recorded: "Livraison",
+    },
     expiry: {
       expired: (date: string) => `Expiré le ${date}`,
       expiresToday: "Expire aujourd'hui",

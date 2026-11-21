@@ -59,7 +59,8 @@ let refreshInFlight: Promise<boolean> | null = null;
  *  - dans l'onglet : une seule promesse partagée par tous les appels en attente ;
  *  - entre onglets : verrou `navigator.locks`, puis relecture du stockage — si un autre onglet a déjà
  *    rafraîchi, on reprend ses jetons sans rappeler le serveur.
- * Renvoie `false` si la session est perdue.
+ * Renvoie `false` si la session est perdue (refus du serveur). Une panne passagère (réseau coupé, requête
+ * interrompue, erreur 5xx, 429) lève une `ApiError` sans toucher aux jetons.
  */
 export function refreshTokens(): Promise<boolean> {
   if (refreshInFlight) return refreshInFlight;
@@ -77,6 +78,8 @@ export function refreshTokens(): Promise<boolean> {
         body: JSON.stringify({ refresh_token: current.refresh_token }),
       });
       if (!response.ok) {
+        // Panne passagère (serveur en erreur, limitation de débit) : la session n'est pas perdue pour autant.
+        if (response.status >= 500 || response.status === 429) throw await toApiError(response);
         // Sans verrou disponible, un autre onglet a pu gagner la course : ses jetons sont alors valides.
         const latest = reloadTokens();
         return !!latest && latest.refresh_token !== current.refresh_token;
@@ -84,8 +87,11 @@ export function refreshTokens(): Promise<boolean> {
       const pair = (await response.json()) as TokenPair;
       setTokens({ access_token: pair.access_token, refresh_token: pair.refresh_token });
       return true;
-    } catch {
-      return false;
+    } catch (error) {
+      // Réseau coupé ou requête interrompue (rechargement de la page) : ce n'est PAS un refus du serveur,
+      // les jetons sont conservés et l'appel en cours échoue en erreur réseau.
+      if (error instanceof ApiError) throw error;
+      throw new ApiError(0, { code: "network_error", message: fr.errors.network });
     }
   };
 

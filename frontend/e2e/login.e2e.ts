@@ -16,6 +16,45 @@ test("connexion refusée avec un mauvais mot de passe", async ({ page }) => {
   await expect(page).toHaveURL(/\/connexion$/);
 });
 
+test("trop de tentatives : l'écran affiche le refus du serveur et le délai (réponse 429 simulée)", async ({
+  page,
+}) => {
+  // L'API des parcours tourne sans limitation de débit : seule cette réponse est simulée, pour vérifier
+  // ce que l'écran en fait. La limitation réelle est testée par le back-end.
+  let attempts = 0;
+  await page.route("**/api/v1/auth/login", async (route) => {
+    attempts += 1;
+    if (attempts > 1) return route.continue();
+    await route.fulfill({
+      status: 429,
+      headers: {
+        "Retry-After": "37",
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Expose-Headers": "Retry-After",
+      },
+      contentType: "application/json",
+      body: JSON.stringify({
+        code: "rate_limited",
+        message: "Trop de tentatives. Réessayez dans quelques instants.",
+        details: [],
+      }),
+    });
+  });
+  await page.goto("/connexion");
+  await page.getByLabel("Adresse e-mail").fill(ADMIN.email);
+  await page.getByLabel("Mot de passe", { exact: true }).fill(ADMIN.password);
+  await page.getByRole("button", { name: "Se connecter" }).click();
+
+  const notice = page.getByRole("alert").filter({ hasText: "Trop de tentatives" });
+  await expect(notice).toContainText("Nouvel essai possible dans 37 s.");
+  await expect(page).toHaveURL(/\/connexion$/);
+  expect(await page.evaluate(() => window.localStorage.getItem("tourneo.tokens"))).toBeNull();
+
+  // Une fois le refus levé, la même saisie aboutit (vraie API).
+  await page.getByRole("button", { name: "Se connecter" }).click();
+  await expect(page.getByTestId("user-role")).toHaveText("Administrateur");
+});
+
 test("connexion admin → coquille → déconnexion", async ({ page }) => {
   // Une route protégée renvoie à la connexion, puis ramène à la page demandée (jour J conservé).
   await page.goto("/plan?day=2027-01-12");
