@@ -10,7 +10,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from jinja2 import Environment, FileSystemLoader, select_autoescape
+from jinja2 import (
+    BaseLoader,
+    ChoiceLoader,
+    Environment,
+    FileSystemLoader,
+    TemplateNotFound,
+    select_autoescape,
+)
 
 from app.core.time import format_local_hm, seconds_to_hm, to_local
 
@@ -52,11 +59,29 @@ def _fmt_duration(seconds: Any) -> str:
     return f"{seconds // 3600} h {(seconds % 3600) // 60:02d}"
 
 
+class ModuleTemplateLoader(BaseLoader):
+    """Raccourci "<module>/x.html" → app/<module>/templates/x.html."""
+
+    def get_source(self, environment: Environment, template: str):
+        module, _, name = template.partition("/")
+        path = APP_DIR / module / "templates" / name
+        if not name or not path.is_file():
+            raise TemplateNotFound(template)
+        mtime = path.stat().st_mtime
+        return path.read_text(encoding="utf-8"), str(path), lambda: path.stat().st_mtime == mtime
+
+
 def build_env() -> Environment:
-    # Gabarits résolus depuis `app/` : "core/templates/pdf_base.html", "loading/templates/x.html"…
-    # et, en raccourci, "<module>/x.html" → app/<module>/templates/x.html.
-    search = [APP_DIR] + sorted(p for p in APP_DIR.glob("*/templates") if p.is_dir())
-    env = Environment(loader=FileSystemLoader(search), autoescape=select_autoescape(["html"]))
+    """Résolution des gabarits, dans l'ordre :
+    1. chemin complet depuis `app/` : "loading/templates/loading_sheet.html" ;
+    2. raccourci par module : "loading/loading_sheet.html" ;
+    3. nom seul, cherché dans tous les dossiers `templates/` : "pdf_base.html".
+    """
+    template_dirs = sorted(p for p in APP_DIR.glob("*/templates") if p.is_dir())
+    loader = ChoiceLoader(
+        [FileSystemLoader(APP_DIR), ModuleTemplateLoader(), FileSystemLoader(template_dirs)]
+    )
+    env = Environment(loader=loader, autoescape=select_autoescape(["html"]))
     env.filters.update(liters=_fmt_liters, km=_fmt_km, hm=_fmt_hm, date_fr=_fmt_date, duration=_fmt_duration)
     return env
 
