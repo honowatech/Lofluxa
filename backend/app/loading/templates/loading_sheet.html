@@ -1,0 +1,109 @@
+{% extends "core/templates/pdf_base.html" %}
+{% block title %}Fiche de chargement — {{ truck_plate }}{% endblock %}
+{% block doc_title %}Fiche de chargement{% endblock %}
+{% block doc_sub %}{{ day | date_fr }} — tournée n° {{ trip_seq }} — {{ truck_plate }}{% endblock %}
+{% block extra_css %}
+  .alert { border: 1px solid #9a5b00; background: #fff6e5; padding: 5px 7px; margin: 6px 0; }
+  tr.total td { font-weight: 700; background: #f5f5f5; }
+  td.out { color: #9a5b00; font-weight: 700; }
+  td.num { white-space: nowrap; }
+  table.loading { font-size: 8.5pt; }
+{% endblock %}
+{% block content %}
+<div class="meta">
+  <div><span>Date :</span> {{ day | date_fr }}</div>
+  <div><span>Camion :</span> {{ truck_plate }}</div>
+  <div><span>Chauffeur :</span> {{ driver_name }}{% if driver_phone %} ({{ driver_phone }}){% endif %}</div>
+  <div><span>Dépôt de chargement :</span> {{ depot }}</div>
+  <div><span>Bon de chargement dépôt n° :</span> {{ depot_ticket_no }}</div>
+  <div><span>Heure de départ {{ "réelle" if depart_is_actual else "prévue" }} :</span> {{ depart_at | hm }}</div>
+  <div><span>Arrivée au dépôt :</span> {{ arrived_at | hm }}</div>
+  <div><span>Chargement :</span> {{ started_at | hm }} → {{ finished_at | hm }}</div>
+  <div><span>État de la tournée :</span> {{ trip_status }}</div>
+</div>
+
+{% if rm_13_message %}
+<div class="alert"><span class="warn">Avertissement RM-13 :</span> {{ rm_13_message }}</div>
+{% endif %}
+
+<h2>Chargement réel par compartiment</h2>
+<table class="loading">
+  <thead>
+    <tr>
+      <th>Comp.</th><th>Produit</th><th class="num">Volume observé</th><th class="num">Température</th>
+      <th class="num">Densité (kg/L)</th><th class="num">Volume à 15 °C</th><th class="num">Planifié</th>
+      <th class="num">Écart</th><th class="num">Écart %</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for line in lines %}
+    <tr>
+      <td>{{ line.compartment }}</td><td>{{ line.product }}</td>
+      <td class="num">{{ line.observed }}</td><td class="num">{{ line.temperature }}</td>
+      <td class="num">{{ line.density }}</td><td class="num">{{ line.volume_15 }}</td>
+      <td class="num">{{ line.planned }}</td>
+      <td class="num{% if line.out_of_tolerance %} out{% endif %}">{{ line.gap_l }}</td>
+      <td class="num{% if line.out_of_tolerance %} out{% endif %}">{{ line.gap_pct }}{% if line.out_of_tolerance %} ⚠{% endif %}</td>
+    </tr>
+    {% endfor %}
+    <tr class="total">
+      <td colspan="2">Total</td>
+      <td class="num">{{ total.observed }}</td><td></td><td></td>
+      <td class="num">{{ total.volume_15 }}</td><td class="num">{{ total.planned }}</td>
+      <td class="num{% if total.out_of_tolerance %} out{% endif %}">{{ total.gap_l }}</td>
+      <td class="num{% if total.out_of_tolerance %} out{% endif %}">{{ total.gap_pct }}{% if total.out_of_tolerance %} ⚠{% endif %}</td>
+    </tr>
+  </tbody>
+</table>
+<div class="note">Tolérance d'écart chargé / planifié : {{ tolerance }}. Mention : {{ astm_note }}.</div>
+
+<h2>Produits</h2>
+<table>
+  <thead><tr><th>Produit</th><th class="num">Volume observé</th><th class="num">Volume à 15 °C</th><th class="num">Planifié</th></tr></thead>
+  <tbody>
+    {% for product in products %}
+    <tr><td>{{ product.label }}</td><td class="num">{{ product.observed }}</td><td class="num">{{ product.volume_15 }}</td><td class="num">{{ product.planned }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<h2>Séquence d'arrêts</h2>
+<table>
+  <thead><tr><th>Ordre</th><th>Station</th><th>Produit</th><th class="num">Volume</th><th>Heure estimée</th><th>Contact station</th></tr></thead>
+  <tbody>
+    {% for stop in stops %}
+      {% for delivery in stop.deliveries %}
+      <tr>
+        {% if loop.first %}
+        <td rowspan="{{ stop.deliveries | length }}">{{ stop.seq }}</td>
+        <td rowspan="{{ stop.deliveries | length }}">{{ stop.station }}{% if stop.city %}<br>{{ stop.city }}{% endif %}</td>
+        {% endif %}
+        <td>{{ delivery.product }}</td><td class="num">{{ delivery.planned }}</td>
+        {% if loop.first %}
+        <td rowspan="{{ stop.deliveries | length }}">{{ stop.planned_arrival_at | hm }}</td>
+        <td rowspan="{{ stop.deliveries | length }}">{{ stop.contact }}</td>
+        {% endif %}
+      </tr>
+      {% else %}
+      <tr><td>{{ stop.seq }}</td><td>{{ stop.station }}</td><td>—</td><td class="num">—</td><td>{{ stop.planned_arrival_at | hm }}</td><td>{{ stop.contact }}</td></tr>
+      {% endfor %}
+    {% endfor %}
+  </tbody>
+</table>
+
+<h2>Plan de chargement par compartiment</h2>
+<table>
+  <thead><tr><th>Compartiment</th><th class="num">Capacité</th><th>Produit prévu</th><th class="num">Volume planifié</th></tr></thead>
+  <tbody>
+    {% for compartment in compartments %}
+    <tr><td>{{ compartment.position }}</td><td class="num">{{ compartment.capacity }}</td><td>{{ compartment.product }}</td><td class="num">{{ compartment.planned }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<div class="signatures">
+  <div>Chauffeur</div>
+  <div>Agent Fleet (dépôt)</div>
+  <div>Gérant de station</div>
+</div>
+{% endblock %}
