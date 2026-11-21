@@ -273,11 +273,17 @@ describe("Comparaison — choix des plans", () => {
 
   it("présélection : référence non archivée la plus récente et son rejeu", () => {
     expect(preselect(PLANS)).toEqual({ a: IDS.reference, b: IDS.replay });
-    expect(preselect(PLANS.filter((plan) => plan.kind !== "replay"))).toEqual({
+    // Sans rejeu : la version publiée la plus récente du plan calculé du jour (journée B).
+    const newer = { ...PLANS[1], id: "plan-v3", version: 3 };
+    expect(preselect([...PLANS.filter((plan) => plan.kind !== "replay"), newer])).toEqual({
+      a: IDS.reference,
+      b: "plan-v3",
+    });
+    expect(preselect(PLANS.filter((plan) => plan.kind === "computed"))).toEqual({ a: null, b: IDS.computed });
+    expect(preselect(PLANS.filter((plan) => plan.kind === "manual_reference"))).toEqual({
       a: IDS.reference,
       b: null,
     });
-    expect(preselect(PLANS.filter((plan) => plan.kind === "computed"))).toEqual({ a: null, b: null });
   });
 });
 

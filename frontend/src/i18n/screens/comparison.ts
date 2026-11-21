@@ -31,7 +31,7 @@ export const comparisonTexts = {
     swap: "Inverser A et B",
     option: (kind: string, version: number, status: string, label: string | null) =>
       `${kind} · v${version} · ${status}${label ? ` — ${label}` : ""}`,
-    auto: "Présélection : journée de référence du jour et son dernier rejeu.",
+    auto: "Présélection : journée de référence du jour et son dernier rejeu (à défaut, le plan publié du jour).",
     samePlan: "Les deux sélecteurs désignent le même plan : choisissez deux plans différents.",
     loadFailed: "Liste des plans indisponible",
   },
