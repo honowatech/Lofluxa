@@ -10,7 +10,7 @@ import uuid
 from datetime import UTC, date, datetime
 from typing import Annotated, Any, Literal
 
-from pydantic import AfterValidator, BaseModel, Field
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 
 from app.core.enums import (
     OrderPriority,
@@ -209,6 +209,31 @@ class ViolationOut(BaseModel):
     stop_seq: int | None = None
 
 
+class PlanAggregatesOut(BaseModel):
+    """Métriques agrégées d'un plan, recalculées à chaque modification. Mêmes clés dans la liste
+    (`GET /plans`) et dans le plan complet. D'autres clés peuvent s'y ajouter (métriques du moteur
+    au calcul, `comparison` pour une journée de référence)."""
+
+    model_config = ConfigDict(extra="allow")
+
+    total_distance_m: int = 0
+    total_duration_s: int = 0
+    trips_count: int = 0
+    trucks_count: int = 0
+    drivers_count: int = 0
+    stops_count: int = 0
+    stations_served: int = 0
+    orders_total: int = 0
+    orders_served: int = 0
+    orders_partial: int = 0
+    orders_unserved: int = 0
+    requested_l: float = 0
+    planned_l: float = 0
+    avg_fill_rate: float | None = None
+    blocking_count: int = 0
+    warning_count: int = 0
+
+
 class PlanSummaryOut(BaseModel):
     id: uuid.UUID
     day: date
@@ -223,7 +248,7 @@ class PlanSummaryOut(BaseModel):
     computed_at: UtcDatetime | None = None
     computed_in_ms: int | None = None
     prep_time_s: int | None = None
-    metrics: dict[str, Any] | None = None
+    metrics: PlanAggregatesOut | None = None
     blocking_count: int = 0
     warning_count: int = 0
     publishable: bool = Field(description="Brouillon calculé sans violation bloquante.")
