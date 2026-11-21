@@ -13,6 +13,25 @@ from xml.sax.saxutils import escape
 
 Bounds = tuple[float, float, float, float]  # lat min, lat max, lon min, lon max
 
+# La palette compte dix couleurs : au-delà, elle boucle. Le style du trait distingue alors les
+# tournées de même couleur — continu (1 à 10), tirets (11 à 20), pointillés (21 à 30), etc.
+PALETTE_SIZE = 10
+DASHES: tuple[str | None, ...] = (None, "7 3", "2 3")
+
+
+def route_dash(index: int) -> str | None:
+    """Style de trait de la tournée de rang `index` (0 = première) : `None` = trait continu."""
+    return DASHES[(index // PALETTE_SIZE) % len(DASHES)]
+
+
+def legend_swatch(color: str, dash: str | None) -> str:
+    """Échantillon de trait pour la légende (même couleur et même style que sur la carte)."""
+    pattern = f' stroke-dasharray="{dash}"' if dash else ""
+    return (
+        '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="8" viewBox="0 0 22 8">'
+        f'<line x1="1" y1="4" x2="21" y2="4" stroke="{color}" stroke-width="2.4"{pattern}/></svg>'
+    )
+
 
 def common_bounds(*route_sets: list[dict[str, Any]]) -> Bounds | None:
     """Emprise commune à plusieurs jeux de tracés (`None` s'il n'y a aucun point)."""
@@ -29,7 +48,7 @@ def render_map_svg(
     bounds: Bounds | None = None,
     *,
     width: int = 480,
-    height: int = 380,
+    height: int = 420,
     padding: int = 22,
 ) -> str:
     """Dessine les tournées (`service.plan_routes`) et renvoie le balisage `<svg>`."""
@@ -61,11 +80,13 @@ def render_map_svg(
         y = offset_y + (lat_max - point["lat"]) * scale
         return round(x, 1), round(y, 1)
 
-    for route in routes:  # tracés d'abord, symboles par-dessus
+    for index, route in enumerate(routes):  # tracés d'abord, symboles par-dessus
         coords = " ".join(f"{x},{y}" for x, y in map(project, route["points"]))
+        dash = route_dash(index)
+        pattern = f' stroke-dasharray="{dash}"' if dash else ""
         parts.append(
             f'<polyline points="{coords}" fill="none" stroke="{route["color"]}" stroke-width="1.6" '
-            'stroke-linejoin="round" stroke-opacity="0.85"/>'
+            f'stroke-linejoin="round" stroke-opacity="0.85"{pattern}/>'
         )
     for route in routes:
         for point in route["points"]:

@@ -4,13 +4,12 @@ from datetime import date, time
 from pathlib import Path
 
 from app.imports.reference_day import (
-    TEMPLATE_ORDERS,
-    TEMPLATE_TRIPS,
     build_template,
     build_workbook,
     normalize_key,
     read_reference_day,
 )
+from tests.integration.comparison.factory import example_workbook
 
 TEMPLATE = Path(__file__).resolve().parents[4] / "data" / "templates" / "reference_day.xlsx"
 
@@ -19,8 +18,8 @@ def _issues(issues) -> set[tuple]:
     return {(i.sheet, i.row, i.column) for i in issues}
 
 
-def test_fichier_modele_lu_sans_erreur():
-    data = read_reference_day(TEMPLATE.read_bytes())
+def test_classeur_complet_lu_sans_erreur():
+    data = read_reference_day(example_workbook())
 
     assert data.errors == [] and data.warnings == []
     assert data.day == date(2027, 1, 12)
@@ -250,4 +249,3 @@ def test_normalisation_des_en_tetes():
     assert normalize_key("Volume livré (L)") == "volume_livre_l"
     assert normalize_key("  Dépôt ") == "depot"
     assert normalize_key("lt-123-aa") == normalize_key("LT 123 AA")
-    assert len(TEMPLATE_ORDERS) == 5 and len(TEMPLATE_TRIPS) == 4

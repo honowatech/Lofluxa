@@ -1,3 +1,11 @@
+/** Emprise géographique. */
+export interface Bounds {
+  minLat: number;
+  maxLat: number;
+  minLon: number;
+  maxLon: number;
+}
+
 export interface LatLon {
   lat: number;
   lon: number;
@@ -13,6 +21,8 @@ export interface MapPoint extends LatLon {
   detail?: string[];
   /** Affiché en retrait (référentiel désactivé). */
   inactive?: boolean;
+  /** `unserved` : commande non servie — losange à bord pointillé, distinct d'une station inactive. */
+  variant?: "unserved";
 }
 
 /** Arrêt numéroté d'une tournée. */
@@ -31,7 +41,7 @@ export interface MapRoute {
   /** Chemin ordonné (dépôt → arrêts → dépôt, ou géométrie routière si disponible). */
   path: LatLon[];
   stops?: MapStop[];
-  /** Tracé atténué (tournée non sélectionnée). */
+  /** Tracé atténué (tournée non sélectionnée) ; ses arrêts le sont aussi. */
   dimmed?: boolean;
 }
 
@@ -44,4 +54,8 @@ export interface MapRendererProps {
   onMapClick?: (position: LatLon) => void;
   /** Change quand le cadrage doit être recalculé. */
   fitSignature: string;
+  /** Emprise à cadrer (imposée, tournée ciblée, ou tout le contenu). */
+  fitBounds: Bounds;
+  onRouteClick?: (id: string) => void;
+  onRouteHover?: (id: string | null) => void;
 }

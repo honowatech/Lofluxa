@@ -13,6 +13,7 @@ import { loginAs, mockUser, renderApp } from "@/test/utils";
 
 import { SCREENS } from "./screens";
 
+const frDay = (day: string) => day.split("-").reverse().join("/");
 const nav = () => screen.getByRole("navigation", { name: "Navigation principale" });
 const navLabels = () =>
   within(nav())
@@ -199,12 +200,13 @@ describe("coquille", () => {
     await screen.findByTestId("screen-day");
     const today = todayLocal();
     const input = screen.getByLabelText("Jour J", { selector: "input" });
-    expect(input).toHaveValue(today);
+    // Affichage français, quelle que soit la langue du navigateur.
+    expect(input).toHaveValue(frDay(today));
     expect(screen.getByRole("button", { name: "Aujourd'hui" })).toBeDisabled();
 
     await user.click(screen.getByRole("button", { name: "Jour suivant" }));
     expect(router.state.location.search).toBe(`?day=${addDays(today, 1)}`);
-    expect(input).toHaveValue(addDays(today, 1));
+    expect(input).toHaveValue(frDay(addDays(today, 1)));
 
     await user.click(within(nav()).getByRole("link", { name: "Commandes du jour" }));
     expect(await screen.findByTestId("screen-orders")).toBeInTheDocument();
@@ -217,13 +219,32 @@ describe("coquille", () => {
     expect(router.state.location.search).toBe(`?day=${addDays(today, -1)}`);
     await user.click(screen.getByRole("button", { name: "Aujourd'hui" }));
     expect(router.state.location.search).toBe(`?day=${today}`);
+
+    // Saisie au clavier : jj/mm/aaaa (ou jjmmaaaa), flèches = jour suivant / précédent ; une saisie invalide est ignorée.
+    const field = screen.getByLabelText("Jour J", { selector: "input" });
+    await user.clear(field);
+    await user.type(field, "12/01/2027");
+    expect(router.state.location.search).toBe("?day=2027-01-12");
+    await user.keyboard("{ArrowUp}");
+    expect(router.state.location.search).toBe("?day=2027-01-13");
+    expect(field).toHaveValue("13/01/2027");
+    await user.clear(field);
+    await user.type(field, "31/02/2027");
+    expect(field).toBeInvalid();
+    await user.tab();
+    expect(field).toHaveValue("13/01/2027");
+    expect(router.state.location.search).toBe("?day=2027-01-13");
+    await user.clear(field);
+    await user.type(field, "05032027");
+    expect(router.state.location.search).toBe("?day=2027-03-05");
+    expect(screen.getByRole("button", { name: "Ouvrir le calendrier" })).toBeInTheDocument();
   });
 
   it("jour J invalide dans l'URL : repli sur aujourd'hui", async () => {
     loginAs("dispatcher");
     renderApp("/plan?day=2027-13-45");
     await screen.findByTestId("screen-plan");
-    expect(screen.getByLabelText("Jour J", { selector: "input" })).toHaveValue(todayLocal());
+    expect(screen.getByLabelText("Jour J", { selector: "input" })).toHaveValue(frDay(todayLocal()));
   });
 
   it("zone d'alertes : documents de chauffeurs expirés, visibles depuis n'importe quel écran", async () => {

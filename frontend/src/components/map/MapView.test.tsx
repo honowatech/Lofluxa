@@ -1,8 +1,15 @@
-import { render, screen, within } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import { computeBounds, fitProjection, fitSignatureOf, isValidPosition } from "./geometry";
+import {
+  boundsOf,
+  computeBounds,
+  fitProjection,
+  fitSignatureOf,
+  isValidPosition,
+  routeBounds,
+} from "./geometry";
 import { MapView, routeColor, ROUTE_COLORS } from "./MapView";
 import type { MapPoint, MapRoute } from "./types";
 
@@ -86,6 +93,107 @@ describe("MapView — repli sans WebGL ni tuiles", () => {
       />,
     );
     expect(screen.getByTestId("schematic-map").querySelectorAll("[data-point]")).toHaveLength(3);
+  });
+});
+
+describe("MapView — ajouts", () => {
+  const xOf = (id: string) =>
+    Number(
+      /translate\(([\d.]+)/.exec(
+        document.querySelector(`[data-point="${id}"]`)?.getAttribute("transform") ?? "",
+      )?.[1],
+    );
+
+  it("emprise imposée : deux cartes au contenu différent ont le même cadrage", () => {
+    const bounds = boundsOf(POINTS, ROUTES);
+    const { unmount } = render(<MapView points={POINTS} routes={ROUTES} bounds={bounds} />);
+    const full = xOf("s1");
+    unmount();
+    // Sans emprise imposée, une carte réduite à deux points les écarte au maximum ; avec, s1 ne bouge pas.
+    render(<MapView points={POINTS.slice(0, 2)} />);
+    const free = xOf("s1");
+    cleanup();
+    render(<MapView points={POINTS.slice(0, 2)} bounds={bounds} />);
+    expect(xOf("s1")).toBeCloseTo(full, 1);
+    expect(free).not.toBeCloseTo(full, 1);
+  });
+
+  it("recadrage sur une tournée, puis retour à l'ensemble", () => {
+    const far: MapPoint = { id: "far", kind: "station", lat: 4.95, lon: 9.94, label: "OLA Nkongsamba" };
+    const { rerender } = render(<MapView points={[...POINTS, far]} routes={ROUTES} />);
+    const all = xOf("s1");
+    rerender(<MapView points={[...POINTS, far]} routes={ROUTES} focusRouteId="t1" />);
+    const focused = xOf("s1");
+    expect(focused).not.toBeCloseTo(all, 1);
+    expect(routeBounds(ROUTES[0])?.maxLat).toBeLessThan(4.2);
+    rerender(<MapView points={[...POINTS, far]} routes={ROUTES} focusRouteId={null} />);
+    expect(xOf("s1")).toBeCloseTo(all, 1);
+    // Tournée inconnue : cadrage sur l'ensemble.
+    rerender(<MapView points={[...POINTS, far]} routes={ROUTES} focusRouteId="inconnue" />);
+    expect(xOf("s1")).toBeCloseTo(all, 1);
+  });
+
+  it("clic et survol sur le tracé d'une tournée ; sans ces props, le tracé n'est pas interactif", async () => {
+    const user = userEvent.setup();
+    const onRouteClick = vi.fn();
+    const onRouteHover = vi.fn();
+    const labelled = ROUTES.map((route, index) => ({ ...route, label: `Tournée ${index + 1}` }));
+    const { rerender } = render(<MapView points={POINTS} routes={labelled} />);
+    expect(document.querySelector("[data-route-hit]")).toBeNull();
+
+    rerender(
+      <MapView points={POINTS} routes={labelled} onRouteClick={onRouteClick} onRouteHover={onRouteHover} />,
+    );
+    const line = screen.getByRole("button", { name: "Tournée 2" });
+    await user.hover(line);
+    expect(onRouteHover).toHaveBeenLastCalledWith("t2");
+    await user.unhover(line);
+    expect(onRouteHover).toHaveBeenLastCalledWith(null);
+    await user.click(line);
+    expect(onRouteClick).toHaveBeenCalledWith("t2");
+    line.focus();
+    await user.keyboard("{Enter}");
+    expect(onRouteClick).toHaveBeenCalledTimes(2);
+  });
+
+  it("marqueur « non servie » distinct d'une station inactive ; arrêts d'une tournée en retrait atténués", async () => {
+    const user = userEvent.setup();
+    const unserved: MapPoint = {
+      id: "u1",
+      kind: "station",
+      variant: "unserved",
+      lat: 4.06,
+      lon: 9.72,
+      label: "OLA Deido",
+      detail: ["Stock dépôt insuffisant"],
+    };
+    const dimmedStops: MapRoute[] = [{ ...ROUTES[0], dimmed: true }];
+    render(<MapView points={[...POINTS, unserved]} routes={dimmedStops} />);
+    const marker = document.querySelector('[data-point="u1"]') as SVGGElement;
+    expect(marker).toHaveAttribute("data-variant", "unserved");
+    expect(marker.querySelector("rect")).toHaveAttribute("stroke-dasharray");
+    expect(marker).toHaveAttribute("opacity", "1");
+    await user.hover(marker);
+    expect(screen.getByRole("tooltip")).toHaveTextContent("Commande non servie");
+    expect(document.querySelector('[data-stop="st1"]')).toHaveAttribute("opacity", "0.45");
+  });
+
+  it("palette : 30 couleurs distinctes, les 10 premières inchangées (reprises par le PDF de comparaison)", () => {
+    expect(ROUTE_COLORS.slice(0, 10)).toEqual([
+      "#1d6fb8",
+      "#0f8a7a",
+      "#7a4fc4",
+      "#b0347e",
+      "#4a7a1c",
+      "#2c4a9e",
+      "#8a6a12",
+      "#0e7490",
+      "#6b4a2e",
+      "#525f6b",
+    ]);
+    expect(new Set(ROUTE_COLORS).size).toBe(30);
+    expect(new Set(Array.from({ length: 30 }, (_, index) => routeColor(index))).size).toBe(30);
+    expect(routeColor(30)).toBe(routeColor(0));
   });
 });
 

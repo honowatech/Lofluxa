@@ -1,4 +1,5 @@
 import { screen, waitFor, within } from "@testing-library/react";
+import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
@@ -7,7 +8,9 @@ import { renderWithProviders } from "@/test/utils";
 
 import {
   CoordinatesField,
+  DateInput,
   EntityFormDialog,
+  parseDayInput,
   parseCoordinatePair,
   LitersField,
   normalizeTime,
@@ -262,6 +265,43 @@ describe("champs de formulaire (react-hook-form + zod)", () => {
   });
 });
 
+describe("DateInput — date en jj/mm/aaaa", () => {
+  it("affiche en français, accepte la saisie, se vide si facultatif", async () => {
+    const onChange = vi.fn();
+    function Harness() {
+      const [value, setValue] = useState<string | null>("2027-01-12");
+      return (
+        <DateInput
+          aria-label="Expiration"
+          value={value}
+          onChange={(next) => {
+            onChange(next);
+            setValue(next);
+          }}
+        />
+      );
+    }
+    const { user } = renderWithProviders(<Harness />);
+    const field = screen.getByLabelText("Expiration");
+    expect(field).toHaveValue("12/01/2027");
+    expect(field).toHaveAttribute("placeholder", "jj/mm/aaaa");
+    await user.clear(field);
+    expect(onChange).toHaveBeenLastCalledWith(null);
+    await user.type(field, "3/9/27");
+    expect(onChange).toHaveBeenLastCalledWith("2027-09-03");
+    await user.tab();
+    expect(field).toHaveValue("03/09/2027");
+    await user.click(field);
+    await user.keyboard("{ArrowDown}");
+    expect(onChange).toHaveBeenLastCalledWith("2027-09-02");
+    // Le sélecteur natif n'est ni dans le parcours clavier ni exposé aux lecteurs d'écran.
+    const native = document.querySelector('input[type="date"]') as HTMLInputElement;
+    expect(native).toHaveAttribute("tabindex", "-1");
+    expect(native).toHaveAttribute("aria-hidden", "true");
+    expect(native).toHaveValue("2027-09-02");
+  });
+});
+
 describe("aides", () => {
   it("normalizeTime accepte les saisies rapides", () => {
     expect(normalizeTime("630")).toBe("06:30");
@@ -281,6 +321,20 @@ describe("aides", () => {
     expect(parseCoordinatePair("120, 9")).toBeNull();
     expect(parseCoordinatePair("OLA Akwa")).toBeNull();
     expect(parseCoordinatePair("4.05")).toBeNull();
+  });
+
+  it("parseDayInput : formats de saisie acceptés, dates impossibles refusées", () => {
+    expect(parseDayInput("12/01/2027")).toBe("2027-01-12");
+    expect(parseDayInput("1/2/27")).toBe("2027-02-01");
+    expect(parseDayInput("12-01-2027")).toBe("2027-01-12");
+    expect(parseDayInput("12.01.2027")).toBe("2027-01-12");
+    expect(parseDayInput("12012027")).toBe("2027-01-12");
+    expect(parseDayInput("120127")).toBe("2027-01-12");
+    expect(parseDayInput("2027-01-12")).toBe("2027-01-12");
+    expect(parseDayInput("31/02/2027")).toBeNull();
+    expect(parseDayInput("01/13/2027")).toBeNull();
+    expect(parseDayInput("12/01")).toBeNull();
+    expect(parseDayInput("")).toBeNull();
   });
 
   it("summarizeOpeningHours regroupe les jours identiques", () => {

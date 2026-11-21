@@ -23,6 +23,7 @@ import { fr } from "@/i18n/fr";
 import { formatNumber, parseDecimal } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
+import { DateInput } from "./DateInput";
 import { Field, useFieldError, type FieldProps } from "./Field";
 import { TIME_RE } from "./schemas";
 
@@ -314,7 +315,7 @@ export function TimeField<T extends FieldValues>({ name, disabled, ...rest }: Na
   );
 }
 
-/** Date `YYYY-MM-DD` (valeur de formulaire : chaîne ou `null`). */
+/** Date (valeur de formulaire : `YYYY-MM-DD` ou `null`), saisie et affichée en `jj/mm/aaaa`. */
 export function DateField<T extends FieldValues>({ name, disabled, ...rest }: Named<T>) {
   const { control } = useFormContext<T>();
   const error = useFieldError<T>(name);
@@ -325,18 +326,18 @@ export function DateField<T extends FieldValues>({ name, disabled, ...rest }: Na
           control={control}
           name={name}
           render={({ field }) => (
-            <Input
+            <DateInput
               id={id}
-              type="date"
               ref={field.ref}
               name={field.name}
               aria-describedby={describedBy}
               aria-invalid={invalid}
               disabled={disabled}
-              value={(field.value as string | null) ?? ""}
-              onChange={(event) => field.onChange(event.target.value || null)}
+              value={(field.value as string | null) ?? null}
+              onChange={field.onChange}
               onBlur={field.onBlur}
-              className="num w-40"
+              wrapperClassName="w-40"
+              className="w-full"
             />
           )}
         />

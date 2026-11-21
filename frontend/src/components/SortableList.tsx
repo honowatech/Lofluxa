@@ -35,6 +35,15 @@ export interface SortableListProps<T> {
   /** `handle` : poignée à placer dans la ligne. */
   renderItem: (item: T, handle: ReactNode, index: number) => ReactNode;
   disabled?: boolean;
+  /**
+   * `"standalone"` (défaut) : la liste gère seule son glisser-déposer.
+   * `"parent"` : la liste s'inscrit dans le `<DndContext>` fourni par le parent (déplacement d'une liste à une
+   * autre) ; c'est alors le parent qui traite `onDragEnd` — `onReorder` n'est pas appelé. Utiliser
+   * `useSortableSensors()` pour les mêmes capteurs, et `id` pour reconnaître la liste d'arrivée.
+   */
+  context?: "standalone" | "parent";
+  /** Identifiant du `SortableContext` (liste d'arrivée dans `onDragEnd` du parent). */
+  id?: string;
   /** Libellé accessible de la poignée. */
   handleLabel?: (item: T, index: number) => string;
   className?: string;
@@ -78,6 +87,14 @@ function Row({
   );
 }
 
+/** Capteurs de `SortableList` (souris avec seuil de 4 px, clavier) : à passer au `<DndContext>` du parent. */
+export function useSortableSensors() {
+  return useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+}
+
 export function SortableList<T>({
   items,
   getId,
@@ -86,11 +103,10 @@ export function SortableList<T>({
   disabled,
   handleLabel,
   className,
+  context = "standalone",
+  id,
 }: SortableListProps<T>) {
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
-  );
+  const sensors = useSortableSensors();
   const ids = items.map(getId);
 
   const onDragEnd = ({ active, over }: DragEndEvent) => {
@@ -100,22 +116,27 @@ export function SortableList<T>({
     if (from >= 0 && to >= 0) onReorder(arrayMove(items, from, to), { from, to });
   };
 
+  const list = (
+    <SortableContext id={id} items={ids} strategy={verticalListSortingStrategy}>
+      <ul className={cn("flex flex-col", className)}>
+        {items.map((item, index) => (
+          <Row
+            key={ids[index]}
+            id={ids[index]}
+            disabled={disabled}
+            label={handleLabel?.(item, index) ?? `${index + 1}`}
+          >
+            {(handle) => renderItem(item, handle, index)}
+          </Row>
+        ))}
+      </ul>
+    </SortableContext>
+  );
+  if (context === "parent") return list;
+
   return (
     <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
-      <SortableContext items={ids} strategy={verticalListSortingStrategy}>
-        <ul className={cn("flex flex-col", className)}>
-          {items.map((item, index) => (
-            <Row
-              key={ids[index]}
-              id={ids[index]}
-              disabled={disabled}
-              label={handleLabel?.(item, index) ?? `${index + 1}`}
-            >
-              {(handle) => renderItem(item, handle, index)}
-            </Row>
-          ))}
-        </ul>
-      </SortableContext>
+      {list}
     </DndContext>
   );
 }

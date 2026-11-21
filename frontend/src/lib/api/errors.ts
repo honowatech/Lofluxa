@@ -11,14 +11,20 @@ export class ApiError extends Error {
   readonly details: ApiErrorDetail[];
   /** Délai d'attente demandé par le serveur (en-tête `Retry-After`, secondes) — 429 `rate_limited`. */
   readonly retryAfter: number | null;
+  /**
+   * Corps brut de la réponse d'erreur, tel que reçu (objet JSON, ou `null` si la réponse n'en avait pas).
+   * Pour lire des champs hors enveloppe : `(error.body as { warnings?: Issue[] } | null)?.warnings`.
+   */
+  readonly body: unknown;
 
-  constructor(status: number, body: Partial<ApiErrorBody>, retryAfter: number | null = null) {
+  constructor(status: number, body: Partial<ApiErrorBody>, retryAfter: number | null = null, raw?: unknown) {
     super(body.message || fr.errors.unknown);
     this.name = "ApiError";
     this.status = status;
     this.code = body.code || `http_${status}`;
     this.details = Array.isArray(body.details) ? body.details : [];
     this.retryAfter = retryAfter;
+    this.body = raw === undefined ? body : raw;
   }
 
   /** Codes RM-xx portés par l'erreur, sans doublon, dans l'ordre. */

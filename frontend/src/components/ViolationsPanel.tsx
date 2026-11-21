@@ -18,6 +18,8 @@ export interface ViolationsPanelProps {
   title?: string;
   /** Masque le panneau quand il n'y a aucune violation (par défaut il affiche « Aucune violation »). */
   hideWhenEmpty?: boolean;
+  /** Hauteur maximale de la liste avant défilement : valeur CSS (`"40vh"`), pixels, ou `"none"`. Défaut : 16 rem. */
+  maxListHeight?: number | string;
   className?: string;
 }
 
@@ -33,6 +35,7 @@ export function ViolationsPanel({
   onSelect,
   title = fr.violations.title,
   hideWhenEmpty,
+  maxListHeight,
   className,
 }: ViolationsPanelProps) {
   const list = sortViolations(violations ?? []);
@@ -72,7 +75,10 @@ export function ViolationsPanel({
           {fr.violations.none}
         </p>
       ) : (
-        <ul className="max-h-64 divide-y overflow-y-auto">
+        <ul
+          className={cn("divide-y overflow-y-auto", maxListHeight === undefined && "max-h-64")}
+          style={maxListHeight === undefined ? undefined : { maxHeight: maxListHeight }}
+        >
           {list.map((violation, index) => {
             const isBlocking = violation.severity === "blocking";
             const Icon = isBlocking ? CircleAlert : TriangleAlert;
@@ -96,7 +102,7 @@ export function ViolationsPanel({
             );
             return (
               <li
-                key={`${violation.rule_code}-${index}`}
+                key={violation.id ?? `${violation.rule_code}-${index}`}
                 data-severity={violation.severity}
                 className={cn("border-l-[3px]", isBlocking ? "border-l-blocking" : "border-l-warning")}
               >

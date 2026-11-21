@@ -98,11 +98,13 @@ export function refreshTokens(): Promise<boolean> {
 
 async function toApiError(response: Response): Promise<ApiError> {
   let body: Partial<ApiErrorBody> = {};
+  let raw: unknown = null;
   try {
     const text = await response.text();
     if (text) {
       const parsed = JSON.parse(text) as Partial<ApiErrorBody> & { detail?: unknown };
       body = parsed;
+      raw = parsed;
       // Réponse FastAPI brute (hors enveloppe) : `{detail: "…"}`.
       if (!parsed.message && typeof parsed.detail === "string") body = { message: parsed.detail };
     }
@@ -126,6 +128,7 @@ async function toApiError(response: Response): Promise<ApiError> {
     response.status,
     body,
     Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : null,
+    raw,
   );
 }
 

@@ -99,6 +99,17 @@
   border-radius: 999px;
   background: hsl(var(--primary));
 }
+/* Commande non servie : losange blanc à bord pointillé (ni station, ni arrêt). */
+.tn-marker--unserved {
+  width: 13px;
+  height: 13px;
+  border-radius: 2px;
+  background: #fff;
+  border: 2px dashed hsl(var(--foreground));
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.3);
+  transform-origin: center;
+  rotate: 45deg;
+}
 .tn-marker--stop {
   width: 20px;
   height: 20px;
