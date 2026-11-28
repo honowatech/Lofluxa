@@ -86,40 +86,80 @@ Chaque lot ne modifie que les fichiers listés (chemins relatifs à `backend/app
 | 21/11/2026 | Vague 0 faite. Vague 1 : lots L1 à L8 livrés et fusionnés (règles, moteur, référentiels et imports, commandes et disponibilité, service de plans, chargement, comparaison, administration et infrastructure). Calcul réel de bout en bout vérifié (`tests/integration/planning/test_real_engine.py`). L9 (socle de l'interface) en cours. Vague 2 : L10 (événements) et L15 (démonstration de bout en bout) lancés ; les écrans (L11 à L14) partent à la livraison de L9. |
 | 21/11/2026 | Vague 1 terminée (L1 à L9). Vague 2 livrée et fusionnée : L10 (événements), L11 à L14 (les onze écrans de la spec), L15 (jeux de démonstration, scénario complet, preuve A/B sur une journée fabriquée). Les défauts d'intégration trouvés par L15 et par les écrans sont corrigés. Vague 3 en cours : adoption des composants partagés, parcours de navigateur rejouables sur une même base, questions consolidées dans `docs/QUESTIONS.md`. Reste hors de portée ici : construction et lancement Docker, serveur de routage réel, restauration chronométrée (voir `docs/EXPLOITATION.md` §12 et `docs/DEMO.md`). |
 
-## 8. État à la suspension du 21/11/2026
+## 8. État à la suspension du 28/11/2026
 
-Le projet a été mis en pause à la demande du responsable. Chaque sous-session a terminé son étape en cours,
-poussé sa branche et arrêté ses serveurs ; aucune n'a laissé de commit « WIP ». Rien de ce qui suit n'est
-fusionné dans la branche d'intégration `claude/charming-wright-yri5q4`, qui reste à l'état vérifié `6fe5803`
-(plus ce document). Pour reprendre : écrire « reprise » à chaque sous-session concernée, ou repartir des branches.
+Le projet a été repris le 28/11/2026 puis remis en pause le même jour, à la demande du responsable. Chaque
+sous-session a terminé sa liste ou son étape en cours, poussé sa branche et arrêté ses serveurs ; aucune n'a
+laissé de commit « WIP ». Pour reprendre : écrire « reprise » aux sous-sessions concernées, ou repartir des branches.
+
+### Ce qui est fusionné dans `claude/charming-wright-yri5q4`
+
+Les sept branches de la première suspension (21/11), le nettoyage des noms de schémas en double de l'OpenAPI
+(test `backend/tests/unit/test_openapi.py`), et le lot L4 du 28/11 (commandes d'une journée de référence exclues
+de la Journée, reliquat visible sur une commande). Dernier état vérifié : back-end 776 tests verts hors tests
+lents, 1 échec attendu (défaut D8, corrigé par L6 sur sa branche), 1 test ignoré ; interface 315 tests, lint et
+build verts.
 
 ### Branches à fusionner à la reprise (dans cet ordre)
 
 | Branche | Tête | Contenu non fusionné | État annoncé par le lot |
 |---|---|---|---|
-| `claude/tourneo-l7-comparaison` | `7eb2df5` | Tableau de bord : champ `pending_draft` et alerte « version en attente de publication » | 768 tests verts hors tests lents |
-| `claude/tourneo-l15-demo` | `07e23ba` | `docs/DEMO.md` réécrit et remesuré, journée perturbée (pénurie, panne, arrêt sauté, second plan), critère 4 par l'API, `run_day.py --shortage --breakdown` | 771 verts, 1 ignoré, 1 échec attendu (défaut D8 ci-dessous) |
-| `claude/tourneo-l9-frontend` | `9e2a5e3` | Droits par rôle alignés sur l'API, session robuste aux coupures, catalogue complété, contrôle préalable et aide de connexion des parcours, doublures des écrans Chargement / Suivi / Journal | lint, 307 tests, build verts ; une passe complète des parcours verte sur base vierge |
-| `claude/tourneo-l11-ecrans-journee` | `eb06841` | Avertissements de cuve du serveur, effacement d'un stock, derniers événements et alertes cliquables sur l'accueil | lint, 281 tests, build verts |
-| `claude/tourneo-l12-ecran-plan` | `9929900` | Données d'essai isolées (préfixe `ZL12`, jour vierge, ressources libérées en fin de test), parcours « chauffeur indisponible » corrigé | lint, 287 tests, build verts ; suite complète des parcours verte sur deux passes, sauf un parcours de L13 (voir ci-dessous) |
-| `claude/tourneo-l13-ecrans-execution` | `b392554` | Explication de RM-13, version du plan dans les listes, pénurie résolue dans n'importe quel ordre, données d'essai préfixées | lint, 288 tests, build verts |
-| `claude/tourneo-l14-ecran-comparaison` | `798fdb7` | Cadrage commun des cartes, couleurs du serveur, scénario de panne, données d'essai préfixées | lint, 288 tests, build verts |
+| `claude/tourneo-l3-referentiels` | `17389dd` | Ré-import sans doublon quel que soit le statut ; fichiers modèles enrichis en un jeu planifiable (2 dépôts, 6 stations, 4 camions, 5 chauffeurs, 7 commandes sans date) ; `ST-AKWA` passe au gabarit grand | 783 verts (suite complète) |
+| `claude/tourneo-l6-chargement` | `045cd0d` | **Défaut D8 corrigé** (livraison d'une commande planifiée en partie) ; faux RM-13 après une panne corrigé ; `orders.service.mark_fully_delivered` | 785 verts, 1 échec attendu (reliquat d'une commande sous-livrée, corrigé par L5) |
+| `claude/tourneo-l5-plans` | `beac4b3` | Ressources engagées dans les autres plans publiés du jour (RM-02, RM-11, RM-14) ; reliquat sur le réellement livré ; `display_label`, `is_current` | 781 verts |
+| `claude/tourneo-l7-comparaison` | `ddfc576` | Tableau de bord sur tous les plans publiés du jour (`plans[]`, `pending_drafts[]`) ; réserve « ressources inégales » dans la comparaison et le PDF | 779 verts |
+| `claude/tourneo-l9-frontend` | `2e2e103` | Bulle de carte dans le cadre ; `SortableList` étendu ; alerte « plan resté en brouillon » dans la cloche ; pages d'attente supprimées ; captures du mode démonstration | lint, 323 tests, build verts |
+| `claude/tourneo-l11-ecrans-journee` | `0828121` | Ajouts du socle adoptés ; bandeau `pending_draft` ; jeu d'essai préfixé `L11`, stations choisies par code | lint, 316 tests, build verts |
+| `claude/tourneo-l12-ecran-plan` | `059b666` | Sélecteur de plan (nature, plan par défaut) ; bandeau « version créée par un événement » ; deux plans publiés le même jour | lint, 320 tests, build verts |
+| `claude/tourneo-l13-ecrans-execution` | `2d3cf87` | Assistant de réaffectation enchaîné sur les autres tournées du camion ; droits par `useCan` ; jeu d'essai avec ses propres dépôts ; retard recalculé | lint, 318 tests, build verts |
 
-Après fusion : `uv run alembic upgrade heads`, `./scripts/gen_api_types.sh` (nouveaux champs `pending_draft`,
-`source: "plan"`, `details[].severity`), suite back-end complète, `pnpm lint && pnpm test && pnpm build`.
-Vérifier que `dump.rdb` ne revient pas dans le dépôt.
+Après fusion : `uv run alembic upgrade heads`, `./scripts/gen_api_types.sh`, suite back-end complète,
+`pnpm lint && pnpm test && pnpm build`. Les nouveaux champs de l'API casseront la compilation de quelques
+données de test de l'interface (comme à chaque fusion) : les compléter.
+
+### À vérifier en premier après fusion
+
+1. **L5 + L6 ensemble** : les deux correctifs du reliquat et de la livraison partielle n'ont pas été essayés l'un
+   avec l'autre. Le test `test_reliquat_d_une_commande_sous_livree_repris_par_le_service_de_plans` (marqué
+   échec attendu par L6) doit passer : retirer sa marque. Vérifier qu'une commande sous-livrée, repassée
+   `confirmed`, est bien reprise par le calcul suivant.
+2. **Suite complète des parcours de navigateur**, deux passes sans vider la base : L11 et L12 ont vu deux
+   parcours de L13 en échec (`l13-evenements` déclaration de pénurie, `l13-execution` retard 14 / 15 min), mais
+   avec la version de L13 antérieure à ses correctifs du 28/11. Écrire « branches fusionnées » à L9.
+3. `display_label` / `is_current` (L5) contre l'écran Plan (L12), puis retirer les champs facultatifs ajoutés à
+   la main dans `frontend/src/features/plan/types.ts`.
+4. Fichiers d'autres lots touchés par L3, L5 et L7 pour garder les tests verts
+   (`backend/tests/e2e/test_journee_perturbee.py` par L5 **et** L7 : conflit possible ;
+   `tests/integration/comparison/test_reference_day.py` et `data/fixtures/demo_*/import/*.xlsx` par L3).
 
 ### Travail restant
 
 | Lot | Reste à faire |
 |---|---|
-| L4, L5, L6 | **Défaut D8** (trouvé par L15, test en échec attendu dans `backend/tests/e2e/`) : la livraison d'une commande planifiée en partie est refusée (409 `invalid_order_transition`, « confirmée » → « livrée »). Touche toute livraison partielle. |
-| L9 | Bulle de la carte rognée près des bords ; `SortableList` (ligne libre, élément figé seul, repère d'insertion) ; captures du mode démonstration ; double passe de la suite complète des parcours sans vider la base. |
-| L11 | Parcours fragile : `createOrder` choisit la station par son rang dans la liste (toute station classée avant `ST-AKWA` le casse). Adopter les ajouts de `DataTable`, `Notice`, `Badge`, `SelectField` ; vérifier que l'import des commandes impose le jour J ; préfixer les données d'essai (`e2e/l11-seed.ts`). |
-| L12 | Régénérer les captures (elles montrent les anciens libellés) ; afficher la nature d'un plan (référence, rejeu) dans le sélecteur ; choisir le plan ouvert par défaut quand deux plans sont publiés le même jour. |
-| L13 | **Parcours `l13-evenements` (pénurie) en échec dans la suite complète** : il attend l'option « Changer de dépôt », donc un second dépôt actif, mais ne le crée pas lui-même ; selon l'ordre des lots, `SCDP-YDE` n'est jamais importé (cause établie par L12). Créer ce dépôt dans son propre jeu. Assistant de réaffectation : enchaîner sur les autres tournées du camion en panne, version restée en brouillon clairement signalée ; retirer le contournement des droits une fois L9 fusionné (`useCan("events.shortage.write")`) ; corriger à la source l'import des dépôts de son jeu d'essai. |
-| L14 | Rien d'ouvert. |
-| Intégration | Revérifier deux parcours vus en échec par L14 sur une base non vierge et non reproduits par L12 sur deux passes (`l12-plan` bandeau des non servies, `l13-execution` retard 14 / 15 min) ; faire afficher l'alerte `pending_draft` par les écrans Journée et Journal ; renommer les schémas en double de l'OpenAPI (`PlanSummaryOut`, `StopOut`, `UnservedOut`) ; écarts d'interface relevés par L15 (`docs/DEMO.md` §6). |
+| L2 | **Défaut du moteur un dimanche** (trouvé par L12, question A6 de `docs/questions/l12-ecran-plan.md`) : `demo_douala` avec 30 000 L de gasoil au dépôt pour 43 000 L demandés → 36 000 L planifiés et RM-08 bloquant dès le calcul, uniquement pour un dimanche (3 fois sur 3 ; 0 sur 5 les autres jours). Vérifier aussi que le moteur renvoie telles quelles les tournées figées sans livraison que L5 lui passe (`seq` > 9000). |
+| L10 | Exposer l'heure de saisie d'un événement (`created_at`) dans `EventOut` : le Journal mélange heure de l'événement et heure de saisie. Trancher : une pénurie déclarée après une panne ne compte plus le produit déjà chargé sur la tournée d'origine (stock de 1 L accepté). |
+| L15 | `docs/DEMO.md` : D8 et E4 corrigés, constat du ré-import à retirer, récit de la journée perturbée (voir décision ci-dessous), écarts E1 à E6 traités ; revérification finale et re-mesure. |
+| L9 | Double passe de la suite complète des parcours ; retirer l'import des dépôts du contrôle préalable (L13 crée les siens) et, si possible, l'ordre imposé de `e2e/run.mjs`. |
+| L13 | Vérifier le message « livrée en partie » contre le correctif réel de L6 (testé sur doublure). |
+| L11 | Vérifier le bandeau `pending_draft` contre la vraie API. |
+| Intégration | Mise à jour de `docs/QUESTIONS.md` avec les questions ajoutées le 28/11. |
+
+### Décisions attendues du responsable
+
+| Sujet | Question | Appliqué sur les branches |
+|---|---|---|
+| Récit de la démonstration | Dans la journée perturbée, la commande de l'arrêt sauté n'est plus resservie par un second calcul : trois camions ont fait leurs deux chargements du jour, le quatrième est en panne. Relever le nombre de chargements du dépôt de démonstration, ou assumer la commande non servie ? | Commande non servie (test adapté par L5) ; `docs/DEMO.md` décrit encore l'ancien déroulé |
+| Publication après un incident | Pour la suite d'un même incident, l'assistant demande la publication, sans quoi la version resterait en brouillon une fois toutes les tournées traitées. | Oui (L13) |
+| Seuil « entièrement livrée » | Une commande passe « livrée » à partir de 98 % du volume demandé (réutilisation de la tolérance de chargement). Paramètre distinct ? | Tolérance de chargement, 2 % (L6) |
+| Journal d'audit | L'écran Administration est ouvert à la direction, réduit à l'onglet d'audit. | Oui (L9) |
+| Bandeau « version en brouillon » | Affiché à part, au-dessus des alertes de la Journée, plutôt que dans la liste. | À part (L11) |
+
+### Constat sur le socle
+
+Le défaut « lecture juste après une écriture » signalé le 21/11 n'a été reproduit ni avec le correctif
+(validation de la transaction avant l'envoi de la réponse) ni sans lui : 600 puis 400 enchaînements corrects sur
+un vrai serveur à deux processus (mesure de L3). Le correctif reste en place mais n'est pas prouvé ; les deux
+signalements d'origine venaient des scripts de mise en données de L13 et L14.
 
 ### Hors de portée dans cet environnement
 
