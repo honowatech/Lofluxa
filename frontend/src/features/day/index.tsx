@@ -1,6 +1,7 @@
 /** Écran 2 — Journée (accueil) : résumé du jour, calcul du plan, plans du jour, alertes. */
 import { Lock, RefreshCw } from "lucide-react";
 import { useMemo } from "react";
+import { useNavigate } from "react-router-dom";
 
 import { Notice, PageHeader } from "@/components/PageHeader";
 import { ErrorState } from "@/components/states";
@@ -8,30 +9,48 @@ import { Button } from "@/components/ui/button";
 import { ViolationsPanel } from "@/components/ViolationsPanel";
 import { fr } from "@/i18n/fr";
 import { usePublishAlerts, type AppAlert } from "@/lib/alerts";
-import { useCan } from "@/lib/auth/session";
+import { useCan, useCanSee } from "@/lib/auth/session";
 import { formatDateLong, formatLocalTime } from "@/lib/format";
 import type { Violation } from "@/lib/types";
 import { useDay, withDay } from "@/lib/useDay";
 
-import { useDashboard, useDayPlans, useDaySummary, type Dashboard, type DaySummary } from "./api";
+import {
+  useDashboard,
+  useDayPlans,
+  useDaySummary,
+  useRecentEvents,
+  type Dashboard,
+  type DaySummary,
+} from "./api";
 import { ComputePanel } from "./ComputePanel";
 import { PlansTable } from "./PlansTable";
+import { EVENTS_PATH, RecentEvents } from "./RecentEvents";
 import { SummaryCards } from "./SummaryCards";
 
 const t = fr.screens.day;
 
+/** Alerte du jour : une violation au format commun, plus l'écran où la traiter. */
+type DayAlert = Violation & { to: string };
+
 /** Alertes du jour sous la forme commune des violations : celles du tableau de bord, puis celles de la préparation. */
-function buildAlerts(dashboard: Dashboard | undefined, summary: DaySummary | undefined): Violation[] {
-  const alerts: Violation[] = (dashboard?.alerts ?? []).map((alert) => {
+function buildAlerts(
+  dashboard: Dashboard | undefined,
+  summary: DaySummary | undefined,
+  day: string,
+): DayAlert[] {
+  const alerts: DayAlert[] = (dashboard?.alerts ?? []).map((alert) => {
     const context = [
       alert.trip_seq != null ? t.alerts.trip(alert.trip_seq) : null,
       alert.occurred_at ? formatLocalTime(alert.occurred_at) : null,
     ].filter(Boolean);
+    const fromEvent = alert.source === "event" || alert.event_id != null;
     return {
-      rule_code: alert.code,
+      // Une alerte d'événement n'a pas de code RM-xx : son message est le résumé rédigé par le serveur.
+      rule_code: fromEvent ? t.alerts.sources.event : alert.code,
       severity: alert.severity,
       message: context.length > 0 ? `${context.join(" · ")} — ${alert.message}` : alert.message,
       trip_id: alert.trip_id,
+      to: withDay(fromEvent ? EVENTS_PATH : "/plan", day),
     };
   });
   if (summary && summary.depot_stocks.missing > 0) {
@@ -39,6 +58,7 @@ function buildAlerts(dashboard: Dashboard | undefined, summary: DaySummary | und
       rule_code: "RM-08",
       severity: "warning",
       message: t.alerts.missingStocks(summary.depot_stocks.missing),
+      to: withDay("/disponibilite?tab=stocks", day),
     });
   }
   if (summary && summary.drivers.blocked_rm03 > 0) {
@@ -46,6 +66,7 @@ function buildAlerts(dashboard: Dashboard | undefined, summary: DaySummary | und
       rule_code: "RM-03",
       severity: "warning",
       message: t.alerts.driversRm03(summary.drivers.blocked_rm03),
+      to: withDay("/disponibilite?tab=drivers", day),
     });
   }
   return alerts;
@@ -60,13 +81,19 @@ export default function DayPage() {
   const summary = useDaySummary(day);
   const plans = useDayPlans(day);
   const dashboard = useDashboard(day);
+  const canSeeEvents = useCanSee("events");
+  const events = useRecentEvents(day, canSeeEvents);
+  const navigate = useNavigate();
 
   const planList = plans.data?.items ?? [];
   const lastPlan =
     planList.find((plan) => plan.kind === "computed" && plan.computed_at) ??
     planList.find((plan) => plan.computed_at);
 
-  const alerts = useMemo(() => buildAlerts(dashboard.data, summary.data), [dashboard.data, summary.data]);
+  const alerts = useMemo(
+    () => buildAlerts(dashboard.data, summary.data, day),
+    [dashboard.data, summary.data, day],
+  );
 
   // Zone d'alertes de la coquille : ce qui reste à traiter avant de planifier ou de publier.
   const shellAlerts = useMemo<AppAlert[]>(() => {
@@ -93,11 +120,12 @@ export default function DayPage() {
   }, [dashboard.data, summary.data, day]);
   usePublishAlerts("day", shellAlerts);
 
-  const refreshing = summary.isFetching || plans.isFetching || dashboard.isFetching;
+  const refreshing = summary.isFetching || plans.isFetching || dashboard.isFetching || events.isFetching;
   const refresh = () => {
     void summary.refetch();
     void plans.refetch();
     void dashboard.refetch();
+    if (canSeeEvents) void events.refetch();
   };
 
   return (
@@ -145,7 +173,23 @@ export default function DayPage() {
             />
           </div>
         ) : (
-          <ViolationsPanel violations={alerts} title={t.alerts.title} className="self-start" />
+          <div className="flex min-w-0 flex-col gap-3">
+            <ViolationsPanel
+              violations={alerts}
+              title={t.alerts.title}
+              onSelect={alerts.length > 0 ? (alert) => navigate((alert as DayAlert).to) : undefined}
+            />
+            {canSeeEvents && (
+              <RecentEvents
+                day={day}
+                events={events.data?.items ?? []}
+                total={events.data?.total ?? 0}
+                loading={events.isLoading}
+                error={events.error}
+                onRetry={() => void events.refetch()}
+              />
+            )}
+          </div>
         )}
       </div>
 

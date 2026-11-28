@@ -102,13 +102,17 @@ describe("Journée — alertes", () => {
     loginAs("dispatcher");
     renderApp(ROUTE);
     const panel = await screen.findByRole("region", { name: "Alertes du jour" });
-    await waitFor(() => expect(within(panel).getAllByRole("listitem")).toHaveLength(4));
+    await waitFor(() => expect(within(panel).getAllByRole("listitem")).toHaveLength(5));
     const items = within(panel).getAllByRole("listitem");
     expect(items[0]).toHaveAttribute("data-severity", "blocking");
     expect(items[0]).toHaveTextContent("RM-15");
     expect(panel).toHaveTextContent("Tournée 3 — Arrivée 12 min après la fermeture de OLA Bonabéri.");
     expect(panel).toHaveTextContent(/2 stocks dépôt ne sont pas renseignés/);
     expect(panel).toHaveTextContent(/2 chauffeurs ne sont pas affectables/);
+    // Alerte d'événement : résumé du serveur affiché tel quel, précédé de l'heure de Douala.
+    expect(panel).toHaveTextContent(
+      "Événement09:15 — Gasoil au dépôt SCDP-DLA : 8 000 L disponibles, 2 tournées impactées",
+    );
 
     // La coquille reçoit ce qui reste à traiter, avec un lien vers l'écran concerné.
     await waitFor(() =>
@@ -119,6 +123,45 @@ describe("Journée — alertes", () => {
         ]),
       ),
     );
+  });
+});
+
+describe("Journée — événements et liens", () => {
+  it("affiche les derniers événements du jour avec l'accès au journal", async () => {
+    setup();
+    loginAs("dispatcher");
+    renderApp(ROUTE);
+    const card = await screen.findByTestId("recent-events");
+    await waitFor(() => expect(within(card).getAllByRole("listitem")).toHaveLength(2));
+    const [latest, older] = within(card).getAllByRole("listitem");
+    expect(latest).toHaveTextContent("09:15");
+    expect(latest).toHaveTextContent("Pénurie de produit");
+    expect(latest).toHaveTextContent("Gasoil au dépôt SCDP-DLA : 8 000 L disponibles, 2 tournées impactées");
+    expect(latest).toHaveTextContent("par Hervé Mbah");
+    expect(older).toHaveTextContent("Plan v1 publié");
+    expect(card).toHaveTextContent("7 événements plus anciens dans le journal");
+    expect(within(card).getByRole("link", { name: /Ouvrir le journal/ })).toHaveAttribute(
+      "href",
+      `/journal?day=${MOCK_DAY}`,
+    );
+  });
+
+  it("mène d'une alerte à l'écran où la traiter", async () => {
+    setup();
+    loginAs("dispatcher");
+    const { user, router } = renderApp(ROUTE);
+    const panel = await screen.findByRole("region", { name: "Alertes du jour" });
+    await user.click(await within(panel).findByRole("button", { name: /Gasoil au dépôt SCDP-DLA/ }));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/journal"));
+    expect(router.state.location.search).toBe(`?day=${MOCK_DAY}`);
+  });
+
+  it("n'interroge pas le journal pour un rôle qui n'y a pas accès", async () => {
+    setup();
+    loginAs("supply");
+    renderApp(ROUTE);
+    await screen.findByTestId("summary-stocks");
+    expect(screen.queryByTestId("recent-events")).not.toBeInTheDocument();
   });
 });
 
@@ -153,7 +196,7 @@ describe("Journée — plans du jour et dernier calcul", () => {
     // État du dernier calcul : le plus récent des plans calculés.
     const last = screen.getByTestId("last-compute");
     expect(last).toHaveTextContent("12/01/2027 06:42");
-    expect(last).toHaveTextContent("3,5 s");
+    expect(last).toHaveTextContent(/3\ss/);
     expect(last).toHaveTextContent("moteur-1.4.2");
     expect(last).toHaveTextContent("Distances routières");
     expect(last).toHaveTextContent("Awa Dispatcher");

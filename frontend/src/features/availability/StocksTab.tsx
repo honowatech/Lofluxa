@@ -2,6 +2,7 @@
 import { CircleCheck, History, RotateCcw, Save, TriangleAlert } from "lucide-react";
 import { useMemo, useState, type FormEvent, type KeyboardEvent } from "react";
 
+import { useConfirm } from "@/components/ConfirmDialog";
 import { NumberInput } from "@/components/forms";
 import { notify } from "@/components/notify";
 import { Notice } from "@/components/PageHeader";
@@ -86,7 +87,11 @@ function HistoryDialog({
                     </td>
                     <td className="border-b px-3 py-1.5">{entry.product_label}</td>
                     <td className="num whitespace-nowrap border-b px-3 py-1.5 text-right">
-                      {formatLiters(entry.available_l)}
+                      {entry.available_l === null ? (
+                        <span className="font-sans text-xs text-warning">{t.erasedEntry}</span>
+                      ) : (
+                        formatLiters(entry.available_l)
+                      )}
                     </td>
                     <td className="border-b px-3 py-1.5">
                       <span className="flex items-center gap-2">
@@ -111,6 +116,7 @@ function HistoryDialog({
 export function StocksTab({ day, canWrite }: { day: string; canWrite: boolean }) {
   const stocks = useDepotStocks(day);
   const save = useSaveStocks(day);
+  const confirm = useConfirm();
   /** Cellules modifiées et pas encore enregistrées (`null` = cellule vidée). */
   const [draft, setDraft] = useState<Record<string, number | null>>({});
   const [history, setHistory] = useState<HistoryTarget | null>(null);
@@ -142,7 +148,8 @@ export function StocksTab({ day, canWrite }: { day: string; canWrite: boolean })
   const errorOf = (key: string): string | undefined => {
     if (!(key in draft)) return undefined;
     const value = draft[key];
-    if (value === null) return t.cannotClear;
+    // Cellule vidée : effacement de la saisie, confirmé à l'enregistrement.
+    if (value === null) return undefined;
     if (Number.isNaN(value)) return t.invalid;
     if (value < 0) return t.negative;
     return undefined;
@@ -169,12 +176,28 @@ export function StocksTab({ day, canWrite }: { day: string; canWrite: boolean })
     if (!canWrite || dirtyKeys.length === 0 || hasError || save.isPending) return;
     const items = dirtyKeys.map((key) => {
       const [depot_id, product_id] = key.split(":");
-      return { depot_id, product_id, available_l: draft[key] as number };
+      return { depot_id, product_id, available_l: draft[key] };
     });
+    // Effacer une saisie est destructif (le stock redevient « non renseigné ») : jamais sans confirmation.
+    const erased = dirtyKeys.filter((key) => draft[key] === null).map((key) => byKey.get(key));
+    if (
+      erased.length > 0 &&
+      !(await confirm({
+        title: t.eraseTitle,
+        description: t.eraseBody(
+          erased.map((row) => (row ? t.cellLabel(row.depot_code, row.product_label) : "")).join(", "),
+        ),
+        confirmLabel: t.eraseAction,
+        destructive: true,
+      }))
+    )
+      return;
     try {
       await save.mutateAsync(items);
       setDraft({});
-      notify.success(t.saved(items.length));
+      notify.success(
+        erased.length === items.length ? t.erased(erased.length) : t.saved(items.length - erased.length),
+      );
     } catch (error) {
       notify.apiError(error, t.saveFailed);
     }
@@ -321,10 +344,16 @@ export function StocksTab({ day, canWrite }: { day: string; canWrite: boolean })
                           <span role="alert" className="text-destructive">
                             {error}
                           </span>
+                        ) : dirty && draft[key] === null ? (
+                          <span className="font-medium text-warning">{t.willErase}</span>
                         ) : row.available_l === null ? (
-                          <span className="flex items-center gap-1 text-warning">
-                            <TriangleAlert className="size-3" aria-hidden />
-                            {t.missing}
+                          <span className="flex min-w-0 items-center gap-1 text-warning">
+                            <TriangleAlert className="size-3 shrink-0" aria-hidden />
+                            <span className="truncate">
+                              {row.entered_at
+                                ? t.erasedBy(formatLocalTime(row.entered_at), row.entered_by_name)
+                                : t.missing}
+                            </span>
                           </span>
                         ) : (
                           <span className="truncate text-muted-foreground">

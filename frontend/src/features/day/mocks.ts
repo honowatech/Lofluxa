@@ -6,7 +6,7 @@ import { http, HttpResponse, type HttpHandler } from "msw";
 
 import { API, authenticate, authorize, errorResponse } from "@/mocks/handlers/helpers";
 
-import type { Dashboard, DaySummary, PlanSummary, Task } from "./api";
+import type { Dashboard, DayEvent, DaySummary, PlanSummary, Task } from "./api";
 
 export const MOCK_DAY = "2027-01-12";
 
@@ -95,11 +95,23 @@ export function mockDashboard(): Dashboard {
       trips_late: 0,
       max_delay_s: 0,
       alerts_blocking: 1,
-      alerts_total: 2,
+      alerts_total: 3,
     },
     trips: [],
     delays: [],
     alerts: [
+      {
+        source: "event",
+        severity: "warning",
+        code: "product_shortage",
+        message: "Gasoil au dépôt SCDP-DLA : 8 000 L disponibles, 2 tournées impactées",
+        trip_id: null,
+        trip_seq: null,
+        event_id: "event-2",
+        event_type: "product_shortage",
+        occurred_at: "2027-01-12T08:15:00Z",
+        payload: null,
+      },
       {
         source: "violation",
         severity: "blocking",
@@ -128,7 +140,35 @@ export function mockDashboard(): Dashboard {
   };
 }
 
+export function mockEvents(): DayEvent[] {
+  return [
+    {
+      id: "event-2",
+      day: MOCK_DAY,
+      type: "product_shortage",
+      type_label: "Pénurie de produit",
+      summary: "Gasoil au dépôt SCDP-DLA : 8 000 L disponibles, 2 tournées impactées",
+      occurred_at: "2027-01-12T08:15:00Z",
+      actor_name: "Hervé Mbah",
+      payload: {},
+    },
+    {
+      id: "event-1",
+      day: MOCK_DAY,
+      type: "publish",
+      type_label: "Publication",
+      summary: "Plan v1 publié",
+      occurred_at: "2027-01-12T06:05:00Z",
+      actor_name: "Awa Dispatcher",
+      payload: {},
+    },
+  ];
+}
+
 export interface DayMockState {
+  events: DayEvent[];
+  /** Nombre total d'événements du jour (le fil complet est sur l'écran Journal). */
+  eventsTotal: number;
   summary: DaySummary;
   plans: PlanSummary[];
   dashboard: Dashboard;
@@ -145,6 +185,8 @@ export function createDayMocks(overrides: Partial<DayMockState> = {}) {
     summary: mockSummary(),
     plans: [],
     dashboard: mockDashboard(),
+    events: mockEvents(),
+    eventsTotal: 9,
     taskScript: [
       { state: "pending", progress: 0, message: "En attente de démarrage" },
       { state: "running", progress: 45, message: "Construction des tournées" },
@@ -169,6 +211,11 @@ export function createDayMocks(overrides: Partial<DayMockState> = {}) {
     http.get(`${API}/dashboard`, ({ request }) => {
       const user = authenticate(request);
       return user instanceof Response ? user : HttpResponse.json(state.dashboard);
+    }),
+    http.get(`${API}/events`, ({ request }) => {
+      const user = authenticate(request);
+      if (user instanceof Response) return user;
+      return HttpResponse.json({ items: state.events, total: state.eventsTotal, limit: 6, offset: 0 });
     }),
     http.post(`${API}/plans/compute`, async ({ request }) => {
       const user = authorize(request, ["dispatcher"]);

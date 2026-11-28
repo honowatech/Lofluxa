@@ -15,11 +15,6 @@ import { planLink } from "./ComputePanel";
 
 const t = fr.screens.day.plans;
 
-const metric = (plan: PlanSummary, key: string): number | null => {
-  const value = (plan.metrics as Record<string, unknown> | null | undefined)?.[key];
-  return typeof value === "number" ? value : null;
-};
-
 /** Taux de remplissage moyen en % (l'API le donne entre 0 et 1 dans `avg_fill_rate`). */
 const fillPercent = (plan: PlanSummary): number | null => {
   const rate = plan.metrics?.avg_fill_rate;
@@ -81,9 +76,11 @@ export function PlansTable({
       {
         id: "trips",
         header: t.trips,
-        accessorFn: (plan) => metric(plan, "trips_count"),
+        accessorFn: (plan) => plan.metrics?.trips_count ?? null,
         meta: { align: "right", className: "w-20" },
-        cell: ({ row }) => <span className="num">{formatNumber(metric(row.original, "trips_count"))}</span>,
+        cell: ({ row }) => (
+          <span className="num">{formatNumber(row.original.metrics?.trips_count ?? null)}</span>
+        ),
       },
       {
         id: "served",
@@ -91,9 +88,8 @@ export function PlansTable({
         enableSorting: false,
         meta: { align: "right", className: "w-36" },
         cell: ({ row }) => {
-          const served = metric(row.original, "orders_served");
-          // Clé réelle : `orders_total` ; `orders_requested` est celle des métriques détaillées du plan complet.
-          const requested = metric(row.original, "orders_total") ?? metric(row.original, "orders_requested");
+          const served = row.original.metrics?.orders_served ?? null;
+          const requested = row.original.metrics?.orders_total ?? null;
           return (
             <span className="num">
               {served === null || requested === null ? EMPTY : t.servedValue(served, requested)}
@@ -104,9 +100,11 @@ export function PlansTable({
       {
         id: "distance",
         header: t.distance,
-        accessorFn: (plan) => metric(plan, "total_distance_m"),
+        accessorFn: (plan) => plan.metrics?.total_distance_m ?? null,
         meta: { align: "right", className: "w-24" },
-        cell: ({ row }) => <span className="num">{formatKm(metric(row.original, "total_distance_m"))}</span>,
+        cell: ({ row }) => (
+          <span className="num">{formatKm(row.original.metrics?.total_distance_m ?? null)}</span>
+        ),
       },
       {
         id: "fill",

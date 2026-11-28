@@ -66,6 +66,19 @@ test("stocks (supply) → commandes (dispatcher) → calcul du plan", async ({ p
   await expect(history.getByText("Valeur courante")).toHaveCount(count);
   await history.getByRole("button", { name: "Fermer" }).first().click();
 
+  // Effacer une saisie : confirmation obligatoire, le stock redevient « non renseigné » ; puis ressaisie.
+  await cells.last().fill("");
+  await page.getByRole("button", { name: "Enregistrer (1)" }).click();
+  await page
+    .getByRole("alertdialog", { name: "Effacer la saisie ?" })
+    .getByRole("button", { name: "Effacer" })
+    .click();
+  await expect(page.getByText(`${count - 1} / ${count} renseignés`)).toBeVisible();
+  await expect(grid.getByText(/Non renseigné — effacé à/)).toBeVisible();
+  await cells.last().fill("90000");
+  await cells.last().press("Enter");
+  await expect(page.getByText("Tous les stocks sont renseignés")).toBeVisible();
+
   // Camions et chauffeurs : lecture seule pour l'agent Supply.
   await page.getByRole("tab", { name: "Camions" }).click();
   await expect(page.getByText(/Lecture seule/)).toBeVisible();
@@ -79,6 +92,10 @@ test("stocks (supply) → commandes (dispatcher) → calcul du plan", async ({ p
   await createOrder(page, { product: "Gasoil", volume: "990000" });
   await expect(orders.getByRole("row")).toHaveCount(4);
   await expect(orders.getByRole("gridcell", { name: "07:30" })).toBeVisible();
+
+  // Le volume hors cuve est signalé sur la ligne dès le brouillon, avant toute confirmation.
+  await expect(orders.getByTestId("order-warning")).toHaveAttribute("data-code", "exceeds_tank_capacity");
+  await expect(page.getByText(/1 commande dépasse le volume recevable/)).toBeVisible();
 
   // Modification au clavier dans le tableau : saisie directe sur la cellule, Entrée pour valider.
   await orders.getByRole("gridcell", { name: /^8\s000\sL$/ }).click();

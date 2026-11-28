@@ -65,6 +65,29 @@ interface Refusal {
   kind: "confirm" | "update";
 }
 
+/** Volume supérieur au volume recevable par la cuve : la confirmation sera refusée (F3.4). */
+const isExceeding = (warning: OrderWarning) => warning.code === "exceeds_tank_capacity";
+
+/** Avertissements F3.4 d'une ligne : rouge quand la confirmation sera refusée, orange sinon. */
+function WarningMark({ warnings }: { warnings: OrderWarning[] }) {
+  const blocking = warnings.some(isExceeding);
+  const text = warnings.map((warning) => warning.message).join(" ");
+  const Icon = blocking ? CircleAlert : TriangleAlert;
+  return (
+    <Tip label={text}>
+      <span
+        tabIndex={-1}
+        data-testid="order-warning"
+        data-code={warnings.map((warning) => warning.code).join(" ")}
+        aria-label={`${blocking ? t.warnings.refused : t.warnings.one} : ${text}`}
+        className={blocking ? "inline-flex text-blocking" : "inline-flex text-warning"}
+      >
+        <Icon className="size-3.5" aria-hidden />
+      </span>
+    </Tip>
+  );
+}
+
 const validateTime = (value: CellValue) =>
   value === null || TIME_RE.test(normalizeTime(String(value))) ? undefined : fr.fields.timeInvalid;
 
@@ -99,23 +122,14 @@ export default function OrdersPage() {
   const [importOpen, setImportOpen] = useState(false);
   const [report, setReport] = useState<BulkReport | null>(null);
   const [refusal, setRefusal] = useState<Refusal | null>(null);
-  // `GET /orders` ne renvoie pas les avertissements F3.4 : on garde ceux reçus pendant la session.
-  const [sessionWarnings, setSessionWarnings] = useState<Record<string, OrderWarning[]>>({});
 
-  const rows = useMemo(
-    () =>
-      (list.data ?? NONE).map((order) =>
-        order.warnings.length === 0 && sessionWarnings[order.id]
-          ? { ...order, warnings: sessionWarnings[order.id] }
-          : order,
-      ),
-    [list.data, sessionWarnings],
-  );
+  // Les avertissements F3.4 (`warnings[]`) viennent du serveur, en lecture comme en écriture.
+  const rows = list.data ?? NONE;
   const drafts = rows.filter((order) => order.status === "draft");
-  const warned = rows.filter((order) => order.warnings.length > 0).length;
+  const exceeding = rows.filter((order) => order.warnings.some(isExceeding)).length;
+  const warned = rows.filter((order) => order.warnings.length > 0).length - exceeding;
 
   const remember = (order: Order) => {
-    setSessionWarnings((current) => ({ ...current, [order.id]: order.warnings }));
     if (order.warnings.length > 0) {
       notify.warning(t.notify.warning, order.warnings.map((warning) => warning.message).join(" "));
     }
@@ -161,7 +175,6 @@ export default function OrdersPage() {
     try {
       const confirmed = await mutations.confirm.mutateAsync(order.id);
       setRefusal((current) => (current?.order.id === order.id ? null : current));
-      setSessionWarnings((current) => ({ ...current, [confirmed.id]: confirmed.warnings }));
       if (confirmed.warnings.length > 0) {
         notify.warning(
           t.notify.confirmedWithWarnings,
@@ -227,11 +240,6 @@ export default function OrdersPage() {
     }
     try {
       const result = await mutations.confirmMany.mutateAsync(targets.map((order) => order.id));
-      setSessionWarnings((current) => {
-        const next = { ...current };
-        for (const item of result.results) if (item.ok) next[item.order_id] = item.warnings;
-        return next;
-      });
       const hasIssue = result.failed > 0 || result.results.some((item) => item.warnings.length > 0);
       if (hasIssue || selection.length !== targets.length) {
         setReport({
@@ -404,20 +412,7 @@ export default function OrdersPage() {
         cell: ({ row }) => (
           <span className="flex items-center gap-1.5">
             <StatusBadge kind="order" value={row.original.status} />
-            {row.original.warnings.length > 0 && (
-              <Tip label={row.original.warnings.map((warning) => warning.message).join(" ")}>
-                <span
-                  tabIndex={-1}
-                  data-testid="order-warning"
-                  aria-label={`${t.warnings.one} : ${row.original.warnings
-                    .map((warning) => warning.message)
-                    .join(" ")}`}
-                  className="inline-flex text-warning"
-                >
-                  <TriangleAlert className="size-3.5" aria-hidden />
-                </span>
-              </Tip>
-            )}
+            {row.original.warnings.length > 0 && <WarningMark warnings={row.original.warnings} />}
           </span>
         ),
       },
@@ -523,6 +518,11 @@ export default function OrdersPage() {
           {" : "}
           {refusal.error.message} {refusalMax !== null && t.refusal.max(formatLiters(refusalMax))}{" "}
           {t.refusal.hint}
+        </Notice>
+      )}
+      {exceeding > 0 && (
+        <Notice tone="blocking" icon={<CircleAlert className="size-3.5 shrink-0" />}>
+          {t.warnings.exceedingBanner(exceeding)}
         </Notice>
       )}
       {warned > 0 && (

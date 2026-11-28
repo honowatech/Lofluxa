@@ -4,7 +4,7 @@
  */
 import type { ColumnDef } from "@tanstack/react-table";
 import { CalendarCheck, CalendarX, Pencil, CircleAlert, Unlink } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 
 import { useConfirm } from "@/components/ConfirmDialog";
 import { DataTable, RowActions, useDataTableState } from "@/components/DataTable";
@@ -33,6 +33,12 @@ export function DriversTab({ day, canWrite }: { day: string; canWrite: boolean }
   const [fromSelection, setFromSelection] = useState(false);
   const [tableKey, setTableKey] = useState(0);
   const rows = list.data ?? NONE;
+  // Lu par les actions des colonnes sans les reconstruire à chaque rafraîchissement (une cellule en cours
+  // d'édition ne doit pas être remontée parce que la liste vient d'être relue).
+  const rowsRef = useRef(rows);
+  rowsRef.current = rows;
+  const trucksRef = useRef(trucks);
+  trucksRef.current = trucks;
 
   const setAvailability = async (drivers: DriverDay[], available: boolean, reason: string | null = null) => {
     try {
@@ -49,7 +55,7 @@ export function DriversTab({ day, canWrite }: { day: string; canWrite: boolean }
    * chauffeur (409 `truck_already_assigned`), on propose de le lui retirer dans la même saisie.
    */
   const assignTruck = async (driver: DriverDay, truckId: string | null) => {
-    const plate = trucks.find((truck) => truck.truck_id === truckId)?.plate ?? "";
+    const plate = trucksRef.current.find((truck) => truck.truck_id === truckId)?.plate ?? "";
     try {
       await save.mutateAsync([{ driver_id: driver.driver_id, truck_id: truckId }]);
       notify.success(truckId ? t.assigned(driver.full_name, plate) : t.unassigned(driver.full_name));
@@ -57,7 +63,7 @@ export function DriversTab({ day, canWrite }: { day: string; canWrite: boolean }
       if (!isApiError(error) || error.code !== "truck_already_assigned" || !truckId) throw error;
       const otherId = error.details.find((detail) => typeof detail.driver_id === "string")?.driver_id as
         string | undefined;
-      const other = rows.find((candidate) => candidate.driver_id === otherId);
+      const other = rowsRef.current.find((candidate) => candidate.driver_id === otherId);
       if (!otherId || !other) throw error;
       const ok = await confirm({
         title: t.conflictTitle,
@@ -74,19 +80,22 @@ export function DriversTab({ day, canWrite }: { day: string; canWrite: boolean }
     }
   };
 
+  // Choix de camions : ne change que si un libellé change (pas à chaque relecture de la liste).
+  const truckLabels = JSON.stringify(
+    [...trucks]
+      .sort((a, b) => a.plate.localeCompare(b.plate, "fr"))
+      .map((truck) => [
+        truck.truck_id,
+        t.truckOption(truck.plate, fr.status.size[truck.size]) +
+          (truck.assignable ? "" : ` (${t.truckNotAssignable})`),
+      ]),
+  );
   const truckOptions = useMemo(
     () => [
       { value: "", label: t.usualTruck },
-      ...[...trucks]
-        .sort((a, b) => a.plate.localeCompare(b.plate, "fr"))
-        .map((truck) => ({
-          value: truck.truck_id,
-          label:
-            t.truckOption(truck.plate, fr.status.size[truck.size]) +
-            (truck.assignable ? "" : ` (${t.truckNotAssignable})`),
-        })),
+      ...(JSON.parse(truckLabels) as [string, string][]).map(([value, label]) => ({ value, label })),
     ],
-    [trucks],
+    [truckLabels],
   );
 
   const columns = useMemo<ColumnDef<DriverDay, unknown>[]>(
@@ -242,7 +251,7 @@ export function DriversTab({ day, canWrite }: { day: string; canWrite: boolean }
         : []),
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [canWrite, day, truckOptions, rows],
+    [canWrite, day, truckOptions],
   );
 
   const assignable = rows.filter((driver) => driver.assignable).length;

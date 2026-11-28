@@ -116,10 +116,15 @@ export const ordersTexts = {
   warnings: {
     one: "Avertissement",
     count: (n: number) => plural(n, "avertissement", "avertissements"),
+    exceedingBanner: (n: number) =>
+      n === 1
+        ? "1 commande dépasse le volume recevable par la cuve de sa station : sa confirmation sera refusée tant que le volume n'est pas réduit."
+        : `${n} commandes dépassent le volume recevable par la cuve de leur station : leur confirmation sera refusée tant que le volume n'est pas réduit.`,
+    refused: "Confirmation impossible",
     banner: (n: number) =>
       n === 1
-        ? "1 commande confirmée avec avertissement (contrôle de volume non bloquant)."
-        : `${n} commandes confirmées avec avertissement (contrôle de volume non bloquant).`,
+        ? "1 commande avec avertissement : cuve non renseignée, volume non contrôlé."
+        : `${n} commandes avec avertissement : cuve non renseignée, volume non contrôlé.`,
   },
 
   bulk: {

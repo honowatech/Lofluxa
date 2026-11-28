@@ -84,7 +84,6 @@ export const dayTexts = {
       none: "Aucun plan calculé pour ce jour.",
       computedAt: "Calculé le",
       duration: "Durée du calcul",
-      seconds: (value: string) => `${value} s`,
       engine: "Version du moteur",
       distances: "Distances",
       approximate: "Distances approchées",
@@ -117,6 +116,15 @@ export const dayTexts = {
     open: "Ouvrir",
     openLabel: (label: string) => `Ouvrir le plan ${label}`,
     publishable: "Aucune — publiable",
+  },
+
+  events: {
+    title: "Derniers événements",
+    none: "Aucun événement enregistré pour ce jour.",
+    openJournal: "Ouvrir le journal",
+    more: (n: number) =>
+      n === 1 ? "1 événement plus ancien dans le journal" : `${n} événements plus anciens dans le journal`,
+    by: (actor: string) => `par ${actor}`,
   },
 
   alerts: {
