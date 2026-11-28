@@ -124,15 +124,22 @@ export function useReplacementOptions(
 
 /* ------------------------------------------------------------------ réaffectation */
 
-/** Corps de la spec §9 ; `occurred_at` et `reason` sont des ajouts facultatifs du lot L10 (L10-A6). `publish` n'est jamais envoyé. */
+/**
+ * Corps de la spec §9 ; `occurred_at`, `reason` et `publish` sont des ajouts facultatifs du lot L10 (L10-A6).
+ * `publish: true` n'est envoyé que pour la suite d'un même incident (autres tournées de la ressource) : le
+ * brouillon en cours a été créé par l'étape précédente, il doit être publié dès qu'il n'a plus de violation
+ * bloquante (sans cela le serveur ne publie jamais un brouillon qui existait déjà).
+ */
 export type TruckBreakdownIn = Pick<S["TruckBreakdownIn"], "trip_id" | "replacement_truck_id"> & {
   replacement_driver_id?: UUID;
   occurred_at?: string;
   reason?: string;
+  publish?: boolean;
 };
 export type DriverUnavailableIn = Pick<S["DriverUnavailableIn"], "trip_id" | "replacement_driver_id"> & {
   occurred_at?: string;
   reason?: string;
+  publish?: boolean;
 };
 
 export type RuleIssueOut = S["RuleIssueOut"];

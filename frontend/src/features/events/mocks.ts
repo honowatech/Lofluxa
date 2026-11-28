@@ -557,6 +557,11 @@ export interface EventsScenario {
   optionQueries: { trip_id: string | null; replacement_truck_id: string | null }[];
   /** Si renseigné : la prochaine version créée garde ces violations et reste en brouillon. */
   blockingViolations: RuleIssueOut[];
+  /**
+   * Autres tournées de la ressource défaillante, annoncées par la PROCHAINE réaffectation seulement
+   * (`other_impacted_trips`) ; les suivantes n'en annoncent plus.
+   */
+  otherImpactedTrips: EventResultOut["other_impacted_trips"];
 }
 
 export function createEventsScenario(day: IsoDate, refs: SampleRefs = DEFAULT_REFS): EventsScenario {
@@ -582,6 +587,7 @@ export function createEventsScenario(day: IsoDate, refs: SampleRefs = DEFAULT_RE
     received: [],
     optionQueries: [],
     blockingViolations: [],
+    otherImpactedTrips: [],
   };
 }
 
@@ -853,8 +859,9 @@ export function eventsHandlers(scenario: EventsScenario) {
           driver_id: driver?.driver_id ?? truck?.suggested_driver_id ?? trip.driver_id,
           transferred_stop_ids: kind === "truck" ? pending.map((stop) => stop.id) : [],
           kept_stop_ids: kind === "truck" ? kept.map((stop) => stop.id) : [],
-          other_impacted_trips: [],
+          other_impacted_trips: scenario.otherImpactedTrips,
         };
+        scenario.otherImpactedTrips = [];
         return HttpResponse.json(out);
       },
     );

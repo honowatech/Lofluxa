@@ -11,6 +11,7 @@ import { notify } from "@/components/notify";
 import { Notice } from "@/components/PageHeader";
 import { EmptyState, ErrorState, LoadingState, Spinner } from "@/components/states";
 import { StatusBadge } from "@/components/StatusBadge";
+import { Steps } from "@/components/Steps";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -208,8 +209,15 @@ export function ReassignDialog({
   const [time, setTime] = useState("");
   const { valid: timeValid, occurredAt } = parseEventTime(day, time);
   const [done, setDone] = useState<EventResultOut | null>(null);
+  /**
+   * Enchaînement sur les autres tournées de la ressource défaillante : tournées de la version de travail
+   * renvoyée par l'incident précédent (ses identifiants remplacent ceux de la version publiée).
+   */
+  const [chain, setChain] = useState<PublishedTrip[] | null>(null);
+  /** Vrai si le brouillon en cours est né de cet incident : la suite demande sa publication. */
+  const [chainPublish, setChainPublish] = useState(false);
 
-  const trips = usePublishedTrips(day, open);
+  const trips = usePublishedTrips(day, open && !chain);
   // Tournée, camions, et chauffeurs pour une reprise de la tournée telle quelle (F6.2).
   const options = useReplacementOptions(tripId, null, occurredAt, open && !done);
   // Chauffeurs évalués pour la tournée de remplacement du camion choisi (F6.1).
@@ -233,12 +241,15 @@ export function ReassignDialog({
     setReason("");
     setTime("");
     setDone(null);
+    setChain(null);
+    setChainPublish(false);
     truckBreakdown.reset();
     driverUnavailable.reset();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  const selected = trips.data?.find((item) => item.trip.id === tripId) ?? null;
+  const tripList = chain ?? trips.data ?? [];
+  const selected = tripList.find((item) => item.trip.id === tripId) ?? null;
   const pendingCount = (item: PublishedTrip) =>
     item.trip.stops.filter((stop) => stop.status === "pending").length;
   const brief = options.data?.trip ?? null;
@@ -267,6 +278,43 @@ export function ReassignDialog({
         : !!driver?.eligible)) ||
     step === 3;
 
+  // Remplaçant repris de l'incident précédent : abandonné s'il n'est plus éligible pour cette tournée.
+  useEffect(() => {
+    if (!chain || !options.data) return;
+    if (kind === "truck") {
+      const kept = options.data.trucks.find((item) => item.truck_id === truckId);
+      if (truckId && !kept?.eligible) {
+        setTruckId(null);
+        setDriverId(null);
+      }
+    } else {
+      const kept = options.data.drivers.find((item) => item.driver_id === driverId);
+      if (driverId && !kept?.eligible) setDriverId(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chain, options.data]);
+  useEffect(() => {
+    if (!chain || kind !== "truck" || !forTruck.data || !driverId) return;
+    if (!forTruck.data.drivers.find((item) => item.driver_id === driverId)?.eligible) setDriverId(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chain, forTruck.data]);
+
+  /** Traite tout de suite une autre tournée de la même ressource, sur la version de travail obtenue. */
+  const continueWith = (otherTripId: string) => {
+    if (!done) return;
+    setChain(
+      [...done.plan.trips]
+        .sort((a, b) => a.seq - b.seq)
+        .map((trip) => ({ plan_id: done.plan_id, plan_version: done.plan_version, trip })),
+    );
+    setChainPublish((current) => current || done.version_created);
+    setTripId(otherTripId);
+    setDone(null);
+    truckBreakdown.reset();
+    driverUnavailable.reset();
+    setStep(2);
+  };
+
   const chooseKind = (next: IncidentKind) => {
     setKind(next);
     setTruckId(null);
@@ -283,6 +331,7 @@ export function ReassignDialog({
     const motive = {
       ...(occurredAt ? { occurred_at: occurredAt } : {}),
       ...(reason.trim() ? { reason: reason.trim() } : {}),
+      ...(chain && chainPublish ? { publish: true } : {}),
     };
     try {
       const result =
@@ -350,9 +399,29 @@ export function ReassignDialog({
                 </Notice>
               )}
               {done.other_impacted_trips.length > 0 && (
-                <Notice tone="warning">
-                  {t.done.otherTrips(done.other_impacted_trips.map((item) => item.seq))}
-                </Notice>
+                <section
+                  aria-label={t.done.othersTitle(kind, done.other_impacted_trips.length)}
+                  className="rounded-md border border-warning/35 bg-warning-soft px-3 py-2"
+                >
+                  <p className="text-sm font-semibold text-warning">
+                    {t.done.othersTitle(kind, done.other_impacted_trips.length)}
+                  </p>
+                  <p className="text-xs text-warning">{t.done.othersHint(done.plan_version)}</p>
+                  <ul className="mt-2 flex flex-col gap-1.5">
+                    {done.other_impacted_trips.map((other) => (
+                      <li key={other.trip_id} className="flex flex-wrap items-center gap-2 text-sm">
+                        <span className="font-medium">{t.done.otherTrip(other.seq)}</span>
+                        <StatusBadge kind="trip" value={other.status} />
+                        <span className="text-xs text-muted-foreground">
+                          {t.done.otherPending(other.pending_stops)}
+                        </span>
+                        <Button size="sm" className="ml-auto" onClick={() => continueWith(other.trip_id)}>
+                          {t.done.treat(other.seq)}
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
               )}
             </DialogBody>
             <DialogFooter>
@@ -361,30 +430,18 @@ export function ReassignDialog({
           </>
         ) : (
           <>
-            <ol
-              className="flex gap-1 border-b px-5 py-2 text-xs"
-              aria-label={t.stepOf(step + 1, STEPS.length)}
-            >
-              {STEPS.map((name, index) => (
-                <li
-                  key={name}
-                  aria-current={index === step ? "step" : undefined}
-                  className={cn(
-                    "flex items-center gap-1.5 rounded-sm px-1.5 py-0.5",
-                    index === step
-                      ? "bg-accent font-semibold text-accent-foreground"
-                      : index < step
-                        ? "text-foreground/80"
-                        : "text-muted-foreground",
-                  )}
-                >
-                  <span className="num">{index + 1}</span>
-                  {t.steps[name]}
-                </li>
-              ))}
-            </ol>
+            <div className="border-b px-5 py-2">
+              <Steps
+                label={t.stepOf(step + 1, STEPS.length)}
+                steps={STEPS.map((name) => ({ id: name, label: t.steps[name] }))}
+                current={stepName}
+              />
+            </div>
 
             <DialogBody className="flex min-h-[16rem] flex-col gap-3">
+              {chain && selected && (
+                <Notice tone="info">{t.chained(selected.trip.seq, selected.plan_version, kind)}</Notice>
+              )}
               {stepName === "kind" && (
                 <fieldset className="flex flex-col gap-2">
                   <legend className="mb-1.5 text-sm font-medium">{t.kinds.label}</legend>
@@ -425,17 +482,17 @@ export function ReassignDialog({
               )}
 
               {stepName === "trip" &&
-                (trips.isLoading ? (
+                (!chain && trips.isLoading ? (
                   <LoadingState compact label={t.trips.loadingPlans} />
-                ) : trips.error ? (
+                ) : !chain && trips.error ? (
                   <ErrorState compact error={trips.error} onRetry={() => trips.refetch()} />
-                ) : (trips.data ?? []).length === 0 ? (
+                ) : tripList.length === 0 ? (
                   <EmptyState compact description={t.trips.none} />
                 ) : (
                   <>
                     <fieldset className="flex flex-col gap-1.5">
                       <legend className="mb-1.5 text-sm font-medium">{t.trips.label}</legend>
-                      {(trips.data ?? []).map((item) => {
+                      {tripList.map((item) => {
                         const pending = pendingCount(item);
                         return (
                           <Choice
@@ -649,7 +706,7 @@ export function ReassignDialog({
               <Button variant="ghost" className="mr-auto" onClick={() => onOpenChange(false)}>
                 {fr.common.cancel}
               </Button>
-              {step > 0 && (
+              {step > (chain ? 1 : 0) && (
                 <Button variant="outline" onClick={() => setStep(step - 1)} disabled={mutation.isPending}>
                   {t.previous}
                 </Button>

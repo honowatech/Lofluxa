@@ -158,10 +158,23 @@ describe("Journal des événements — fil de la journée", () => {
     expect(screen.queryByRole("button", { name: "Déclarer une pénurie" })).not.toBeInTheDocument();
     unmount();
 
-    loginAs("admin");
+    // Supply (droit `events.shortage.write`) voit le Journal et déclare, sans l'assistant de réaffectation.
+    loginAs("supply");
     renderApp(ROUTE);
     await rows();
     expect(screen.getByRole("button", { name: "Déclarer une pénurie" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Assistant de réaffectation" })).not.toBeInTheDocument();
+  });
+
+  it("événement daté d'un autre jour que le jour J : date et heure affichées (écart E5)", async () => {
+    scenario.events[0] = { ...scenario.events[0], occurred_at: "2027-01-19T12:16:00Z" };
+    loginAs("dispatcher");
+    renderApp(ROUTE);
+    const list = await rows();
+    expect(within(list[0]).getByText("19/01/2027")).toBeInTheDocument();
+    expect(within(list[0]).getByText("13:16")).toBeInTheDocument();
+    // Les événements du jour J n'affichent que l'heure.
+    expect(within(list[1]).queryByText(/\/2027/)).not.toBeInTheDocument();
   });
 });
 
@@ -332,11 +345,69 @@ describe("Journal des événements — assistant de réaffectation", () => {
     await user.click(within(dialog).getByRole("button", { name: "Confirmer la réaffectation" }));
     await within(dialog).findByText("Réaffectation enregistrée");
     expect(
-      within(dialog).getByText(/Version 2 du plan laissée en brouillon : 1 violation bloquante à corriger/),
+      within(dialog).getByText(/Version 2 en brouillon : 1 violation bloquante à corriger avant publication/),
     ).toBeInTheDocument();
     expect(within(dialog).getByText("RM-10")).toBeInTheDocument();
     expect(within(dialog).getByText(/ST-YASSA est fermée/)).toBeInTheDocument();
-    expect(within(dialog).getByRole("link", { name: "Ouvrir le plan (v2)" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("link", { name: "Ouvrir le plan (v2)" })).toHaveAttribute(
+      "href",
+      `/plan?plan=${SAMPLE_NEW_PLAN_ID}&day=${DAY}`,
+    );
+    // Un brouillon n'apparaît pas au chargement : pas de lien vers le chargement de la tournée de remplacement.
+    expect(within(dialog).queryByRole("link", { name: "Ouvrir son chargement" })).not.toBeInTheDocument();
+  });
+
+  it("autres tournées du camion en panne : enchaînement pré-rempli sur la version de travail", async () => {
+    scenario.otherImpactedTrips = [
+      { trip_id: SAMPLE_TRIP_IDS[1], seq: 2, status: "at_depot", pending_stops: 3 },
+    ];
+    loginAs("dispatcher");
+    const { user } = renderApp(ROUTE);
+    const { dialog, next } = await openAssistant(user);
+    await user.type(within(dialog).getByRole("textbox", { name: /Heure de l'incident/ }), "910");
+    await next();
+    await user.click(await within(dialog).findByRole("radio", { name: /Tournée n° 1/ }));
+    await next();
+    await user.click(await within(dialog).findByRole("radio", { name: /LT 608 EM/ }));
+    await within(dialog).findByRole("radio", { name: /Chauffeur proposé/ });
+    await next();
+    await user.type(within(dialog).getByRole("textbox", { name: /Motif/ }), "Fuite hydraulique");
+    await user.click(within(dialog).getByRole("button", { name: "Confirmer la réaffectation" }));
+
+    // Le camion en panne a encore une tournée planifiée : l'assistant propose de la traiter tout de suite.
+    const others = await within(dialog).findByRole("region", {
+      name: "Ce camion a encore 1 tournée planifiée",
+    });
+    expect(within(others).getByText("3 arrêts à livrer")).toBeInTheDocument();
+    await user.click(within(others).getByRole("button", { name: "Traiter la tournée n° 2" }));
+
+    // Même assistant, à l'étape du remplaçant, pré-rempli : même incident, même camion, même heure, même motif.
+    expect(
+      within(dialog).getByText(/Suite du même incident : tournée n° 2, sur la version 2/),
+    ).toBeInTheDocument();
+    expect(await within(dialog).findByRole("radio", { name: /LT 608 EM/ })).toBeChecked();
+    expect(scenario.optionQueries.at(-1)?.trip_id).toBe(SAMPLE_TRIP_IDS[1]);
+    await next();
+    expect(within(dialog).getByRole("region", { name: "Récapitulatif" })).toHaveTextContent(
+      /Tournée n° 2 — LT 915 GH/,
+    );
+    expect(within(dialog).getByRole("textbox", { name: /Motif/ })).toHaveValue("Fuite hydraulique");
+    await user.click(within(dialog).getByRole("button", { name: "Confirmer la réaffectation" }));
+    await within(dialog).findByText("Réaffectation enregistrée");
+    await waitFor(() => expect(scenario.received).toHaveLength(2));
+    expect(scenario.received[1]).toEqual({
+      path: "/events/truck-breakdown",
+      body: {
+        trip_id: SAMPLE_TRIP_IDS[1],
+        replacement_truck_id: SAMPLE_TRUCK_IDS.free,
+        occurred_at: "2027-01-12T08:10:00.000Z",
+        reason: "Fuite hydraulique",
+        // Le brouillon est né de l'étape précédente : la suite demande sa publication.
+        publish: true,
+      },
+    });
+    // Plus aucune autre tournée à traiter.
+    expect(within(dialog).queryByRole("region", { name: /a encore/ })).not.toBeInTheDocument();
   });
 
   it("refus 409 : message du serveur, explication et règle en cause, sans fermer l'assistant", async () => {

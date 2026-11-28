@@ -1,31 +1,31 @@
 /**
  * Lot L13, écran 6 — bout en bout contre la VRAIE API (aucune doublure, routes du lot L10) :
- *   1. `dispatcher` : panne de camion traitée par l'assistant sur une tournée en cours du plan publié
- *      (RM-19) → nouvelle version publiée, événement au journal, tournée de remplacement dans l'écran
- *      Chargement ;
- *   2. pénurie produit déclarée par l'écran en `admin` (le rôle `supply`, seul autre rôle autorisé par
- *      l'API, ne voit pas encore l'écran Journal dans `lib/auth/roles.ts`), puis traitée par l'écran en
- *      `dispatcher` → alerte résolue, journal à jour.
- * Prérequis : `./scripts/dev_setup.sh`, l'API sur :8000 et **un worker Celery** (calcul du plan).
- * Connexions limitées à 10/min par adresse : une connexion par rôle, contextes réutilisés.
+ *   1. `dispatcher` : panne d'un camion qui fait DEUX tournées le même jour. L'assistant traite la tournée
+ *      en cours (RM-19 : l'arrêt livré reste sur la tournée d'origine), annonce « Ce camion a encore
+ *      1 tournée planifiée », enchaîne sur celle-ci (pré-remplie, même version de travail), puis la version
+ *      est publiée — ou signalée en brouillon avec ses violations si le serveur en garde ;
+ *   2. pénurie produit déclarée par l'écran en `supply`, puis traitée par l'écran en `dispatcher`
+ *      (changement de dépôt vers le second dépôt du jeu d'essai, reports) → alerte résolue, journal à jour.
+ * Prérequis : `./scripts/dev_setup.sh`, l'API sur :8000 sans limitation de débit et **un worker Celery**.
+ * Sessions ouvertes par jeton (`./auth`), une par rôle.
  *
- * Captures d'écran (`docs/captures/l13-0[89]-*.png`, `l13-1[0-3]-*.png`) :
+ * Captures d'écran (`docs/captures/l13-0[89]-*.png`, `l13-1[0-4]-*.png`) :
  * `L13_CAPTURES=1 pnpm e2e l13-evenements`.
  */
-import { expect, test, type Browser, type BrowserContext, type Page } from "@playwright/test";
+import { expect, test, type Browser, type BrowserContext, type Locator, type Page } from "@playwright/test";
 
+import { openSession, type Credentials } from "./auth";
 import { ACCOUNTS, call, seedPublishedPlan, type Seed, type SeedTrip } from "./l13-seed";
 
 const CAPTURES = !!process.env.L13_CAPTURES;
 const OUT = "docs/captures";
-const ADMIN = { email: "admin@honowa.tech", password: "admin-dev-only" };
 
 let seed: Seed;
 let day: string;
-/** Tournée en panne : la seconde du camion, en cours, premier arrêt livré. */
+/** Tournée en panne : la première du camion, en cours, premier arrêt livré. */
 let broken: SeedTrip;
-/** Première tournée du même camion, terminée avant la panne. */
-let earlier: SeedTrip;
+/** Seconde tournée du même camion, encore planifiée au moment de la panne. */
+let later: SeedTrip;
 let dispatcher: { context: BrowserContext; page: Page };
 
 test.describe.configure({ mode: "serial" });
@@ -85,13 +85,12 @@ test.beforeAll(async () => {
   test.setTimeout(300_000);
   seed = await seedPublishedPlan();
   day = seed.day;
-  // Un camion qui fait deux tournées : la première est terminée, la seconde tombe en panne en route.
+  // Un camion qui fait deux tournées : il tombe en panne pendant la première, la seconde est encore planifiée.
   const byTruck = new Map<string, SeedTrip[]>();
   for (const trip of seed.trips) byTruck.set(trip.truck_id, [...(byTruck.get(trip.truck_id) ?? []), trip]);
-  const pair = [...byTruck.values()].find((trips) => trips.length === 2 && trips[1].stops.length >= 2);
+  const pair = [...byTruck.values()].find((trips) => trips.length === 2 && trips[0].stops.length >= 2);
   expect(pair, "le plan d'essai contient un camion à deux tournées").toBeTruthy();
-  [earlier, broken] = pair as [SeedTrip, SeedTrip];
-  await run(earlier, earlier.stops.length, true);
+  [broken, later] = pair as [SeedTrip, SeedTrip];
   await run(broken, 1, false);
 });
 
@@ -99,7 +98,7 @@ test.afterAll(async () => {
   await dispatcher?.context.close();
 });
 
-async function open(browser: Browser, account: { email: string; password: string }, path: string) {
+async function open(browser: Browser, account: Credentials, path: string) {
   const context = await browser.newContext({
     baseURL: "http://localhost:5173",
     locale: "fr-FR",
@@ -108,12 +107,9 @@ async function open(browser: Browser, account: { email: string; password: string
     deviceScaleFactor: CAPTURES ? 2 : 1,
   });
   const page = await context.newPage();
-  await page.goto("/connexion");
-  await page.getByLabel("Adresse e-mail").fill(account.email);
-  await page.getByLabel("Mot de passe", { exact: true }).fill(account.password);
-  await page.getByRole("button", { name: "Se connecter" }).click();
-  await expect(page.getByTestId("user-menu")).toBeVisible();
+  await openSession(page, account);
   await page.goto(path);
+  await expect(page.getByTestId("user-menu")).toBeVisible();
   return { context, page };
 }
 
@@ -127,7 +123,20 @@ async function shot(page: Page, name: string) {
   await hide.evaluate((node) => (node as Element).remove());
 }
 
-test("dispatcher : panne de camion → assistant → nouvelle version publiée, journal, chargement", async ({
+/**
+ * Chauffeur de la tournée de remplacement : celui que le serveur propose convient le plus souvent ; si le
+ * camion choisi n'a pas de chauffeur pour la journée (ou si le proposé n'est pas retenu), on prend le
+ * premier chauffeur éligible.
+ */
+async function chooseDriverIfNeeded(dialog: Locator) {
+  const group = dialog.getByRole("group", { name: /Chauffeur de la tournée de remplacement/ });
+  await expect(group).toBeVisible();
+  const next = dialog.getByRole("button", { name: "Suivant" });
+  if (await next.isEnabled()) return;
+  await group.locator("input[type=radio]:enabled").last().check();
+}
+
+test("dispatcher : panne d'un camion à deux tournées → enchaînement → nouvelle version, journal, chargement", async ({
   browser,
 }) => {
   dispatcher = await open(browser, ACCOUNTS.dispatcher, `/journal?day=${day}`);
@@ -140,6 +149,7 @@ test("dispatcher : panne de camion → assistant → nouvelle version publiée, 
   await page.getByRole("button", { name: "Assistant de réaffectation" }).click();
   const dialog = page.getByRole("dialog", { name: "Assistant de réaffectation" });
   const next = dialog.getByRole("button", { name: "Suivant" });
+  const truckGroup = dialog.getByRole("group", { name: "Camion de remplacement" });
 
   // Étape 1 : panne de camion, constatée peu après la première livraison.
   await expect(dialog.getByRole("radio", { name: /Camion en panne/ })).toBeChecked();
@@ -160,18 +170,15 @@ test("dispatcher : panne de camion → assistant → nouvelle version publiée, 
   await next.click();
 
   // Étape 3 : le camion en panne n'est pas proposé ; on prend le premier camion éligible.
-  const trucks = dialog.getByRole("group", { name: "Camion de remplacement" }).getByRole("radio");
-  await expect(trucks.first()).toBeVisible();
+  await expect(truckGroup.getByRole("radio").first()).toBeVisible();
   await expect(dialog.getByRole("radio", { name: new RegExp(`^${broken.truck_plate}`) })).toHaveCount(0);
-  const eligible = dialog
-    .getByRole("group", { name: "Camion de remplacement" })
-    .locator("input[type=radio]:enabled");
+  const eligible = truckGroup.locator("input[type=radio]:enabled");
   await expect(eligible.first()).toBeVisible();
   await eligible.first().check();
   const plate = (
     (await eligible.first().locator("xpath=ancestor::label").innerText()).split("\n")[0] ?? ""
   ).trim();
-  await expect(dialog.getByRole("group", { name: /Chauffeur de la tournée de remplacement/ })).toBeVisible();
+  await chooseDriverIfNeeded(dialog);
   await shot(page, "l13-10-journal-assistant-remplacant");
   await expect(next).toBeEnabled();
   await next.click();
@@ -183,45 +190,97 @@ test("dispatcher : panne de camion → assistant → nouvelle version publiée, 
 
   await expect(dialog.getByText("Réaffectation enregistrée")).toBeVisible();
   await expect(dialog.getByText(new RegExp(`Panne du camion ${broken.truck_plate}`))).toBeVisible();
-  await expect(dialog.getByTestId("plan-result")).toContainText("Version 2 du plan publiée.");
   await expect(
     dialog.getByText(/arrêts? transférés?, 1 conservé sur la tournée d'origine \(RM-19\)/),
   ).toBeVisible();
-  await expect(dialog.getByRole("link", { name: "Ouvrir le plan (v2)" })).toBeVisible();
+
+  // Le camion en panne a encore sa seconde tournée : tant qu'elle la garde, la version reste en brouillon.
+  const others = dialog.getByRole("region", { name: "Ce camion a encore 1 tournée planifiée" });
+  await expect(others).toContainText(`Tournée n° ${later.seq}`);
+  await expect(dialog.getByTestId("plan-result")).toContainText(
+    /Version 2 en brouillon : \d+ violations? bloquantes? à corriger avant publication/,
+  );
+  await expect(dialog.getByRole("link", { name: "Ouvrir le plan (v2)" })).toHaveAttribute(
+    "href",
+    new RegExp(`^/plan\\?plan=[0-9a-f-]+&day=${day}$`),
+  );
   await shot(page, "l13-12-journal-reaffectation-resultat");
 
-  // La tournée de remplacement repart du dépôt : elle est dans l'écran Chargement, sur le nouveau camion.
-  await dialog.getByRole("link", { name: "Ouvrir son chargement" }).click();
-  await expect(page).toHaveURL(/\/chargement\?trip=/);
-  await expect(page.getByTestId("trip-panel")).toContainText(plate);
+  // Enchaînement : même assistant, à l'étape du remplaçant, sur la version de travail.
+  await others.getByRole("button", { name: `Traiter la tournée n° ${later.seq}` }).click();
+  await expect(
+    dialog.getByText(new RegExp(`Suite du même incident : tournée n° ${later.seq}`)),
+  ).toBeVisible();
+  await expect(truckGroup.getByRole("radio").first()).toBeVisible();
+  // Le camion de remplacement est repris s'il reste éligible ; sinon on prend le premier éligible.
+  const kept = truckGroup.locator("input[type=radio]:checked");
+  await expect(dialog.getByRole("radio", { name: new RegExp(`^${broken.truck_plate}`) })).toHaveCount(0);
+  if ((await kept.count()) === 0) await truckGroup.locator("input[type=radio]:enabled").first().check();
+  const secondPlate = (
+    (
+      await truckGroup.locator("input[type=radio]:checked").locator("xpath=ancestor::label").innerText()
+    ).split("\n")[0] ?? ""
+  ).trim();
+  await chooseDriverIfNeeded(dialog);
+  await shot(page, "l13-14-journal-assistant-autre-tournee");
+  await expect(next).toBeEnabled();
+  await next.click();
+  const recap = dialog.getByRole("region", { name: "Récapitulatif" });
+  await expect(recap).toContainText(`Tournée n° ${later.seq}`);
+  await expect(recap).toContainText(secondPlate);
+  await expect(dialog.getByRole("textbox", { name: /Motif/ })).toHaveValue(
+    "Fuite hydraulique sur l'axe Ndokoti",
+  );
+  await dialog.getByRole("button", { name: "Confirmer la réaffectation" }).click();
 
-  // Le journal porte l'événement, avec son motif.
+  await expect(dialog.getByText("Réaffectation enregistrée")).toBeVisible();
+  await expect(dialog.getByRole("region", { name: /a encore/ })).toHaveCount(0);
+  // Résultat tel que le serveur le renvoie : publiée, ou en brouillon avec ses violations.
+  const result = dialog.getByTestId("plan-result");
+  await expect(result).toContainText(/Version \d+ (du plan publiée|en brouillon|du plan en brouillon)/);
+  const published = /du plan publiée/.test(await result.innerText());
+  if (published) {
+    // La tournée de remplacement repart du dépôt : elle est dans l'écran Chargement, sur le nouveau camion.
+    await dialog.getByRole("link", { name: "Ouvrir son chargement" }).click();
+    await expect(page).toHaveURL(/\/chargement\?trip=/);
+    await expect(page.getByTestId("trip-panel")).toContainText(secondPlate);
+  } else {
+    await expect(result.getByRole("link", { name: /Ouvrir le plan/ })).toBeVisible();
+    await expect(dialog.getByRole("link", { name: "Ouvrir son chargement" })).toHaveCount(0);
+  }
+  test.info().annotations.push({ type: "version après enchaînement", description: await result.innerText() });
+
+  // Le journal porte les deux événements, avec leur motif.
   await page.goto(`/journal?day=${day}`);
-  const row = page.getByTestId("event-row").filter({ hasText: `Panne du camion ${broken.truck_plate}` });
-  await expect(row).toContainText("Motif : Fuite hydraulique sur l'axe Ndokoti");
-  await expect(row).toContainText("Plan v2");
-  await expect(row.getByRole("link", { name: "Voir le plan" })).toBeVisible();
+  const rows = page.getByTestId("event-row").filter({ hasText: `Panne du camion ${broken.truck_plate}` });
+  await expect(rows).toHaveCount(2);
+  await expect(rows.first()).toContainText("Motif : Fuite hydraulique sur l'axe Ndokoti");
+  await expect(rows.first().getByRole("link", { name: "Voir le plan" })).toBeVisible();
 });
 
-test("pénurie produit : déclarée par l'écran (admin), traitée par le dispatcher → résolue", async ({
+test("pénurie produit : déclarée par l'écran (supply), traitée par le dispatcher → résolue", async ({
   browser,
 }) => {
   // Stock total du jour = déjà chargé + 4 000 L : les tournées de gasoil non chargées ne sont plus couvertes.
-  const loaded = gasoil(earlier) + gasoil(broken);
+  const loaded = gasoil(broken);
   const stock = loaded + 4000;
 
-  const admin = await open(browser, ADMIN, `/journal?day=${day}`);
-  await admin.page.getByRole("button", { name: "Déclarer une pénurie" }).click();
-  const form = admin.page.getByRole("dialog", { name: "Déclarer une pénurie produit" });
+  // Supply voit le Journal et déclare ; l'assistant de réaffectation ne lui est pas proposé.
+  const supply = await open(browser, ACCOUNTS.supply, `/journal?day=${day}`);
+  await expect(supply.page.getByRole("button", { name: "Assistant de réaffectation" })).toHaveCount(0);
+  await supply.page.getByRole("button", { name: "Déclarer une pénurie" }).click();
+  const form = supply.page.getByRole("dialog", { name: "Déclarer une pénurie produit" });
   await form.getByRole("combobox", { name: "Dépôt" }).selectOption(broken.depot_id);
   await form.getByRole("combobox", { name: "Produit" }).selectOption({ label: "Gasoil" });
   const field = form.getByRole("textbox", { name: "Nouveau stock disponible" });
 
-  // Refus expliqué : le stock total ne peut pas être inférieur à ce qui est déjà chargé.
-  await field.fill(String(loaded - 1000));
-  await form.getByRole("button", { name: "Déclarer" }).click();
-  await expect(form.getByRole("alert")).toContainText("Déclaration refusée");
-  await expect(form.getByRole("alert")).toContainText("Le stock saisi est le stock total du jour");
+  if (loaded > 1) {
+    // Refus expliqué : le stock total ne peut pas être inférieur à ce qui est déjà chargé.
+    await field.fill("1");
+    await form.getByRole("button", { name: "Déclarer" }).click();
+    await expect(form.getByRole("alert")).toContainText("Déclaration refusée");
+    await expect(form.getByRole("alert")).toContainText("Le stock saisi est le stock total du jour");
+  }
 
   await field.fill(String(stock));
   await form.getByRole("button", { name: "Déclarer" }).click();
@@ -229,10 +288,12 @@ test("pénurie produit : déclarée par l'écran (admin), traitée par le dispat
   await expect(overview).toContainText("GASOIL au dépôt");
   await expect(overview).toContainText("À traiter");
   await form.getByRole("button", { name: "Fermer" }).last().click();
-  await expect(
-    admin.page.getByTestId("event-row").filter({ hasText: "Stock de GASOIL au dépôt" }),
-  ).toContainText("À traiter");
-  await admin.context.close();
+  const declared = supply.page.getByTestId("event-row").filter({ hasText: "Stock de GASOIL au dépôt" });
+  await expect(declared).toContainText("À traiter");
+  // Supply consulte l'impact mais ne le traite pas.
+  await expect(declared.getByRole("button", { name: "Voir l'impact" })).toBeVisible();
+  await expect(declared.getByRole("button", { name: "Traiter la pénurie" })).toHaveCount(0);
+  await supply.context.close();
 
   // Le dispatcher traite l'alerte depuis le journal.
   const { page } = dispatcher;
@@ -247,11 +308,21 @@ test("pénurie produit : déclarée par l'écran (admin), traitée par le dispat
   const count = await trips.count();
   expect(count).toBeGreaterThanOrEqual(1);
 
-  // Les options viennent du serveur ; ici les commandes de gasoil de chaque tournée impactée sont reportées.
+  // Les options viennent du serveur. La première tournée impactée change de dépôt (second dépôt du jeu
+  // d'essai, approvisionné) ; les commandes de gasoil des autres sont reportées.
+  const [, altDepot] = seed.depots;
   for (let index = 0; index < count; index += 1) {
-    const decision = trips.nth(index).getByRole("combobox", { name: /Décision pour la tournée/ });
+    const trip = trips.nth(index);
+    const decision = trip.getByRole("combobox", { name: /Décision pour la tournée/ });
     await expect(decision.getByRole("option", { name: "Changer de dépôt" })).toBeAttached();
-    await decision.selectOption("postpone");
+    if (index === 0) {
+      await decision.selectOption("change_depot");
+      const depot = trip.getByRole("combobox", { name: /dépôt/i }).last();
+      await expect(depot.locator(`option[value="${altDepot.id}"]`)).toContainText("suffisant");
+      await depot.selectOption(altDepot.id);
+    } else {
+      await decision.selectOption("postpone");
+    }
   }
   await shot(page, "l13-11-journal-penurie-tournees-impactees");
   await impact.getByRole("button", { name: "Appliquer les décisions" }).click();

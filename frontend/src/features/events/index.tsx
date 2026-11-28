@@ -15,13 +15,14 @@ import {
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
+import { FilterChip, FilterChipGroup } from "@/components/FilterChip";
 import { Notice, PageHeader } from "@/components/PageHeader";
 import { EmptyState, ErrorState, LoadingState } from "@/components/states";
 import { Badge, type Tone } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { fr } from "@/i18n/fr";
-import { useCan, useRole } from "@/lib/auth/session";
-import { formatDateLong, formatLocalTime } from "@/lib/format";
+import { useCan } from "@/lib/auth/session";
+import { formatDate, formatDateLong, formatLocalTime, todayLocal } from "@/lib/format";
 import { EVENT_TYPES, type EventType, type IsoDate } from "@/lib/types";
 import { useDay } from "@/lib/useDay";
 import { cn } from "@/lib/utils";
@@ -63,16 +64,23 @@ function EventRow({
   onOpenImpact: (eventId: string) => void;
 }) {
   const view = present(event, day);
+  const otherDay = todayLocal(new Date(event.occurred_at)) !== day;
   const style = TYPE_STYLE[event.type] ?? FALLBACK_STYLE;
   const Icon = style.icon;
   return (
     <li
-      className="grid grid-cols-[3.25rem_11.5rem_minmax(0,1fr)_auto] items-start gap-x-3 border-b px-3 py-2 last:border-b-0"
+      className="grid grid-cols-[5rem_11.5rem_minmax(0,1fr)_auto] items-start gap-x-3 border-b px-3 py-2 last:border-b-0"
       data-testid="event-row"
       data-type={event.type}
     >
-      <time dateTime={event.occurred_at} className="num pt-0.5 text-sm font-medium tabular-nums">
-        {formatLocalTime(event.occurred_at)}
+      <time dateTime={event.occurred_at} className="flex flex-col pt-0.5">
+        {otherDay && (
+          // Événement daté d'un autre jour que le jour J affiché (saisie faite un autre jour) : date en clair.
+          <span className="num text-xs text-warning" title={t.feed.otherDay(formatDate(event.occurred_at))}>
+            {formatDate(event.occurred_at)}
+          </span>
+        )}
+        <span className="num text-sm font-medium tabular-nums">{formatLocalTime(event.occurred_at)}</span>
       </time>
       <div className="flex flex-col items-start gap-1 pt-px">
         <Badge tone={style.tone}>
@@ -122,44 +130,11 @@ function EventRow({
   );
 }
 
-function FilterChip({
-  label,
-  count,
-  pressed,
-  onClick,
-}: {
-  label: string;
-  count: number;
-  pressed: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      aria-pressed={pressed}
-      onClick={onClick}
-      className={cn(
-        "inline-flex h-7 items-center gap-1.5 rounded-md border px-2 text-xs font-medium transition-colors focus-ring",
-        pressed
-          ? "border-primary bg-primary text-primary-foreground"
-          : "border-input bg-card text-foreground/80 hover:bg-muted",
-        count === 0 && !pressed && "text-muted-foreground/70",
-      )}
-    >
-      {label}
-      <span className={cn("num tabular-nums", pressed ? "opacity-80" : "text-muted-foreground")}>
-        {count}
-      </span>
-    </button>
-  );
-}
-
 export default function EventsPage() {
   const { day } = useDay();
   // Réaffectation et résolution d'une pénurie : dispatcher. Déclaration d'une pénurie : Supply (lot L10).
   const canWrite = useCan("events.write");
-  const role = useRole();
-  const canDeclare = role === "supply" || role === "admin";
+  const canDeclare = useCan("events.shortage.write");
   const events = useEvents(day);
   const [selected, setSelected] = useState<ReadonlySet<EventType>>(new Set());
   const [reassignOpen, setReassignOpen] = useState(false);
@@ -220,7 +195,7 @@ export default function EventsPage() {
         </Notice>
       )}
 
-      <div role="group" aria-label={t.filters.label} className="flex flex-wrap items-center gap-1.5">
+      <FilterChipGroup label={t.filters.label} className="gap-1.5">
         <FilterChip
           label={t.filters.all}
           count={all.length}
@@ -236,7 +211,7 @@ export default function EventsPage() {
             onClick={() => toggle(type)}
           />
         ))}
-      </div>
+      </FilterChipGroup>
 
       <section className="min-h-0 flex-1 overflow-y-auto rounded-md border bg-card" aria-label={t.feedLabel}>
         {events.isLoading ? (

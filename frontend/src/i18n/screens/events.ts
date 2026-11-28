@@ -33,6 +33,7 @@ export const eventsTexts = {
   },
 
   feed: {
+    otherDay: (date: string) => `Événement daté du ${date}, hors du jour affiché`,
     by: (name: string) => `par ${name}`,
     system: "Système",
     trip: (seq: number | null | undefined, plate: string | null | undefined) =>
@@ -85,7 +86,7 @@ export const eventsTexts = {
   planResult: {
     published: (version: number) => `Version ${version} du plan publiée.`,
     draftBlocked: (version: number, blocking: number) =>
-      `Version ${version} du plan laissée en brouillon : ${blocking} ${plural(blocking, "violation bloquante", "violations bloquantes")} à corriger avant publication. La version publiée précédente reste la référence du terrain.`,
+      `Version ${version} en brouillon : ${blocking} ${plural(blocking, "violation bloquante", "violations bloquantes")} à corriger avant publication. La version publiée précédente reste la référence du terrain.`,
     draft: (version: number) =>
       `Version ${version} du plan en brouillon (un brouillon était déjà en préparation) : à publier depuis l'écran du plan.`,
     openPlan: (version: number) => `Ouvrir le plan (v${version})`,
@@ -153,6 +154,8 @@ export const eventsTexts = {
         `Déjà sur ${plural(seqs.length, "la tournée", "les tournées")} n° ${seqs.join(", ")}`,
       ineligible: "Non éligible",
     },
+    chained: (seq: number, version: number, kind: "truck" | "driver") =>
+      `Suite du même incident : tournée n° ${seq}, sur la version ${version} du plan. ${kind === "truck" ? "Le camion" : "Le chauffeur"} de remplacement est repris s'il reste éligible.`,
     time: "Heure de l'incident",
     timeHint: "Heure de Douala, le jour J. Vide : maintenant. Les remplaçants sont évalués à cette heure.",
     reason: "Motif",
@@ -176,8 +179,13 @@ export const eventsTexts = {
         (kept > 0
           ? `, ${kept} ${plural(kept, "conservé", "conservés")} sur la tournée d'origine (RM-19).`
           : "."),
-      otherTrips: (seqs: number[]) =>
-        `${plural(seqs.length, "Une autre tournée", "D'autres tournées")} du jour ${plural(seqs.length, "utilise", "utilisent")} encore la ressource indisponible (n° ${seqs.join(", ")}) : déclarez l'incident pour ${plural(seqs.length, "elle", "chacune")} ou réaffectez dans l'écran du plan.`,
+      othersTitle: (kind: "truck" | "driver", n: number) =>
+        `${kind === "truck" ? "Ce camion" : "Ce chauffeur"} a encore ${n} ${plural(n, "tournée planifiée", "tournées planifiées")}`,
+      othersHint: (version: number) =>
+        `Traitez-les tout de suite : même incident, même remplaçant proposé, sur la version ${version} en cours. Tant qu'une tournée garde la ressource indisponible, le plan ne peut pas être publié sans violation.`,
+      otherTrip: (seq: number) => `Tournée n° ${seq}`,
+      otherPending: (n: number) => `${n} ${plural(n, "arrêt", "arrêts")} à livrer`,
+      treat: (seq: number) => `Traiter la tournée n° ${seq}`,
       toast: "Réaffectation enregistrée",
       reload:
         "La tournée de remplacement repart du dépôt : elle doit y être chargée (son chargement se saisit une fois la nouvelle version publiée).",
