@@ -46,7 +46,9 @@ async def test_journee_a_fabriquee_importee_rejouee_et_comparee(api, db, tasks):
     assert sorted(order) == [f"DLA{i:02d}" for i in range(1, 13)]
     # Une journée de référence ne se modifie pas et ne se publie pas.
     await api.call("POST", f"/plans/{ab['plan_a']}/publish", "dispatcher", expected=(409,))
-    orders = await api.get_all("/orders", "manager", day=summary.day.isoformat())
+    # Les commandes d'une journée de référence sont écartées de la liste par défaut (E6).
+    assert await api.get_all("/orders", "manager", day=summary.day.isoformat()) == []
+    orders = await api.get_all("/orders", "manager", day=summary.day.isoformat(), include_reference="true")
     assert {o["status"] for o in orders} == {"delivered"} and len(orders) == 20
 
     # ----- rejeu par le vrai moteur (F8.2)
@@ -56,7 +58,7 @@ async def test_journee_a_fabriquee_importee_rejouee_et_comparee(api, db, tasks):
     assert _served(plan_b) == _served(plan_a)  # mêmes commandes
     assert plan_b["unserved"] == [] and plan_b["blocking_count"] == 0, plan_b["violations"]
     # Le rejeu ne touche pas aux commandes de la journée de référence.
-    orders = await api.get_all("/orders", "manager", day=summary.day.isoformat())
+    orders = await api.get_all("/orders", "manager", day=summary.day.isoformat(), include_reference="true")
     assert {o["status"] for o in orders} == {"delivered"}
 
     # ----- comparaison (F8.4) et verdict (critères 1 et 2)
