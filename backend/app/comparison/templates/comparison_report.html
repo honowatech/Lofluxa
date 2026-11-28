@@ -7,6 +7,8 @@
   .verdict.ko { border-color: #a40000; background: #fbeeee; }
   .verdict .headline { font-size: 12pt; font-weight: 700; }
   .verdict ul { margin: 4px 0 0 16px; padding: 0; }
+  .reserve { border: 1.5px solid #9a5b00; background: #fff6e5; padding: 5px 10px; margin: 0 0 8px; font-size: 8.5pt; }
+  .reserve ul { margin: 2px 0 0 16px; padding: 0; }
   .plans { display: flex; gap: 16px; margin-bottom: 6px; }
   .plans > div { flex: 1; border: 1px solid #999; padding: 5px 8px; }
   .plans .letter { font-weight: 700; font-size: 11pt; }
@@ -47,6 +49,16 @@
     <li>Plan B servant au moins autant de commandes que le plan A : <strong>{{ "oui" if verdict.orders_served_ok else "non" }}</strong>.</li>
   </ul>
 </div>
+{% for warning in warnings %}
+<div class="reserve">
+  <strong>Réserve —</strong> {{ warning.message }}
+  <ul>
+    {% for r in warning.resources %}
+    <li>{{ "Camion" if r.kind == "truck" else "Chauffeur" }} {{ r.label }} : {{ r.reason }}{% if r.since %} (saisi à {{ r.since | hm }}){% endif %}.</li>
+    {% endfor %}
+  </ul>
+</div>
+{% endfor %}
 
 <h2>Indicateurs</h2>
 <table class="kpi">

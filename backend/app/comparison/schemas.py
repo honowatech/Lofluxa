@@ -156,6 +156,22 @@ class ComparedUnservedOut(_Out):
     reason_text: str | None
 
 
+class ComparisonResourceOut(_Out):
+    kind: str  # truck | driver
+    id: uuid.UUID
+    label: str  # immatriculation ou nom du chauffeur
+    reason: str  # motif de l'indisponibilité (ex. résumé de la panne)
+    since: UtcDatetime | None  # heure de l'indisponibilité du jour ; None si état du référentiel
+
+
+class ComparisonWarningOut(_Out):
+    """Réserve à afficher avec le verdict."""
+
+    code: str  # resources_differ
+    message: str
+    resources: list[ComparisonResourceOut]
+
+
 class ComparisonOut(_Out):
     plan_a: ComparedPlanOut
     plan_b: ComparedPlanOut
@@ -163,6 +179,10 @@ class ComparisonOut(_Out):
     metrics_b: PlanMetricsOut
     deltas: list[MetricDeltaOut]
     verdict: VerdictOut
+    # Réserves sur la lecture du verdict ; vide le plus souvent. `equal_resources` est faux quand le
+    # plan B n'a pas disposé de camions ou de chauffeurs utilisés par le plan A (question L7-4).
+    warnings: list[ComparisonWarningOut]
+    equal_resources: bool
     routes_a: list[TripRouteOut]
     routes_b: list[TripRouteOut]
     unserved_a: list[ComparedUnservedOut]
@@ -199,14 +219,17 @@ class ReplayOut(_Out):
 
 
 class DashboardSummaryOut(_Out):
+    plans_total: int  # plans suivis ce jour-là
     trips_total: int
     trips_by_status: dict[str, int]
     stops_total: int
     stops_delivered: int
     stops_skipped: int
     stops_pending: int
-    volume_planned_l: float
+    volume_planned_l: float  # un arrêt sauté repris par un autre plan du jour n'est compté qu'une fois
     volume_delivered_l: float
+    volume_skipped_l: float  # volume des arrêts sautés qu'aucun autre plan du jour n'a repris
+    volume_replanned_l: float  # volume des arrêts sautés repris par un autre plan du jour
     trips_late: int
     max_delay_s: int
     alerts_blocking: int
@@ -214,6 +237,9 @@ class DashboardSummaryOut(_Out):
 
 
 class DashboardTripOut(_Out):
+    plan_id: uuid.UUID
+    plan_version: int
+    plan_label: str  # libellé du plan, à défaut « Plan calculé v2 »
     trip_id: uuid.UUID
     seq: int
     truck_plate: str | None
@@ -226,6 +252,7 @@ class DashboardTripOut(_Out):
     stops_pending: int
     volume_planned_l: float
     volume_delivered_l: float
+    volume_skipped_l: float  # part de `volume_planned_l` portée par des arrêts sautés
     planned_depart_at: UtcDatetime | None
     planned_return_at: UtcDatetime | None
     actual_depart_at: UtcDatetime | None
@@ -238,6 +265,9 @@ class DashboardTripOut(_Out):
 
 
 class DashboardDelayOut(_Out):
+    plan_id: uuid.UUID
+    plan_version: int
+    plan_label: str
     trip_id: uuid.UUID
     trip_seq: int
     truck_plate: str | None
@@ -255,6 +285,7 @@ class DashboardAlertOut(_Out):
     severity: Severity
     code: str  # RM-xx, type d'événement, ou `pending_draft`
     message: str
+    plan_id: uuid.UUID | None  # plan concerné : plan suivi, version en attente, ou plan de l'événement
     trip_id: uuid.UUID | None
     trip_seq: int | None
     event_id: uuid.UUID | None
@@ -268,6 +299,8 @@ class PendingDraftOut(_Out):
 
     plan_id: uuid.UUID
     version: int
+    published_plan_id: uuid.UUID  # version publiée de la même lignée, que le terrain suit toujours
+    published_version: int
     created_at: UtcDatetime
     created_by_name: str | None
     blocking_count: int
@@ -276,11 +309,28 @@ class PendingDraftOut(_Out):
     message: str  # phrase prête à afficher (c'est aussi le message de l'alerte)
 
 
+class DashboardPlanOut(ComparedPlanOut):
+    """Un plan suivi par le terrain ce jour-là, avec son avancement propre."""
+
+    trips_total: int
+    stops_total: int
+    stops_delivered: int
+    stops_skipped: int
+    stops_pending: int
+    volume_planned_l: float
+    volume_delivered_l: float
+    volume_skipped_l: float
+    alerts_blocking: int  # violations bloquantes de ce plan
+    alerts_total: int  # violations de ce plan
+
+
 class DashboardOut(_Out):
     day: date
     generated_at: UtcDatetime
-    plan: ComparedPlanOut | None  # plan publié du jour, None s'il n'y en a pas
-    pending_draft: PendingDraftOut | None  # None le plus souvent
+    plan: DashboardPlanOut | None  # plan principal du jour (= plans[0]), None s'il n'y en a pas
+    plans: list[DashboardPlanOut]  # tous les plans publiés suivis ce jour-là, le principal en premier
+    pending_draft: PendingDraftOut | None  # = pending_drafts[0], None le plus souvent
+    pending_drafts: list[PendingDraftOut]  # une version en attente au plus par plan suivi
     summary: DashboardSummaryOut
     trips: list[DashboardTripOut]
     delays: list[DashboardDelayOut]

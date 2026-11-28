@@ -1,15 +1,20 @@
 """F8.4 — tableau comparatif entre deux plans ; F8.5 — export PDF avec les deux cartes."""
 
+from datetime import timedelta
+
 import pytest
 
 from app.admin.models import Setting
+from app.availability.models import DailyResourceStatus
 from app.comparison import report
 from app.comparison import service as comparison_service
-from app.core.enums import PlanKind, Severity, StopStatus, TripStatus
+from app.core.enums import DriverStatus, PlanKind, Severity, StopStatus, TripStatus
 from app.core.pdf import _fmt_liters, render_html
+from app.core.time import utcnow
+from app.planning.models import Plan
 
 from . import factory
-from .factory import DEPOT, STATIONS
+from .factory import DAY, DEPOT, STATIONS, at
 
 
 @pytest.fixture
@@ -183,6 +188,9 @@ async def test_comparaison_metriques_ecarts_verdict(client, plans, auth_headers)
         "(seuil : 10,0 %).",
     }
 
+    # Mêmes ressources disponibles pour les deux plans : aucune réserve.
+    assert body["warnings"] == [] and body["equal_resources"] is True
+
     # Tracés pour les deux cartes : dépôt → arrêts ordonnés → dépôt, en lat / lon.
     assert [len(r["points"]) for r in body["routes_a"]] == [4, 3]
     (route_b,) = body["routes_b"]
@@ -242,6 +250,73 @@ async def test_comparaison_seuil_lu_dans_les_parametres(client, db, plans, auth_
     assert verdict["no_blocking_violation"] is False and verdict["orders_served_ok"] is False
 
 
+async def test_comparaison_signale_des_ressources_inegales(client, db, world, plans, auth_headers):
+    """L7-4 : après une panne, le rejeu n'a plus le camion de la tournée 2 du plan A. Le verdict est
+    inchangé, mais la réponse et le PDF le disent."""
+    plan_a, plan_b = plans
+    params = {"plan_a": str(plan_a), "plan_b": str(plan_b)}
+    headers = await auth_headers("manager")
+    replay = await db.get(Plan, plan_b)
+
+    # Indisponibilité saisie APRÈS le calcul du rejeu : il a bien disposé du camion, pas de réserve.
+    replay.computed_at = at("06:00") - timedelta(days=400)
+    db.add(
+        DailyResourceStatus(
+            day=DAY,
+            truck_id=world.trucks["LT-456-BB"].id,
+            available=False,
+            reason="Panne déclarée à 09:30 (tournée 2)",
+        )
+    )
+    await db.commit()
+    body = (await client.get("/comparison", params=params, headers=headers)).json()
+    assert body["warnings"] == [] and body["equal_resources"] is True
+
+    # Indisponibilité antérieure au calcul du rejeu, et chauffeur de cette tournée en arrêt maladie.
+    replay.computed_at = utcnow() + timedelta(minutes=5)
+    world.drivers["Paul Etoa"].status = DriverStatus.SICK
+    await db.commit()
+    response = await client.get("/comparison", params=params, headers=headers)
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["equal_resources"] is False
+    (warning,) = body["warnings"]
+    assert warning["code"] == "resources_differ"
+    assert warning["message"] == (
+        "Comparaison à ressources inégales : le plan B a été calculé sans des ressources utilisées par le "
+        "plan A (camion LT-456-BB ; chauffeur Paul Etoa). Le verdict est à lire avec cette réserve."
+    )
+    truck, driver = warning["resources"]
+    assert (truck["kind"], truck["label"], truck["reason"]) == (
+        "truck",
+        "LT-456-BB",
+        "Panne déclarée à 09:30 (tournée 2)",
+    )
+    assert truck["id"] == str(world.trucks["LT-456-BB"].id) and truck["since"].endswith("Z")
+    assert (driver["kind"], driver["label"], driver["reason"], driver["since"]) == (
+        "driver",
+        "Paul Etoa",
+        "actuellement malade",
+        None,
+    )
+    # Le verdict lui-même n'est pas modifié.
+    assert body["verdict"]["success"] is True and body["verdict"]["gain_pct"] == 20.0
+
+    # Dans l'autre sens (B = journée manuelle) : pas de réserve, ce plan n'a pas été calculé.
+    inverse = await client.get(
+        "/comparison", params={"plan_a": str(plan_b), "plan_b": str(plan_a)}, headers=headers
+    )
+    assert inverse.json()["warnings"] == []
+
+    comparison = await comparison_service.build_comparison(db, plan_a, plan_b)
+    html = render_html(report.TEMPLATE, report.build_context(comparison, {}))
+    assert "Réserve —" in html and "Comparaison à ressources inégales" in html
+    assert "Camion LT-456-BB : Panne déclarée à 09:30 (tournée 2) (saisi à" in html
+    assert "Chauffeur Paul Etoa : actuellement malade." in html
+    pdf = await client.get("/comparison.pdf", params=params, headers=headers)
+    assert pdf.status_code == 200 and pdf.content.startswith(b"%PDF")
+
+
 async def test_comparaison_erreurs(client, db, plans, auth_headers):
     plan_a, _ = plans
     headers = await auth_headers("manager")
@@ -298,4 +373,5 @@ async def test_gabarit_du_rapport_synthese_cartes_annexes(db, plans):
     assert "Tournée 2 — camion LT-456-BB, chauffeur Paul Etoa, dépôt SCDP-DLA" in html
     assert f"PETROLE {_fmt_liters(3000)}" in html
     assert "Commandes non servies" in html and "Flotte épuisée." in html
+    assert "Réserve —" not in html
     assert "09:00" in html  # heures affichées en Africa/Douala

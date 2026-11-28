@@ -228,12 +228,23 @@ async def test_journee_perturbee_penurie_panne_arret_saute_et_second_plan(api, d
     board = (await api.call("GET", "/dashboard", "manager", params={"day": day})).json()
     assert board["plan"]["id"] == plan["id"] and board["plan"]["version"] == 3
     totals = board["summary"]
-    assert totals["trips_by_status"]["completed"] == totals["trips_total"] == len(plan["trips"])
+    # Le tableau de bord suit les deux plans publiés du jour (plan principal + plan de l'arrêt sauté).
+    assert [p["id"] for p in board["plans"]] == [plan["id"], published["id"]]
+    followed = (plan, published)
+    assert totals["plans_total"] == 2
+    assert (
+        totals["trips_by_status"]["completed"]
+        == totals["trips_total"]
+        == sum(len(p["trips"]) for p in followed)
+    )
     assert (totals["stops_skipped"], totals["stops_pending"]) == (1, 0)
-    assert totals["stops_delivered"] == sum(len(t["stops"]) for t in plan["trips"]) - 1
+    assert totals["stops_delivered"] == sum(len(t["stops"]) for p in followed for t in p["trips"]) - 1
+    # L'arrêt sauté, repris par le second plan, n'est compté qu'une fois : tout le prévu est livré.
     planned_l = sum(t["planned_l"] for t in plan["trips"])
     assert totals["volume_planned_l"] == pytest.approx(planned_l)
-    assert totals["volume_delivered_l"] == pytest.approx(planned_l - skipped_stops[0]["planned_l"])
+    assert totals["volume_delivered_l"] == pytest.approx(planned_l)
+    assert totals["volume_replanned_l"] == pytest.approx(skipped_stops[0]["planned_l"])
+    assert totals["volume_skipped_l"] == pytest.approx(0)
     assert totals["alerts_blocking"] == 0
     codes = {a["code"] for a in board["alerts"]}
     assert "truck_breakdown" in codes

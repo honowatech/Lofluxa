@@ -15,8 +15,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.availability.models import DailyResourceStatus
 from app.comparison import metrics as m
-from app.core.enums import PlanKind, Severity
+from app.core.enums import DriverStatus, PlanKind, Severity, TruckStatus
 from app.core.errors import ConflictError, NotFoundError
 from app.core.geo import latlon
 from app.core.settings_store import get_setting
@@ -315,6 +316,132 @@ def plan_unserved(bundle: PlanBundle) -> list[dict[str, Any]]:
     return sorted(rows, key=lambda r: (r["station_code"] or "", r["product_code"] or ""))
 
 
+# --------------------------------------------------------------------------- ressources (L7-4)
+
+TRUCK_STATUS_LABELS = {
+    TruckStatus.MAINTENANCE: "en maintenance",
+    TruckStatus.BROKEN: "en panne",
+    TruckStatus.RESERVED: "réservé",
+}
+DRIVER_STATUS_LABELS = {
+    DriverStatus.REST: "au repos",
+    DriverStatus.LEAVE: "en congé",
+    DriverStatus.SICK: "malade",
+}
+
+
+async def resource_warnings(
+    session: AsyncSession, bundle_a: PlanBundle, bundle_b: PlanBundle
+) -> list[dict[str, Any]]:
+    """Avertissement quand le plan B n'a pas été calculé avec les ressources du plan A.
+
+    Un rejeu utilise les camions et chauffeurs disponibles au moment où il est lancé. Si un camion
+    ou un chauffeur du plan A n'était plus affectable pour le plan B (marqué indisponible pour la
+    journée avant le calcul de B — après une panne, par exemple —, ou hors service dans le
+    référentiel), la comparaison n'est plus « à ressources égales » : le verdict doit se lire avec
+    cette réserve. Lecture seule ; rien n'est recalculé.
+
+    Sont examinées les ressources utilisées par A et absentes de B, quand B est un plan du moteur."""
+    plan_b = bundle_b.plan
+    if plan_b.kind == PlanKind.MANUAL_REFERENCE or plan_b.id == bundle_a.plan.id:
+        return []
+    used_trucks_b = {t.truck_id for t in bundle_b.trips if t.stops}
+    used_drivers_b = {t.driver_id for t in bundle_b.trips if t.stops and t.driver_id}
+    trucks = {t.truck_id for t in bundle_a.trips if t.stops} - used_trucks_b
+    drivers = {t.driver_id for t in bundle_a.trips if t.stops and t.driver_id} - used_drivers_b
+    if not trucks and not drivers:
+        return []
+
+    marks = (
+        (
+            await session.execute(
+                select(DailyResourceStatus).where(
+                    DailyResourceStatus.day == plan_b.day, DailyResourceStatus.available.is_(False)
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    def marked(mark: DailyResourceStatus) -> bool:
+        """Indisponibilité déjà saisie quand B a été calculé (toujours vrai si l'heure est inconnue)."""
+        since = mark.updated_at or mark.created_at
+        return plan_b.computed_at is None or since is None or since <= plan_b.computed_at
+
+    truck_marks = {m.truck_id: m for m in marks if m.truck_id and marked(m)}
+    driver_marks = {m.driver_id: m for m in marks if m.driver_id and marked(m)}
+
+    resources: list[dict[str, Any]] = []
+    for truck_id in trucks:
+        truck = bundle_a.trucks.get(truck_id)
+        mark = truck_marks.get(truck_id)
+        reason = since = None
+        if mark is not None:
+            reason = mark.reason or "marqué indisponible pour la journée"
+            since = mark.updated_at or mark.created_at
+        elif truck is not None and truck.deleted_at is not None:
+            reason = "supprimé du référentiel"
+        elif truck is not None and truck.status != TruckStatus.AVAILABLE:
+            reason = f"actuellement {TRUCK_STATUS_LABELS.get(truck.status, truck.status)}"
+        if reason:
+            resources.append(
+                {
+                    "kind": "truck",
+                    "id": truck_id,
+                    "label": truck.plate if truck else str(truck_id),
+                    "reason": reason,
+                    "since": since,
+                }
+            )
+    for driver_id in drivers:
+        driver = bundle_a.drivers.get(driver_id)
+        mark = driver_marks.get(driver_id)
+        reason = since = None
+        if mark is not None:
+            reason = mark.reason or "marqué indisponible pour la journée"
+            since = mark.updated_at or mark.created_at
+        elif driver is not None and driver.deleted_at is not None:
+            reason = "supprimé du référentiel"
+        elif driver is not None and driver.status != DriverStatus.AVAILABLE:
+            reason = f"actuellement {DRIVER_STATUS_LABELS.get(driver.status, driver.status)}"
+        if reason:
+            resources.append(
+                {
+                    "kind": "driver",
+                    "id": driver_id,
+                    "label": driver.full_name if driver else str(driver_id),
+                    "reason": reason,
+                    "since": since,
+                }
+            )
+    if not resources:
+        return []
+    resources.sort(key=lambda r: (r["kind"] != "truck", r["label"]))
+
+    def names(kind: str, singular: str, plural: str) -> str | None:
+        labels = [r["label"] for r in resources if r["kind"] == kind]
+        if not labels:
+            return None
+        return f"{singular if len(labels) == 1 else plural} {', '.join(labels)}"
+
+    listed = " ; ".join(
+        part
+        for part in (names("truck", "camion", "camions"), names("driver", "chauffeur", "chauffeurs"))
+        if part
+    )
+    return [
+        {
+            "code": "resources_differ",
+            "message": (
+                "Comparaison à ressources inégales : le plan B a été calculé sans des ressources "
+                f"utilisées par le plan A ({listed}). Le verdict est à lire avec cette réserve."
+            ),
+            "resources": resources,
+        }
+    ]
+
+
 # --------------------------------------------------------------------------- comparaison
 
 
@@ -332,6 +459,8 @@ async def build_comparison(session: AsyncSession, plan_a: uuid.UUID, plan_b: uui
         "metrics_b": metrics_b,
         "deltas": m.compare(metrics_a, metrics_b),
         "verdict": m.verdict(metrics_a, metrics_b, threshold),
+        "warnings": (warnings := await resource_warnings(session, bundle_a, bundle_b)),
+        "equal_resources": not warnings,
         "routes_a": plan_routes(bundle_a),
         "routes_b": plan_routes(bundle_b),
         "unserved_a": plan_unserved(bundle_a),

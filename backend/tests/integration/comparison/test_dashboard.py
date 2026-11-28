@@ -1,6 +1,6 @@
 """F8.6 — tableau de bord du jour : avancement, retards estimés, alertes actives."""
 
-from app.core.enums import EventType, PlanStatus, Severity, StopStatus, TripStatus
+from app.core.enums import EventType, PlanKind, PlanStatus, Severity, StopStatus, TripStatus
 from app.events.models import Event
 
 from . import factory
@@ -69,9 +69,14 @@ async def test_tableau_de_bord_du_jour(client, db, world, auth_headers):
             ("RM-11", Severity.BLOCKING, "Durée de service dépassée.", 1),
         ],
     )
-    # Ignorés : brouillon du même jour, version publiée antérieure, plan publié d'un autre jour.
+    # Ignorés : brouillon du même jour, version publiée antérieure de la même lignée, plan qui n'est
+    # pas un plan calculé, plan publié d'un autre jour.
     await factory.make_plan(db, world, [{"truck": "LT-123-AA", "stops": [{"station": "ST-DLA-001"}]}])
-    await factory.make_plan(db, world, [], status=PlanStatus.PUBLISHED, version=1)
+    await factory.make_plan(db, world, [], status=PlanStatus.PUBLISHED, version=1, root_plan_id=plan.id)
+    reference = await factory.make_plan(
+        db, world, [{"truck": "LT-123-AA", "stops": [{"station": "ST-DLA-001"}]}], kind=PlanKind.REPLAY
+    )
+    reference.status = PlanStatus.PUBLISHED  # un plan non calculé n'est jamais suivi par le terrain
     await factory.make_plan(db, world, [], status=PlanStatus.PUBLISHED, day=OTHER_DAY, version=5)
     trip1 = plan.trips[0]
     db.add_all(
@@ -104,7 +109,17 @@ async def test_tableau_de_bord_du_jour(client, db, world, auth_headers):
 
     assert body["day"] == "2027-01-12"
     assert body["plan"]["id"] == str(plan.id) and body["plan"]["version"] == 2
+    assert [p["id"] for p in body["plans"]] == [str(plan.id)] and body["plans"][0] == body["plan"]
+    assert (body["plan"]["trips_total"], body["plan"]["stops_delivered"], body["plan"]["alerts_total"]) == (
+        3,
+        2,
+        2,
+    )
+    assert body["pending_draft"] is None and body["pending_drafts"] == []
     assert body["summary"] == {
+        "plans_total": 1,
+        "volume_skipped_l": 0.0,
+        "volume_replanned_l": 0.0,
         "trips_total": 3,
         "trips_by_status": {"planned": 1, "at_depot": 0, "loaded": 0, "in_progress": 1, "completed": 1},
         "stops_total": 5,
@@ -120,6 +135,9 @@ async def test_tableau_de_bord_du_jour(client, db, world, auth_headers):
     }
 
     first, second, third = body["trips"]
+    assert {(t["plan_id"], t["plan_version"], t["plan_label"]) for t in body["trips"]} == {
+        (str(plan.id), 2, "Plan calculé v2")
+    }
     assert (first["truck_plate"], first["driver_name"], first["depot_code"]) == (
         "LT-123-AA",
         "Jean Mbarga",
@@ -214,3 +232,163 @@ async def test_penurie_resolue_plus_en_alerte_et_resume_de_l_evenement_affiche(
     assert response.status_code == 200, response.text
     alerts = response.json()["alerts"]
     assert [(a["code"], a["message"]) for a in alerts] == [("product_shortage", summary)]
+
+
+async def test_deux_plans_publies_le_meme_jour_sont_agreges(client, db, world, auth_headers):
+    """Plan du matin dont un arrêt est sauté, puis second plan publié qui reprend la commande sautée :
+    le tableau de bord suit les deux et ne compte pas deux fois le volume replanifié (L7-17)."""
+    o1 = await factory.make_order(db, world, "ST-DLA-001", "SUPER", 12000)
+    o2 = await factory.make_order(db, world, "ST-DLA-002", "GASOIL", 6000)
+    o3 = await factory.make_order(db, world, "ST-DLA-003", "SUPER", 10000)
+    done = {"status": StopStatus.DELIVERED}
+    morning = await factory.make_plan(
+        db,
+        world,
+        [
+            {
+                "truck": "LT-123-AA",
+                "driver": "Jean Mbarga",
+                "status": TripStatus.COMPLETED,
+                "depart": "08:15",
+                "return": "12:00",
+                "stops": [
+                    {"station": "ST-DLA-001", "arrival": "09:00", "deliveries": [(o1, 12000, 12000)], **done},
+                    {
+                        "station": "ST-DLA-002",
+                        "arrival": "10:00",
+                        "status": StopStatus.SKIPPED,
+                        "deliveries": [(o2, 6000, None)],
+                    },
+                    {
+                        "station": "ST-DLA-003",
+                        "arrival": "11:00",
+                        "actual_arrival": "11:20",
+                        "deliveries": [(o3, 10000, 10000)],
+                        **done,
+                    },
+                ],
+            }
+        ],
+        status=PlanStatus.PUBLISHED,
+        version=3,
+        label="Plan du matin",
+        violations=[("RM-08", Severity.WARNING, "Stock non renseigné pour SUPER.", None)],
+    )
+    second = await factory.make_plan(
+        db,
+        world,
+        [
+            {
+                "truck": "LT-456-BB",
+                "driver": "Paul Etoa",
+                "status": TripStatus.COMPLETED,
+                "depart": "13:00",
+                "return": "15:00",
+                "stops": [
+                    {
+                        "station": "ST-DLA-002",
+                        "arrival": "14:00",
+                        "actual_arrival": "14:05",
+                        "deliveries": [(o2, 6000, 6000)],
+                        **done,
+                    }
+                ],
+            }
+        ],
+        status=PlanStatus.PUBLISHED,
+        violations=[("RM-11", Severity.BLOCKING, "Durée de service dépassée.", 1)],
+    )
+    # Brouillon en préparation dans la lignée du second plan.
+    draft = await factory.make_plan(db, world, [], version=2, root_plan_id=second.id)
+    await db.commit()
+
+    response = await client.get(
+        "/dashboard", params={"day": "2027-01-12"}, headers=await auth_headers("fleet")
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+
+    assert [(p["id"], p["version"], p["title"]) for p in body["plans"]] == [
+        (str(morning.id), 3, "Plan du matin"),
+        (str(second.id), 1, "Plan calculé v1"),
+    ]
+    assert body["plan"] == body["plans"][0]  # le plan principal reste le premier créé
+    per_plan = [
+        (
+            p["trips_total"],
+            p["stops_delivered"],
+            p["stops_skipped"],
+            p["volume_planned_l"],
+            p["volume_delivered_l"],
+        )
+        for p in body["plans"]
+    ]
+    assert per_plan == [(1, 2, 1, 28000.0, 22000.0), (1, 1, 0, 6000.0, 6000.0)]
+    assert [(p["alerts_blocking"], p["alerts_total"]) for p in body["plans"]] == [(0, 1), (1, 1)]
+
+    # Tout le volume demandé (28 000 L) est livré : l'arrêt sauté repris par le second plan n'est
+    # compté qu'une fois dans le prévu.
+    summary = body["summary"]
+    assert (summary["plans_total"], summary["trips_total"], summary["stops_total"]) == (2, 2, 4)
+    assert (summary["stops_delivered"], summary["stops_skipped"], summary["stops_pending"]) == (3, 1, 0)
+    assert (summary["volume_planned_l"], summary["volume_delivered_l"]) == (28000.0, 28000.0)
+    assert (summary["volume_skipped_l"], summary["volume_replanned_l"]) == (0.0, 6000.0)
+    assert summary["trips_by_status"]["completed"] == 2
+    assert (summary["trips_late"], summary["max_delay_s"]) == (2, 1200)
+
+    assert [
+        (t["plan_id"], t["plan_version"], t["plan_label"], t["seq"], t["truck_plate"]) for t in body["trips"]
+    ] == [
+        (str(morning.id), 3, "Plan du matin", 1, "LT-123-AA"),
+        (str(second.id), 1, "Plan calculé v1", 1, "LT-456-BB"),
+    ]
+    assert (body["trips"][0]["volume_planned_l"], body["trips"][0]["volume_skipped_l"]) == (28000.0, 6000.0)
+    assert [(d["plan_id"], d["plan_label"], d["station_code"], d["delay_s"]) for d in body["delays"]] == [
+        (str(morning.id), "Plan du matin", "ST-DLA-003", 1200),
+        (str(second.id), "Plan calculé v1", "ST-DLA-002", 300),
+    ]
+
+    # Alertes : version en attente en tête, puis violations de chaque plan suivi.
+    assert [(a["source"], a["code"], a["plan_id"]) for a in body["alerts"]] == [
+        ("plan", "pending_draft", str(draft.id)),
+        ("violation", "RM-08", str(morning.id)),
+        ("violation", "RM-11", str(second.id)),
+    ]
+    (pending,) = body["pending_drafts"]
+    assert body["pending_draft"] == pending
+    assert (pending["plan_id"], pending["version"]) == (str(draft.id), 2)
+    assert (pending["published_plan_id"], pending["published_version"]) == (str(second.id), 1)
+    assert (summary["alerts_blocking"], summary["alerts_total"]) == (1, 3)
+
+
+async def test_arret_saute_non_repris_reste_dans_le_prevu(client, db, world, auth_headers):
+    """Sans second plan, l'arrêt sauté reste dû : « 12 000 L livrés sur 18 000 L »."""
+    o1 = await factory.make_order(db, world, "ST-DLA-001", "SUPER", 12000)
+    o2 = await factory.make_order(db, world, "ST-DLA-002", "GASOIL", 6000)
+    await factory.make_plan(
+        db,
+        world,
+        [
+            {
+                "truck": "LT-123-AA",
+                "driver": "Jean Mbarga",
+                "status": TripStatus.COMPLETED,
+                "stops": [
+                    {
+                        "station": "ST-DLA-001",
+                        "status": StopStatus.DELIVERED,
+                        "deliveries": [(o1, 12000, 12000)],
+                    },
+                    {"station": "ST-DLA-002", "status": StopStatus.SKIPPED, "deliveries": [(o2, 6000, None)]},
+                ],
+            }
+        ],
+        status=PlanStatus.PUBLISHED,
+    )
+    await db.commit()
+    response = await client.get(
+        "/dashboard", params={"day": "2027-01-12"}, headers=await auth_headers("manager")
+    )
+    summary = response.json()["summary"]
+    assert (summary["volume_planned_l"], summary["volume_delivered_l"]) == (18000.0, 12000.0)
+    assert (summary["volume_skipped_l"], summary["volume_replanned_l"]) == (6000.0, 0.0)
