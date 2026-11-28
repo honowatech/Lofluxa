@@ -13,6 +13,7 @@ import { MOCKS_MODE } from "@/lib/config";
 
 import { AlertsButton } from "./AlertsButton";
 import { DaySelector } from "./DaySelector";
+import { usePendingDraftAlert } from "./pendingDraft";
 import { Sidebar } from "./Sidebar";
 import { UserMenu } from "./UserMenu";
 
@@ -20,6 +21,7 @@ import { UserMenu } from "./UserMenu";
 function useGlobalAlerts() {
   const { alerts } = useDriverDocumentIssues(useCanSee("referentials"));
   usePublishAlerts("drivers-documents", alerts);
+  usePublishAlerts("pending-draft", usePendingDraftAlert(useCanSee("plan")));
 }
 
 export function AppShell() {

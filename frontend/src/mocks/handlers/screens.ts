@@ -5,7 +5,7 @@
  *
  * Plusieurs écrans simulent les mêmes routes (`GET /plans`, `/plans/{id}`, `/loadings`, `/trips/{id}/status`,
  * `/tasks/{id}`…), chacun avec ses propres données. Un aiguilleur unique interroge donc les doublures dans
- * l'ordre (Plan, Journée, Comparaison, Commandes, Disponibilité, Chargement, Suivi, Journal) :
+ * l'ordre (Journal, Plan, Journée, Comparaison, Commandes, Disponibilité, Chargement, Suivi) :
  *  - la première réponse autre que « 404 introuvable » l'emporte : une tournée de l'écran Suivi est ainsi
  *    servie par les doublures du Suivi même si celles du Chargement ne la connaissent pas ;
  *  - les listes `GET /plans` et `GET /loadings` sont fusionnées (sans doublon), pour que chaque écran y
@@ -92,6 +92,9 @@ export function createScreenHandlers(): HttpHandler[] {
 
   return [
     combineHandlers([
+      // Le journal d'abord : ses doublures filtrent `/events` par jour et paginent, celles de la Journée
+      // (aperçu des derniers événements) répondent pour tout jour avec un total fixe.
+      ...eventsHandlers(createEventsScenario(today)),
       ...planApi(planState),
       ...day.handlers,
       ...comparisonHandlers().handlers,
@@ -99,7 +102,6 @@ export function createScreenHandlers(): HttpHandler[] {
       ...createAvailabilityMocks().handlers,
       ...createLoadingMocks(today).handlers,
       ...createDeliveryMocks(today).handlers,
-      ...eventsHandlers(createEventsScenario(today)),
     ]),
   ];
 }

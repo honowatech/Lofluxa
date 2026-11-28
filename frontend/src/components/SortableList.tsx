@@ -4,6 +4,14 @@
  *
  *   <SortableList items={stops} getId={(s) => s.id} onReorder={setStops}
  *     renderItem={(stop, handle) => <div className="flex">{handle}{stop.name}</div>} />
+ *
+ * Dans un tableau : `as="tbody"` rend `<tbody>` / `<tr>`, `renderItem` renvoie alors les `<td>` de la ligne.
+ *   <table><SortableList as="tbody" items={stops} getId={…} onReorder={…}
+ *     isDisabled={(stop) => stop.status !== "pending"}            // un arrêt livré ou sauté est figé seul
+ *     rowClassName={(stop, state) => cn(state.insert === "before" && "border-t-2 border-primary")}
+ *     renderItem={(stop, handle) => (<><td>{handle}</td><td>{stop.name}</td></>)} /></table>
+ * Le 4ᵉ argument de `renderItem` (et le 2ᵉ de `rowClassName`) décrit le glisser en cours : `isDragging`,
+ * `isOver`, `activeId`, et `insert` (« before » / « after ») pour dessiner le repère d'insertion.
  */
 import {
   DndContext,
@@ -23,9 +31,25 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { GripVertical } from "lucide-react";
-import type { ReactNode } from "react";
+import type { HTMLAttributes, ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
+
+/** État de glisser-déposer d'une ligne, pour le rendu (repère d'insertion, ligne en cours de déplacement). */
+export interface SortableRowState {
+  /** Cette ligne est celle qu'on déplace. */
+  isDragging: boolean;
+  /** L'élément déplacé survole cette ligne. */
+  isOver: boolean;
+  /** Un glisser est en cours dans le contexte (cette liste ou, en mode `parent`, une autre). */
+  isSorting: boolean;
+  /** Identifiant de l'élément déplacé (`null` hors glisser). */
+  activeId: string | null;
+  /** Où l'élément déplacé s'insérerait par rapport à cette ligne survolée ; `null` si elle n'est pas survolée. */
+  insert: "before" | "after" | null;
+  /** Ligne figée (`disabled` ou `isDisabled`). */
+  disabled: boolean;
+}
 
 export interface SortableListProps<T> {
   items: T[];
@@ -33,8 +57,16 @@ export interface SortableListProps<T> {
   /** Liste réordonnée, et déplacement effectué (pour `useFieldArray().move`). */
   onReorder: (items: T[], move: { from: number; to: number }) => void;
   /** `handle` : poignée à placer dans la ligne. */
-  renderItem: (item: T, handle: ReactNode, index: number) => ReactNode;
+  renderItem: (item: T, handle: ReactNode, index: number, state: SortableRowState) => ReactNode;
   disabled?: boolean;
+  /** Fige certains éléments seulement : ni déplaçables, ni poignée active (les autres restent mobiles). */
+  isDisabled?: (item: T, index: number) => boolean;
+  /** Balises rendues : `"ul"` (défaut) → `<ul>` / `<li>` ; `"tbody"` → `<tbody>` / `<tr>` (lignes de tableau). */
+  as?: "ul" | "tbody";
+  /** Classes d'une ligne (`<li>` ou `<tr>`), éventuellement selon l'état du glisser. */
+  rowClassName?: string | ((item: T, state: SortableRowState, index: number) => string | undefined);
+  /** Attributs supplémentaires d'une ligne (`data-*`, `aria-*`, `onClick`…). */
+  rowProps?: (item: T, index: number) => HTMLAttributes<HTMLElement>;
   /**
    * `"standalone"` (défaut) : la liste gère seule son glisser-déposer.
    * `"parent"` : la liste s'inscrit dans le `<DndContext>` fourni par le parent (déplacement d'une liste à une
@@ -53,17 +85,35 @@ function Row({
   id,
   disabled,
   label,
+  as,
+  className,
+  rowProps,
   children,
 }: {
   id: string;
   disabled?: boolean;
   label: string;
-  children: (handle: ReactNode) => ReactNode;
+  as: "li" | "tr";
+  className?: string | ((state: SortableRowState) => string | undefined);
+  rowProps?: HTMLAttributes<HTMLElement>;
+  children: (handle: ReactNode, state: SortableRowState) => ReactNode;
 }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id,
-    disabled,
-  });
+  const sortable = useSortable({ id, disabled });
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = sortable;
+  const isOver = sortable.isOver && !isDragging;
+  const state: SortableRowState = {
+    isDragging,
+    isOver,
+    isSorting: sortable.isSorting,
+    activeId: sortable.active ? String(sortable.active.id) : null,
+    // Élément venu d'une autre liste (`activeIndex` < 0) ou de plus bas : il s'insère avant la ligne survolée.
+    insert: !isOver
+      ? null
+      : sortable.activeIndex >= 0 && sortable.activeIndex < sortable.index
+        ? "after"
+        : "before",
+    disabled: !!disabled,
+  };
   const handle = (
     <button
       type="button"
@@ -76,14 +126,20 @@ function Row({
       <GripVertical className="size-3.5" />
     </button>
   );
+  const Tag = as;
   return (
-    <li
-      ref={setNodeRef}
-      style={{ transform: CSS.Translate.toString(transform), transition }}
-      className={cn(isDragging && "relative z-10 rounded-md bg-card shadow-pop")}
+    <Tag
+      {...rowProps}
+      ref={setNodeRef as (node: HTMLElement | null) => void}
+      style={{ ...rowProps?.style, transform: CSS.Translate.toString(transform), transition }}
+      className={cn(
+        isDragging && "relative z-10 rounded-md bg-card shadow-pop",
+        rowProps?.className,
+        typeof className === "function" ? className(state) : className,
+      )}
     >
-      {children(handle)}
-    </li>
+      {children(handle, state)}
+    </Tag>
   );
 }
 
@@ -105,6 +161,10 @@ export function SortableList<T>({
   className,
   context = "standalone",
   id,
+  isDisabled,
+  as = "ul",
+  rowClassName,
+  rowProps,
 }: SortableListProps<T>) {
   const sensors = useSortableSensors();
   const ids = items.map(getId);
@@ -116,20 +176,26 @@ export function SortableList<T>({
     if (from >= 0 && to >= 0) onReorder(arrayMove(items, from, to), { from, to });
   };
 
+  const Container = as;
   const list = (
     <SortableContext id={id} items={ids} strategy={verticalListSortingStrategy}>
-      <ul className={cn("flex flex-col", className)}>
+      <Container className={as === "ul" ? cn("flex flex-col", className) : className}>
         {items.map((item, index) => (
           <Row
             key={ids[index]}
             id={ids[index]}
-            disabled={disabled}
+            as={as === "ul" ? "li" : "tr"}
+            disabled={disabled || isDisabled?.(item, index)}
             label={handleLabel?.(item, index) ?? `${index + 1}`}
+            rowProps={rowProps?.(item, index)}
+            className={
+              typeof rowClassName === "function" ? (state) => rowClassName(item, state, index) : rowClassName
+            }
           >
-            {(handle) => renderItem(item, handle, index)}
+            {(handle, state) => renderItem(item, handle, index, state)}
           </Row>
         ))}
-      </ul>
+      </Container>
     </SortableContext>
   );
   if (context === "parent") return list;

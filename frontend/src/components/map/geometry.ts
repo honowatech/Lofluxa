@@ -102,3 +102,28 @@ export function routeBounds(route: MapRoute | undefined): Bounds | null {
 
 export const boundsSignature = (b: Bounds): string =>
   [b.minLat, b.maxLat, b.minLon, b.maxLon].map((v) => v.toFixed(5)).join(",");
+
+/**
+ * Position d'une bulle de détail (coin haut gauche) pour qu'elle reste ENTIÈREMENT dans le cadre de la carte.
+ * Au-dessus du point par défaut ; dessous s'il n'y a pas la place ; puis recalée horizontalement et
+ * verticalement dans le cadre (un marqueur près d'un bord, voire hors champ, garde une bulle lisible).
+ */
+export function placeTooltip(
+  anchor: { x: number; y: number },
+  tooltip: { width: number; height: number },
+  container: { width: number; height: number },
+  gap = 14,
+  margin = 6,
+): { left: number; top: number; side: "top" | "bottom" } {
+  const clamp = (value: number, min: number, max: number) =>
+    Math.min(Math.max(value, min), Math.max(min, max));
+  const fitsAbove = anchor.y - gap - tooltip.height >= margin;
+  const fitsBelow = anchor.y + gap + tooltip.height <= container.height - margin;
+  const side = fitsAbove || !fitsBelow ? "top" : "bottom";
+  const wantedTop = side === "top" ? anchor.y - gap - tooltip.height : anchor.y + gap;
+  return {
+    left: clamp(anchor.x - tooltip.width / 2, margin, container.width - tooltip.width - margin),
+    top: clamp(wantedTop, margin, container.height - tooltip.height - margin),
+    side,
+  };
+}

@@ -391,3 +391,55 @@ describe("SortableList", () => {
     expect(onReorder).not.toHaveBeenCalled();
   });
 });
+
+describe("SortableList — lignes de tableau, éléments figés, état du glisser", () => {
+  it('as="tbody" rend des <tr> ; isDisabled fige une ligne seule ; l\'état est transmis au rendu', async () => {
+    const onReorder = vi.fn();
+    const stops = [
+      { id: "a", name: "Akwa", done: true },
+      { id: "b", name: "Bonabéri", done: false },
+      { id: "c", name: "Cité", done: false },
+    ];
+    const states: boolean[] = [];
+    render(
+      <table>
+        <SortableList
+          as="tbody"
+          items={stops}
+          getId={(stop) => stop.id}
+          onReorder={onReorder}
+          isDisabled={(stop) => stop.done}
+          handleLabel={(stop) => `Déplacer ${stop.name}`}
+          rowClassName={(_stop, state) => (state.disabled ? "figee" : undefined)}
+          rowProps={(stop) => ({ "data-stop": stop.id }) as never}
+          renderItem={(stop, handle, _index, state) => {
+            states.push(state.isDragging || state.isOver || state.insert !== null || state.activeId !== null);
+            return (
+              <>
+                <td>{handle}</td>
+                <td>{stop.name}</td>
+              </>
+            );
+          }}
+        />
+      </table>,
+    );
+    const rows = screen.getAllByRole("row");
+    expect(rows.map((row) => row.tagName)).toEqual(["TR", "TR", "TR"]);
+    expect(rows[0].parentElement?.tagName).toBe("TBODY");
+    expect(rows[0]).toHaveAttribute("data-stop", "a");
+    expect(rows[0].className).toContain("figee");
+    expect(rows[1].className).not.toContain("figee");
+    expect(screen.getByRole("button", { name: "Déplacer Akwa" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Déplacer Bonabéri" })).toBeEnabled();
+    expect(states.every((active) => active === false)).toBe(true); // au repos : aucun glisser en cours
+
+    // Au clavier : la ligne mobile se déplace, la ligne figée ne peut pas être saisie.
+    const user = userEvent.setup();
+    screen.getByRole("button", { name: "Déplacer Bonabéri" }).focus();
+    await user.keyboard(" ");
+    await waitFor(() => expect(states.some(Boolean)).toBe(true)); // l'état du glisser parvient au rendu
+    await user.keyboard("{Escape}");
+    expect(onReorder).not.toHaveBeenCalled();
+  });
+});

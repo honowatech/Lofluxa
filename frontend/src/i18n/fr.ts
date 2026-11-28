@@ -122,25 +122,12 @@ export const fr = {
     alerts: "Alertes",
     alertsCount: (n: number) => (n === 0 ? "Aucune alerte" : n === 1 ? "1 alerte" : `${n} alertes`),
     noAlerts: "Aucune alerte pour le moment.",
+    pendingDraft: (version: number) => `Plan v${version} resté en brouillon : à vérifier et publier`,
     mocksPartial: "Données simulées",
     mocksFull: "Démonstration hors ligne",
     mocksHint:
       "Les routes non encore livrées par le serveur sont simulées dans le navigateur (VITE_MOCKS). Rien n'est enregistré.",
     skipToContent: "Aller au contenu",
-  },
-
-  placeholder: {
-    badge: "Vague 2",
-    title: "Écran en cours de construction",
-    body: (screen: string) =>
-      `L'écran « ${screen} » sera livré en vague 2. La coquille, la navigation, le jour J et les composants partagés sont déjà en place.`,
-    contents: "Contenu prévu",
-    selectedDay: "Jour sélectionné",
-    scope: {
-      events: "Panne, réaffectation, pénurie, avec assistant de réaffectation.",
-      loading: "Tournées du jour au dépôt, chargement par compartiment, calcul à 15 °C, fiche PDF, statuts.",
-      deliveries: "Par tournée : heures et volumes réels, arrêts sautés.",
-    },
   },
 
   auth: {

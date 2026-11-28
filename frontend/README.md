@@ -248,6 +248,10 @@ usePublishAlerts("plan-violations", [
 ]);
 ```
 
+La coquille publie elle-même deux alertes, quel que soit l'écran : permis / habilitations expirés ou proches,
+et **version du plan restée en brouillon** après un événement (`GET /dashboard` → `pending_draft`), avec un lien
+vers `/plan?plan=<id>&day=<jour>`, pour tous les rôles qui voient l'écran Plan (`src/app/shell/pendingDraft.ts`).
+
 ## Composants partagés — `@/components`
 
 Principes : densité élevée, tout faisable au clavier dans les tableaux, aucune action destructive sans
@@ -358,6 +362,10 @@ const bounds = boundsOf([...pointsA, ...pointsB], [...routesA, ...routesB]);   /
 `dimmed` sur une tournée atténue aussi ses arrêts. `routeColor(i)` ne boucle qu'après 30 tournées ; les
 10 premières couleurs sont figées (le PDF de comparaison les reprend). `routeBounds(route)` donne l'emprise
 d'une tournée.
+
+La bulle de détail au survol reste toujours dans le cadre de la carte (elle bascule sous le marqueur ou se
+décale près d'un bord, y compris pour un marqueur hors champ après un recadrage) — `placeTooltip` dans
+`map/geometry.ts`.
 
 ### `ViolationsPanel`
 
@@ -486,6 +494,11 @@ const sensors = useSortableSensors(); // mêmes capteurs que la liste autonome
   ))}
 </DndContext>;
 ```
+
+Compléments (tous facultatifs) : `as="tbody"` rend `<tbody>` / `<tr>` (lignes de tableau, `renderItem` renvoie
+les `<td>`) ; `isDisabled={(item) => …}` fige un élément seul (arrêt livré ou sauté) ; `rowClassName` et
+`rowProps` habillent la ligne ; le 4ᵉ argument de `renderItem` (`SortableRowState` : `isDragging`, `isOver`,
+`isSorting`, `activeId`, `insert: "before" | "after" | null`, `disabled`) sert au repère d'insertion.
 
 ### Statuts, états, notifications, PDF
 

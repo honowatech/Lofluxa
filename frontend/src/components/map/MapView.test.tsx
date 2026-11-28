@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  placeTooltip,
   boundsOf,
   computeBounds,
   fitProjection,
@@ -221,5 +222,27 @@ describe("géométrie", () => {
     expect(bounds.maxLat - bounds.minLat).toBeGreaterThan(0.01);
     expect(fitSignatureOf(POINTS, [])).not.toBe(fitSignatureOf(POINTS.slice(1), []));
     expect(fitSignatureOf([], [])).toBe("");
+  });
+});
+
+describe("placeTooltip — bulle de détail gardée dans le cadre", () => {
+  const frame = { width: 400, height: 300 };
+  const bubble = { width: 200, height: 80 };
+
+  it("au-dessus du marqueur, centrée, quand la place ne manque pas", () => {
+    expect(placeTooltip({ x: 200, y: 200 }, bubble, frame)).toEqual({ left: 100, top: 106, side: "top" });
+  });
+
+  it("bascule dessous près du bord haut", () => {
+    expect(placeTooltip({ x: 200, y: 30 }, bubble, frame)).toMatchObject({ top: 44, side: "bottom" });
+  });
+
+  it("recalée près des bords droit et gauche, et pour un marqueur hors champ", () => {
+    expect(placeTooltip({ x: 390, y: 200 }, bubble, frame).left).toBe(194); // 400 − 200 − 6
+    expect(placeTooltip({ x: 5, y: 200 }, bubble, frame).left).toBe(6);
+    const outside = placeTooltip({ x: 520, y: -40 }, bubble, frame);
+    expect(outside.left + bubble.width).toBeLessThanOrEqual(frame.width);
+    expect(outside.top).toBeGreaterThanOrEqual(0);
+    expect(outside.top + bubble.height).toBeLessThanOrEqual(frame.height);
   });
 });

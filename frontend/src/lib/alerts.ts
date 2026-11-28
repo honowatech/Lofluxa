@@ -36,7 +36,7 @@ export const useAlertsStore = create<AlertsState>((set) => ({
 
 const ORDER: Record<AppAlert["severity"], number> = { blocking: 0, warning: 1, info: 2 };
 
-/** Toutes les alertes, bloquantes d'abord. */
+/** Toutes les alertes, bloquantes d'abord (à gravité égale, l'ordre de publication des sources est conservé). */
 export function selectAlerts(state: AlertsState): AppAlert[] {
   return Object.values(state.bySource)
     .flat()

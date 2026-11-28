@@ -4,7 +4,7 @@ import { useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from "rea
 import { fr } from "@/i18n/fr";
 import { cn } from "@/lib/utils";
 
-import { fitProjection, isValidPosition } from "./geometry";
+import { fitProjection, isValidPosition, placeTooltip } from "./geometry";
 import type { MapRendererProps } from "./types";
 
 interface Hover {
@@ -28,6 +28,22 @@ export function SchematicMap({
   const containerRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ width: 800, height: 480 });
   const [hover, setHover] = useState<Hover | null>(null);
+  // Bulle recalée dans le cadre une fois mesurée (marqueur près d'un bord).
+  const tooltipRef = useRef<HTMLDivElement>(null);
+  const [placed, setPlaced] = useState<{ left: number; top: number } | null>(null);
+  useLayoutEffect(() => {
+    const element = tooltipRef.current;
+    if (!hover || !element) {
+      setPlaced(null);
+      return;
+    }
+    const { left, top } = placeTooltip(
+      hover,
+      { width: element.offsetWidth, height: element.offsetHeight },
+      size,
+    );
+    setPlaced({ left, top });
+  }, [hover, size]);
 
   useLayoutEffect(() => {
     const element = containerRef.current;
@@ -239,9 +255,13 @@ export function SchematicMap({
 
       {hover && (
         <div
+          ref={tooltipRef}
           role="tooltip"
-          className="pointer-events-none absolute z-10 w-max max-w-64 -translate-x-1/2 -translate-y-full rounded-md border bg-card px-2.5 py-1.5 text-xs shadow-pop"
-          style={{ left: hover.x, top: hover.y - 14 }}
+          className={cn(
+            "pointer-events-none absolute z-10 w-max max-w-64 rounded-md border bg-card px-2.5 py-1.5 text-xs shadow-pop",
+            !placed && "-translate-x-1/2 -translate-y-full",
+          )}
+          style={placed ?? { left: hover.x, top: hover.y - 14 }}
         >
           <p className="text-2xs uppercase tracking-wide text-muted-foreground">{hover.kind}</p>
           <p className="font-semibold">{hover.title}</p>

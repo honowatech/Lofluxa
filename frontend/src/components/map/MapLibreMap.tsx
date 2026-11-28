@@ -7,7 +7,7 @@ import { useCallback, useEffect, useRef } from "react";
 import { fr } from "@/i18n/fr";
 import { DEFAULT_MAP_CENTER, TILES_ATTRIBUTION, TILES_URL } from "@/lib/config";
 
-import { isValidPosition } from "./geometry";
+import { isValidPosition, placeTooltip } from "./geometry";
 import type { MapRendererProps } from "./types";
 
 const ROUTES_SOURCE = "tn-routes";
@@ -61,7 +61,28 @@ export default function MapLibreMap({
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const markersRef = useRef<maplibregl.Marker[]>([]);
-  const popupRef = useRef<maplibregl.Popup | null>(null);
+  // Bulle de détail : élément superposé à la carte, recalé dans le cadre (la bulle native de MapLibre est
+  // rognée quand le marqueur est près d'un bord ou hors champ après un recadrage sur une tournée).
+  const tooltipRef = useRef<HTMLDivElement>(null);
+  const showTooltip = useCallback((position: { lat: number; lon: number }, content: HTMLElement) => {
+    const map = mapRef.current;
+    const tooltip = tooltipRef.current;
+    if (!map || !tooltip) return;
+    tooltip.replaceChildren(content);
+    tooltip.hidden = false;
+    const anchor = map.project([position.lon, position.lat]);
+    const frame = map.getContainer();
+    const { left, top } = placeTooltip(
+      anchor,
+      { width: tooltip.offsetWidth, height: tooltip.offsetHeight },
+      { width: frame.clientWidth, height: frame.clientHeight },
+    );
+    tooltip.style.left = `${left}px`;
+    tooltip.style.top = `${top}px`;
+  }, []);
+  const hideTooltip = useCallback(() => {
+    if (tooltipRef.current) tooltipRef.current.hidden = true;
+  }, []);
   const loadedRef = useRef(false);
   const callbacks = useRef({ onSelect, onMapClick, onRouteClick, onRouteHover, onTilesError });
   callbacks.current = { onSelect, onMapClick, onRouteClick, onRouteHover, onTilesError };
@@ -161,12 +182,7 @@ export default function MapLibreMap({
     });
     mapRef.current = map;
     map.touchZoomRotate.disableRotation();
-    popupRef.current = new maplibregl.Popup({
-      closeButton: false,
-      closeOnClick: false,
-      offset: 14,
-      maxWidth: "260px",
-    });
+    map.on("movestart", hideTooltip);
 
     map.on("load", () => {
       loadedRef.current = true;
@@ -195,7 +211,7 @@ export default function MapLibreMap({
       map.remove();
       mapRef.current = null;
     };
-  }, [drawRoutes, fit]);
+  }, [drawRoutes, fit, hideTooltip]);
 
   // Marqueurs et tracés.
   useEffect(() => {
@@ -203,6 +219,7 @@ export default function MapLibreMap({
     if (!map) return;
     markersRef.current.forEach((marker) => marker.remove());
     markersRef.current = [];
+    hideTooltip();
 
     const addMarker = (
       id: string,
@@ -228,12 +245,9 @@ export default function MapLibreMap({
       if (options.opacity !== undefined) element.style.opacity = String(options.opacity);
       if (callbacks.current.onSelect) element.style.cursor = "pointer";
       element.addEventListener("mouseenter", () => {
-        popupRef.current
-          ?.setLngLat([position.lon, position.lat])
-          .setDOMContent(popupContent(options.kindLabel, options.title, options.detail))
-          .addTo(map);
+        showTooltip(position, popupContent(options.kindLabel, options.title, options.detail));
       });
-      element.addEventListener("mouseleave", () => popupRef.current?.remove());
+      element.addEventListener("mouseleave", hideTooltip);
       element.addEventListener("click", (event) => {
         if (!callbacks.current.onSelect) return;
         event.stopPropagation();
@@ -277,7 +291,7 @@ export default function MapLibreMap({
       ),
     );
     drawRoutes();
-  }, [points, routes, selectedId, drawRoutes]);
+  }, [points, routes, selectedId, drawRoutes, showTooltip, hideTooltip]);
 
   // Cadrage automatique quand l'emprise à montrer change (contenu, tournée ciblée ou emprise imposée).
   useEffect(() => {
@@ -300,6 +314,13 @@ export default function MapLibreMap({
       {/* MapLibre impose `position: relative` à son conteneur : le dimensionnement est porté par le parent. */}
       <div className="absolute inset-0">
         <div ref={containerRef} className="h-full w-full" data-testid="maplibre-map" />
+        <div
+          ref={tooltipRef}
+          role="tooltip"
+          hidden
+          data-testid="map-tooltip"
+          className="pointer-events-none absolute z-10 w-max max-w-64 rounded-md border bg-card px-2.5 py-1.5 text-xs shadow-pop"
+        />
       </div>
       <div className="absolute right-2 top-2 z-10 flex flex-col overflow-hidden rounded-md border bg-card shadow-sm">
         {controls.map(([label, Icon, action]) => (

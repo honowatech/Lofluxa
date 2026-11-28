@@ -1,4 +1,4 @@
-import { act, screen, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { describe, expect, it } from "vitest";
 
@@ -12,6 +12,7 @@ import { server } from "@/mocks/server";
 import { loginAs, mockUser, renderApp } from "@/test/utils";
 
 import { SCREENS } from "./screens";
+import { pendingDraftAlert } from "./shell/pendingDraft";
 
 const frDay = (day: string) => day.split("-").reverse().join("/");
 const nav = () => screen.getByRole("navigation", { name: "Navigation principale" });
@@ -303,6 +304,78 @@ describe("coquille", () => {
     await user.click(screen.getByRole("button", { name: "Réduire le menu" }));
     expect(within(nav()).getByRole("link", { name: "Référentiels" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Déployer le menu" }));
+  });
+});
+
+describe("cloche : version du plan restée en brouillon", () => {
+  const PLAN_ID = "0193a000-0000-7000-8000-00000000d0af";
+  const draft = (blocking: number) =>
+    http.get(`${API}/dashboard`, ({ request }) =>
+      HttpResponse.json({
+        day: new URL(request.url).searchParams.get("day"),
+        plan: null,
+        pending_draft: {
+          plan_id: PLAN_ID,
+          version: 3,
+          created_at: "2027-01-12T09:00:00Z",
+          created_by_name: "Awa Dispatcher",
+          blocking_count: blocking,
+          warning_count: 0,
+          reason: "truck_breakdown",
+          message: "La version 3 créée après la panne du camion LT-401-AA n'est pas publiée.",
+        },
+        summary: {},
+        trips: [],
+        delays: [],
+        alerts: [
+          {
+            source: "plan",
+            severity: blocking > 0 ? "blocking" : "warning",
+            code: "pending_draft",
+            message: "La version 3 créée après la panne du camion LT-401-AA n'est pas publiée.",
+          },
+        ],
+      }),
+    );
+
+  it.each(["fleet", "supply", "manager"] as const)(
+    "visible pour %s depuis n'importe quel écran, avec un lien vers le plan concerné",
+    async (role) => {
+      server.use(draft(2));
+      loginAs(role);
+      const { user } = renderApp("/disponibilite?day=2027-01-12");
+      await waitFor(() => expect(screen.getByTestId("alerts-count")).toBeInTheDocument());
+      await user.click(screen.getByRole("button", { name: /^Alertes/ }));
+      const link = await screen.findByRole("link", { name: /Plan v3 resté en brouillon/ });
+      expect(link).toHaveTextContent("créée après la panne du camion LT-401-AA");
+      expect(link).toHaveAttribute("href", `/plan?plan=${PLAN_ID}&day=2027-01-12`);
+    },
+  );
+
+  it("gravité reprise du serveur ; rien sans brouillon en attente", () => {
+    const base = { plan: null, summary: {}, trips: [], delays: [] } as never as Parameters<
+      typeof pendingDraftAlert
+    >[0];
+    expect(pendingDraftAlert({ ...base!, pending_draft: null, alerts: [] }, "2027-01-12")).toEqual([]);
+    expect(pendingDraftAlert(undefined, "2027-01-12")).toEqual([]);
+    const [alert] = pendingDraftAlert(
+      {
+        ...base!,
+        alerts: [],
+        pending_draft: {
+          plan_id: PLAN_ID,
+          version: 2,
+          created_at: "2027-01-12T09:00:00Z",
+          created_by_name: null,
+          blocking_count: 0,
+          warning_count: 1,
+          reason: null,
+          message: "Version 2 en brouillon.",
+        },
+      },
+      "2027-01-12",
+    );
+    expect(alert).toMatchObject({ severity: "warning", description: "Version 2 en brouillon." });
   });
 });
 
