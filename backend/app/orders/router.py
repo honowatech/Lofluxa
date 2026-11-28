@@ -33,20 +33,50 @@ from app.orders.service import (
     STATUS_FR,
     apply_status,
     check_tank_capacity,
+    delivered_volumes,
+    not_reference_order,
     order_warnings,
+    reference_order_ids,
     transition_error,
 )
+from app.planning import service as planning_service
 from app.referentials.models import Product, Station
 
 router = APIRouter(tags=["commandes"])
 
 Dispatcher = Depends(require_roles(Role.DISPATCHER))
+# Statuts finaux sans livraison : plus rien à planifier.
+CLOSED_UNSERVED = frozenset({OrderStatus.CANCELLED, OrderStatus.POSTPONED})
 
 
 # --- Aides -----------------------------------------------------------------------------------
 
 
-def _to_out(order: Order, station: Station, product: Product, warnings: list[dict] | None = None) -> OrderOut:
+async def _extras(session: AsyncSession, orders: list[Order]) -> dict[uuid.UUID, dict]:
+    """Champs calculés d'un lot de commandes, en un nombre de requêtes indépendant de sa taille :
+    avertissements F3.4, appartenance à une journée de référence, reliquat (RM-16)."""
+    warnings = await order_warnings(session, orders)
+    reference = await reference_order_ids(session, orders)
+    ids = [order.id for order in orders if order.id not in reference]
+    remaining = await planning_service.order_remainders(session, ids) if ids else {}
+    delivered = await delivered_volumes(session, ids)
+    extras: dict[uuid.UUID, dict] = {}
+    for order in orders:
+        extra: dict = {"warnings": [OrderWarning(**w) for w in warnings.get(order.id, [])]}
+        if order.id in reference:
+            extra["is_reference"] = True
+        else:
+            requested = float(order.requested_l)
+            left = min(remaining.get(order.id, requested), requested)
+            extra["planned_l"] = round(requested - left, 2)
+            extra["delivered_l"] = round(delivered.get(order.id, 0.0), 2)
+            # Rien ne reste à planifier pour une commande annulée ou reportée.
+            extra["remaining_l"] = 0.0 if order.status in CLOSED_UNSERVED else round(left, 2)
+        extras[order.id] = extra
+    return extras
+
+
+def _to_out(order: Order, station: Station, product: Product, extra: dict | None = None) -> OrderOut:
     return OrderOut(
         id=order.id,
         day=order.day,
@@ -66,7 +96,7 @@ def _to_out(order: Order, station: Station, product: Product, warnings: list[dic
         import_batch_id=order.import_batch_id,
         created_at=order.created_at,
         updated_at=order.updated_at,
-        warnings=[OrderWarning(**w) for w in (warnings or [])],
+        **(extra or {}),
     )
 
 
@@ -85,8 +115,8 @@ async def _labels(session: AsyncSession, order: Order) -> tuple[Station, Product
 
 async def _out(session: AsyncSession, order: Order) -> OrderOut:
     """Commande avec ses libellés et ses avertissements F3.4 (commandes `draft` et `confirmed`)."""
-    warnings = (await order_warnings(session, [order])).get(order.id)
-    return _to_out(order, *await _labels(session, order), warnings)
+    extras = await _extras(session, [order])
+    return _to_out(order, *await _labels(session, order), extras[order.id])
 
 
 async def _usable_station(session: AsyncSession, station_id: uuid.UUID) -> Station:
@@ -150,9 +180,17 @@ async def list_orders(
         list[OrderStatus] | None, Query(description="Répétable : ?status=draft&status=…")
     ] = None,
     priority: OrderPriority | None = None,
+    include_reference: Annotated[
+        bool, Query(description="Inclure les commandes importées avec une journée de référence (F8.1)")
+    ] = False,
 ) -> Page[OrderOut]:
-    """Commandes, filtrables par jour, station, produit, statut(s) et priorité."""
+    """Commandes, filtrables par jour, station, produit, statut(s) et priorité.
+
+    Les commandes d'une journée de référence (F8.1) ne sont pas des commandes à exploiter : elles
+    sont écartées, sauf avec `include_reference=true` (elles portent alors `is_reference`)."""
     conditions = []
+    if not include_reference:
+        conditions.append(not_reference_order())
     if day is not None:
         conditions.append(Order.day == day)
     if station_id is not None:
@@ -176,10 +214,9 @@ async def list_orders(
             .offset(page.offset)
         )
     ).all()
-    # Avertissements F3.4 : les cuves de toutes les commandes de la page sont lues en une requête.
-    warnings = await order_warnings(session, [order for order, _, _ in rows])
+    extras = await _extras(session, [order for order, _, _ in rows])
     return Page[OrderOut](
-        items=[_to_out(order, station, product, warnings.get(order.id)) for order, station, product in rows],
+        items=[_to_out(order, station, product, extras[order.id]) for order, station, product in rows],
         total=total,
         limit=page.limit,
         offset=page.offset,
