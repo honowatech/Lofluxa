@@ -9,7 +9,7 @@
  */
 import { expect, test, type Page } from "@playwright/test";
 
-import { ADMIN, Api, freshDay, releaseSeed, seedPlan } from "./l12-seed";
+import { ADMIN, Api, freshDay, releaseSeed, seedPlan, TAG } from "./l12-seed";
 
 test.describe.configure({ mode: "serial" });
 test.setTimeout(180_000);
@@ -313,4 +313,89 @@ test("urgente non servie → reporter → publier ; liens d'exécution ; version
   await expect(page.getByTestId("screen-plan")).not.toHaveAttribute("data-plan-id", planId as string);
   await expect(page.getByText("Publié", { exact: true })).toBeVisible();
   await expect(page.getByRole("combobox", { name: "Plan et version affichés" })).toContainText("Version 2");
+});
+
+test("deux plans publiés le même jour, puis une version restée en brouillon après un événement", async ({
+  page,
+}) => {
+  // Plan principal publié malgré une pénurie de gasoil, réapprovisionnement, puis plan des reliquats publié.
+  const day = await freshDay();
+  const { planId, token, driverIds } = await seedPlan({
+    fixture: "demo_douala",
+    day,
+    stocks: { GASOIL: 30000 },
+  });
+  const api = new Api(token);
+  await api.call("POST", `/plans/${planId}/publish`);
+  const stocks = await api.call<{ items: { depot_id: string; depot_code: string; product_id: string }[] }>(
+    "GET",
+    `/availability/depot-stocks?day=${day}&limit=200`,
+  );
+  await api.call("PUT", `/availability/depot-stocks?day=${day}`, {
+    items: stocks.items
+      .filter((stock) => stock.depot_code.startsWith(TAG))
+      .map((stock) => ({ depot_id: stock.depot_id, product_id: stock.product_id, available_l: 90000 })),
+  });
+  const { task_id } = await api.call<{ task_id: string }>("POST", "/plans/compute", { day });
+  const secondId = await api.waitTask(task_id);
+  await api.call("POST", `/plans/${secondId}/publish`);
+  const main = await api.call<ApiPlan>("GET", `/plans/${planId}`);
+  const second = await api.call<ApiPlan>("GET", `/plans/${secondId}`);
+  expect(main.trips.length).toBeGreaterThan(second.trips.length);
+
+  // Le plan du jour le plus important s'ouvre par défaut (pas le dernier publié) ; la liste dit la nature de chacun.
+  await login(page);
+  await page.goto(`/plan?day=${day}`);
+  const screen = page.getByTestId("screen-plan");
+  const list = page.getByRole("region", { name: "Liste des tournées" });
+  const selector = page.getByRole("combobox", { name: "Plan et version affichés" });
+  await expect(screen).toHaveAttribute("data-plan-id", planId as string);
+  await expect(selector.locator("option")).toHaveText([
+    new RegExp(`^Plan du jour 1 \\(${main.trips.length} tournées\\) · Version 1 · Publié, en vigueur`),
+    new RegExp(`^Plan du jour 2 \\(${second.trips.length} tournées?\\) · Version 1 · Publié, en vigueur`),
+  ]);
+  await expect(page.getByTestId("plans-in-force")).toContainText("2 plans du jour publiés ce jour");
+  await expect(list.locator("[data-trip-card]")).toHaveCount(main.trips.length);
+
+  // Chaque plan n'affiche que ses tournées : liste, carte et détail.
+  await selector.selectOption(secondId);
+  await expect(screen).toHaveAttribute("data-plan-id", secondId);
+  await expect(list.locator("[data-trip-card]")).toHaveCount(second.trips.length);
+  for (const trip of main.trips) await expect(list.locator(`[data-trip-card="${trip.id}"]`)).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "Détail de la tournée" })).toContainText(
+    "Sélectionnez une tournée",
+  );
+  await selector.selectOption(planId as string);
+  await expect(list.locator("[data-trip-card]")).toHaveCount(main.trips.length);
+
+  // Chauffeur indisponible sur une tournée dont le chauffeur en conduit une autre : la nouvelle version reste
+  // en brouillon (RM-03 bloquant). L'écran le dit en tête, avec le résumé de l'événement.
+  const withDriver = (
+    await api.call<{ trips: (ApiTrip & { driver_id: string | null })[] }>("GET", `/plans/${planId}`)
+  ).trips;
+  const busy = withDriver.find(
+    (candidate) => withDriver.filter((other) => other.driver_id === candidate.driver_id).length > 1,
+  );
+  test.skip(!busy, "aucun chauffeur n'a deux tournées dans ce plan : l'événement serait publié d'office");
+  const event = await api.call<{ plan_id: string; plan_status: string; blocking_count: number }>(
+    "POST",
+    "/events/driver-unavailable",
+    { trip_id: busy?.id, replacement_driver_id: driverIds.CH05, reason: "Malaise au dépôt" },
+  );
+  expect(event.plan_status).toBe("draft");
+  await page.goto(`/plan?day=${day}&plan=${event.plan_id}`);
+  const notice = page.getByTestId("event-draft-notice");
+  await expect(notice).toContainText(
+    new RegExp(
+      `Version 2 créée par un événement : ${event.blocking_count} violations? bloquantes? à corriger avant publication`,
+    ),
+  );
+  await expect(notice).toContainText("Chauffeur indisponible");
+  await expect(notice).toContainText("La version 1 publiée reste la référence du terrain");
+  await expect(page.getByRole("button", { name: "Publier", exact: true })).toBeDisabled();
+  await expect(page.getByTestId("violations-panel")).toContainText("RM-03");
+  // Sans plan dans l'adresse, c'est toujours le plan en vigueur qui s'ouvre, et il signale le brouillon.
+  await page.goto(`/plan?day=${day}`);
+  await expect(screen).toHaveAttribute("data-plan-id", planId as string);
+  await expect(page.getByText(/une version 2 est déjà en préparation/)).toBeVisible();
 });

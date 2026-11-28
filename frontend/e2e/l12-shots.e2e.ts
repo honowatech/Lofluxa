@@ -8,7 +8,7 @@
  */
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
-import { ADMIN, Api, freshDay, releaseSeed, seedPlan } from "./l12-seed";
+import { ADMIN, Api, freshDay, releaseSeed, seedPlan, TAG } from "./l12-seed";
 
 test.skip(!process.env.L12_CAPTURES, "captures régénérées à la demande (L12_CAPTURES=1)");
 test.use({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 });
@@ -175,4 +175,55 @@ test("captures : commande urgente non servie (RM-15), plan de 30 tournées, aucu
   await page.goto("/plan?day=2031-03-03");
   await expect(page.getByText("Aucun plan pour cette journée")).toBeVisible();
   await shot(page, "16-aucun-plan");
+});
+
+test("captures : deux plans publiés le même jour, version brouillon née d'un événement", async ({ page }) => {
+  const day = await freshDay();
+  const { planId, token, driverIds } = await seedPlan({
+    fixture: "demo_douala",
+    day,
+    stocks: { GASOIL: 30000 },
+  });
+  const api = new Api(token);
+  await api.call("POST", `/plans/${planId}/publish`);
+  const stocks = await api.call<{ items: { depot_id: string; depot_code: string; product_id: string }[] }>(
+    "GET",
+    `/availability/depot-stocks?day=${day}&limit=200`,
+  );
+  await api.call("PUT", `/availability/depot-stocks?day=${day}`, {
+    items: stocks.items
+      .filter((stock) => stock.depot_code.startsWith(TAG))
+      .map((stock) => ({ depot_id: stock.depot_id, product_id: stock.product_id, available_l: 90000 })),
+  });
+  const { task_id } = await api.call<{ task_id: string }>("POST", "/plans/compute", { day });
+  const secondId = await api.waitTask(task_id);
+  await api.call("POST", `/plans/${secondId}/publish`);
+
+  await login(page);
+  await page.goto(`/plan?day=${day}`);
+  await expect(page.getByTestId("plans-in-force")).toBeVisible();
+  await page.locator("[data-trip-button]").first().click();
+  await page.waitForTimeout(1200);
+  await shot(page, "17-deux-plans-publies-plan-principal");
+  await page.getByRole("combobox", { name: "Plan et version affichés" }).selectOption(secondId);
+  await expect(page.getByTestId("screen-plan")).toHaveAttribute("data-plan-id", secondId);
+  await page.locator("[data-trip-button]").first().click();
+  await page.waitForTimeout(1200);
+  await shot(page, "18-deux-plans-publies-plan-des-reliquats");
+
+  const trips = (
+    await api.call<{ trips: { id: string; driver_id: string | null }[] }>("GET", `/plans/${planId}`)
+  ).trips;
+  const busy = trips.find((trip) => trips.filter((other) => other.driver_id === trip.driver_id).length > 1);
+  if (!busy) return;
+  const event = await api.call<{ plan_id: string }>("POST", "/events/driver-unavailable", {
+    trip_id: busy.id,
+    replacement_driver_id: driverIds.CH05,
+    reason: "Malaise au dépôt",
+  });
+  await page.goto(`/plan?day=${day}&plan=${event.plan_id}`);
+  await expect(page.getByTestId("event-draft-notice")).toBeVisible();
+  await page.getByTestId("violations-panel").locator("button").first().click();
+  await page.waitForTimeout(1200);
+  await shot(page, "19-version-brouillon-apres-evenement");
 });

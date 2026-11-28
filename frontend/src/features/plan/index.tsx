@@ -33,12 +33,12 @@ import { fr } from "@/i18n/fr";
 import { usePublishAlerts, type AppAlert } from "@/lib/alerts";
 import { ApiError, isApiError } from "@/lib/api";
 import { useCan, useCanSee } from "@/lib/auth";
-import { formatDate } from "@/lib/format";
+import { formatDate, formatLocalTime } from "@/lib/format";
 import type { Violation } from "@/lib/types";
 import { useDay, withDay } from "@/lib/useDay";
 
 import { pickDefaultPlan, planAccess } from "./access";
-import { planKeys, publishPlan, usePlanCache, usePlanQuery, usePlansOfDay } from "./api";
+import { planKeys, publishPlan, useOriginEvent, usePlanCache, usePlanQuery, usePlansOfDay } from "./api";
 import { PlanDnd } from "./components/dnd";
 import { PlanHeader } from "./components/PlanHeader";
 import { PlanMap } from "./components/PlanMap";
@@ -104,7 +104,16 @@ export default function PlanPage() {
   useEffect(() => () => usePlanStore.getState().reset(), []);
 
   const storePlan = usePlanStore((state) => state.plan);
-  const plan = storePlan && storePlan.id === planId && storePlan.day === day ? storePlan : null;
+  const adoptedId = usePlanStore((state) => state.adoptedId);
+  // Une écriture peut rendre un plan d'un autre identifiant (nouvelle version) : il est affiché tout de suite,
+  // l'adresse suit juste après — pas de retour par l'écran de chargement entre les deux.
+  useEffect(() => {
+    if (adoptedId && adoptedId === planId) usePlanStore.setState({ adoptedId: null });
+  }, [adoptedId, planId]);
+  const plan =
+    storePlan && storePlan.day === day && (storePlan.id === planId || storePlan.id === adoptedId)
+      ? storePlan
+      : null;
 
   if (plan) return <PlanScreen plan={plan} plans={planList} canWrite={canWrite} openPlan={openPlan} />;
 
@@ -161,6 +170,7 @@ function PlanScreen({
   const [publishing, setPublishing] = useState(false);
   const [publishError, setPublishError] = useState<ApiError | null>(null);
 
+  const originEvent = useOriginEvent(plan);
   const { edit } = usePlanEditor(openPlan);
   const recompute = useRecompute(plan, openPlan);
   const busy = pending || publishing || recompute.running;
@@ -362,6 +372,44 @@ function PlanScreen({
           </Notice>
         ) : plan.status === "published" ? (
           <Notice tone="info">{t.readOnly.published}</Notice>
+        ) : originEvent.data ? (
+          <Notice
+            tone={plan.blocking_count > 0 ? "blocking" : "warning"}
+            action={
+              <span className="flex items-center gap-1.5">
+                {canSeeEvents && (
+                  <Button asChild variant="ghost" size="sm">
+                    <Link to={withDay("/journal", plan.day)}>{t.readOnly.toEvents}</Link>
+                  </Button>
+                )}
+                {access.publishedOfLineage && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => openPlan(access.publishedOfLineage?.id ?? null)}
+                  >
+                    {t.readOnly.openPublished}
+                  </Button>
+                )}
+              </span>
+            }
+          >
+            <span data-testid="event-draft-notice" className="block">
+              <span className="font-semibold">
+                {t.readOnly.eventDraft(plan.version, plan.blocking_count)}
+              </span>{" "}
+              {access.publishedOfLineage && t.readOnly.eventDraftReference(access.publishedOfLineage.version)}
+              <span className="mt-0.5 block text-foreground/80">
+                <span className="font-medium">
+                  {t.readOnly.eventDraftOrigin(
+                    originEvent.data.type_label,
+                    formatLocalTime(originEvent.data.occurred_at),
+                  )}
+                </span>{" "}
+                — {originEvent.data.summary}
+              </span>
+            </span>
+          </Notice>
         ) : access.publishedOfLineage ? (
           <Notice
             tone="warning"

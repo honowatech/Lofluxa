@@ -10,6 +10,7 @@ import type {
   DriverDay,
   EditOp,
   Plan,
+  PlanEvent,
   PlanSummary,
   PlanVersion,
   TaskAccepted,
@@ -68,6 +69,31 @@ export function useDriverDays(day: IsoDate, enabled: boolean) {
   return useQuery({
     queryKey: planKeys.driverDays(day),
     queryFn: ({ signal }) => fetchAll<DriverDay>("/availability/drivers", { day }, signal),
+    enabled,
+    staleTime: 60_000,
+  });
+}
+
+/** Événements du jour qui font naître une nouvelle version du plan (F6) : panne, chauffeur indisponible, pénurie. */
+export const DISRUPTION_TYPES = ["truck_breakdown", "driver_unavailable", "product_shortage"] as const;
+
+/**
+ * Événement à l'origine d'une version brouillon (`GET /events?plan_id=&day=`) : `null` si la version vient d'une
+ * modification manuelle. Lu seulement pour un brouillon issu d'une version publiée (version > 1).
+ */
+export function useOriginEvent(plan: Pick<Plan, "id" | "day" | "status" | "kind" | "version">) {
+  const enabled = plan.status === "draft" && plan.kind === "computed" && plan.version > 1;
+  return useQuery({
+    queryKey: ["plans", "origin-event", plan.id],
+    queryFn: async ({ signal }) => {
+      const events = await fetchAll<PlanEvent>(
+        "/events",
+        { plan_id: plan.id, day: plan.day, type: [...DISRUPTION_TYPES] },
+        signal,
+      );
+      // Le plus ancien : celui qui a créé la version (la liste est du plus récent au plus ancien).
+      return events.at(-1) ?? null;
+    },
     enabled,
     staleTime: 60_000,
   });

@@ -62,10 +62,31 @@ export function planAccess(
   };
 }
 
-/** Plan affiché par défaut pour un jour : le plan calculé non archivé le plus récent (le brouillon en cours s'il existe). */
+const tripsOf = (plan: PlanSummary): number => plan.metrics?.trips_count ?? 0;
+const volumeOf = (plan: PlanSummary): number => plan.metrics?.planned_l ?? 0;
+
+/** Plan en vigueur : `is_current` du serveur s'il est fourni, sinon « publié ». */
+export function isInForce(plan: PlanSummary): boolean {
+  return typeof plan.is_current === "boolean" ? plan.is_current : plan.status === "published";
+}
+
+/** Le plus important d'abord : le plus de tournées, puis le plus de volume, puis le plus récent. */
+function byImportance(a: PlanSummary, b: PlanSummary): number {
+  return tripsOf(b) - tripsOf(a) || volumeOf(b) - volumeOf(a) || b.created_at.localeCompare(a.created_at);
+}
+
+/**
+ * Plan affiché par défaut pour un jour : le **plan du jour en vigueur le plus important** — parmi les plans
+ * calculés en vigueur (publiés), celui qui a le plus de tournées (un second plan publié pour des reliquats
+ * ne masque pas le plan principal). À défaut de plan en vigueur : le brouillon calculé le plus important ;
+ * à défaut de plan calculé : le plan non archivé le plus récent (journée de référence, rejeu).
+ */
 export function pickDefaultPlan(plans: PlanSummary[]): PlanSummary | null {
+  const computed = plans.filter((plan) => plan.kind === "computed" && plan.status !== "archived");
+  const inForce = computed.filter(isInForce);
   return (
-    plans.find((plan) => plan.kind === "computed" && plan.status !== "archived") ??
+    [...inForce].sort(byImportance)[0] ??
+    [...computed].sort(byImportance)[0] ??
     plans.find((plan) => plan.status !== "archived") ??
     plans[0] ??
     null

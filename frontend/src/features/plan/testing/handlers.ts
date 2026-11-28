@@ -10,7 +10,7 @@ import { API, errorResponse } from "@/mocks/handlers/helpers";
 import type { ApiErrorDetail } from "@/lib/types";
 
 import { applyOp } from "../edits";
-import type { EditOp, Plan, PlanVersion, TaskStatus } from "../types";
+import type { EditOp, Plan, PlanEvent, PlanVersion, TaskStatus } from "../types";
 import { asNewVersion, DRIVER_DAYS, summaryOf, TRUCK_DAYS, versionOf } from "./fixtures";
 
 export interface Call {
@@ -27,6 +27,8 @@ export interface PlanApiState {
   /** États successifs de `GET /tasks/{id}` (le dernier est répété). */
   taskSteps?: Partial<TaskStatus>[];
   versions?: PlanVersion[];
+  /** Événements du jour renvoyés par `GET /events` (filtrés par `plan_id`). */
+  events?: PlanEvent[];
   /** Délai des écritures, pour observer l'état optimiste. */
   delayMs?: number;
 }
@@ -224,6 +226,15 @@ export function planApi(state: PlanApiState): HttpHandler[] {
         return { ...plan, unserved, violations, blocking_count: blocking, publishable: blocking === 0 };
       });
       return HttpResponse.json({ id: params.id, status: "postponed" });
+    }),
+    http.get(`${API}/events`, ({ request }) => {
+      const query = new URL(request.url).searchParams;
+      const types = query.getAll("type");
+      const items = (state.events ?? []).filter(
+        (event) =>
+          event.plan_id === query.get("plan_id") && (types.length === 0 || types.includes(event.type)),
+      );
+      return HttpResponse.json(page(items));
     }),
     http.get(`${API}/availability/trucks`, () => HttpResponse.json(page(TRUCK_DAYS))),
     http.get(`${API}/availability/drivers`, () => HttpResponse.json(page(DRIVER_DAYS))),

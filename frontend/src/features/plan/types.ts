@@ -3,10 +3,16 @@ import type { components } from "@/lib/types/api.gen";
 
 type Schemas = components["schemas"];
 
-export type Plan = Schemas["PlanOut"];
-/** Les noms `PlanSummaryOut`, `StopOut` et `UnservedOut` existent dans plusieurs modules du back-end :
- * l'OpenAPI les préfixe. Les deux derniers sont déduits du plan pour ne pas dépendre de ce préfixe. */
-export type PlanSummary = Schemas["PlanSummaryOut"];
+export type Plan = Schemas["PlanOut"] & { display_label?: string | null; is_current?: boolean | null };
+/**
+ * Résumé d'un plan (`GET /plans`). `display_label` (libellé prêt à afficher) et `is_current` (plan en vigueur)
+ * sont ajoutés par le lot L5 : l'écran les utilise s'ils sont présents et se replie sinon sur
+ * `kind` / `status` / `version` / `label`.
+ */
+export type PlanSummary = Schemas["PlanSummaryOut"] & {
+  display_label?: string | null;
+  is_current?: boolean | null;
+};
 export type Trip = Schemas["TripOut"];
 export type Stop = Trip["stops"][number];
 export type Delivery = Schemas["DeliveryOut"];
@@ -21,6 +27,7 @@ export type TruckDay = Schemas["TruckDayOut"];
 export type DriverDay = Schemas["DriverDayOut"];
 export type UnservedReason = Schemas["UnservedReason"];
 export type PlanKind = Schemas["PlanKind"];
+export type PlanEvent = Schemas["EventOut"];
 
 /** Modification manuelle d'un plan (F5.1, F5.3) : une opération = un appel à l'API. */
 export type EditOp =

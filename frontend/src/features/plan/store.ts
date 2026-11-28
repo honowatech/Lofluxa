@@ -17,6 +17,11 @@ export interface PlanEditState {
   plan: Plan | null;
   confirmed: Plan | null;
   pendingOp: EditOp | null;
+  /**
+   * Plan adopté à la suite d'une écriture qui en a changé l'identifiant (nouvelle version d'un plan publié) :
+   * l'écran l'affiche sans attendre que l'adresse ait suivi.
+   */
+  adoptedId: string | null;
   selectedTripId: string | null;
   selectedStopId: string | null;
   /** Tournée dont le tracé est survolé sur la carte (mise en évidence dans la liste). */
@@ -46,6 +51,7 @@ const INITIAL = {
   plan: null,
   confirmed: null,
   pendingOp: null,
+  adoptedId: null,
   selectedTripId: null,
   selectedStopId: null,
   hoveredTripId: null,
@@ -73,6 +79,7 @@ export const usePlanStore = create<PlanEditState>((set, get) => ({
     set({
       plan,
       confirmed: plan,
+      adoptedId: null,
       selectedTripId: sameLineage ? selection.tripId : null,
       selectedStopId: sameLineage ? selection.stopId : null,
     });
@@ -100,6 +107,7 @@ export const usePlanStore = create<PlanEditState>((set, get) => ({
       plan,
       confirmed: plan,
       pendingOp: null,
+      adoptedId: state.confirmed && state.confirmed.id !== plan.id ? plan.id : state.adoptedId,
       selectedTripId: selection.tripId,
       selectedStopId: selection.stopId,
       focusStopId: focus,

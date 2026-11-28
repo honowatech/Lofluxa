@@ -151,20 +151,142 @@ describe("Plan de tournées — lecture", () => {
     );
   });
 
-  it("plusieurs plans le même jour : sélecteur de plan et de version", async () => {
+  it("plusieurs versions le même jour : la version en vigueur s'ouvre, le brouillon se choisit dans le sélecteur", async () => {
     loginAs("dispatcher");
     const published = makePlan({ status: "published", publishable: false });
     const draft = { ...asNewVersion(published), created_at: `${DAY}T06:00:00Z` };
     setup([published, draft]);
     const { user, router } = renderApp(URL);
     const selector = await screen.findByRole("combobox", { name: "Plan et version affichés" });
-    // Par défaut : le brouillon en cours ; la version publiée reste signalée comme référence.
-    expect(selector).toHaveValue("plan-2");
-    expect(screen.getByText(/La version 1 publiée reste la référence du terrain/)).toBeInTheDocument();
-    await user.selectOptions(selector, "plan-1");
-    await waitFor(() => expect(router.state.location.search).toContain("plan=plan-1"));
+    // Par défaut : le plan du jour en vigueur ; le brouillon en préparation est signalé.
+    expect(selector).toHaveValue("plan-1");
+    expect(
+      within(selector).getByRole("option", { name: /Plan du jour · Version 1 · Publié, en vigueur/ }),
+    ).toBeInTheDocument();
+    expect(
+      within(selector).getByRole("option", { name: /Plan du jour · Version 2 · Brouillon/ }),
+    ).toBeInTheDocument();
     expect(await screen.findByText(/une version 2 est déjà en préparation/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Verrouiller la tournée/ })).not.toBeInTheDocument();
+    await user.selectOptions(selector, "plan-2");
+    await waitFor(() => expect(router.state.location.search).toContain("plan=plan-2"));
+    expect(await screen.findByText(/La version 1 publiée reste la référence du terrain/)).toBeInTheDocument();
+  });
+
+  it("sélecteur : la nature de chaque plan est dite (plan du jour, journée de référence, rejeu)", async () => {
+    loginAs("dispatcher");
+    const reference = makePlan({
+      id: "plan-ref",
+      root_plan_id: "plan-ref",
+      kind: "manual_reference",
+      label: "Journée A du 12/01",
+      created_at: `${DAY}T03:00:00Z`,
+    });
+    const replay = makePlan({
+      id: "plan-replay",
+      root_plan_id: "plan-replay",
+      kind: "replay",
+      created_at: `${DAY}T03:30:00Z`,
+    });
+    setup([reference, replay, makePlan({ status: "published", publishable: false })]);
+    renderApp(URL);
+    const selector = await screen.findByRole("combobox", { name: "Plan et version affichés" });
+    // Le plan du jour s'ouvre, pas la journée de référence ni son rejeu (pourtant « Version 1 · Brouillon »).
+    expect(selector).toHaveValue("plan-1");
+    expect(
+      within(selector)
+        .getAllByRole("option")
+        .map((option) => option.textContent),
+    ).toEqual([
+      "Journée de référence · Version 1 · Brouillon · 04:00",
+      "Rejeu · Version 1 · Brouillon · 04:30",
+      "Plan du jour · Version 1 · Publié, en vigueur · 05:42",
+    ]);
+    expect(
+      within(selector).getByRole("group", {
+        name: "Journée de référence — « Journée A du 12/01 », 2 tournées",
+      }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("En vigueur")).toBeInTheDocument();
+  });
+
+  it("deux plans publiés le même jour : le plus important s'ouvre, chacun garde ses tournées", async () => {
+    loginAs("dispatcher");
+    const main = makePlan({ status: "published", publishable: false });
+    const second = makePlan({
+      id: "plan-b",
+      root_plan_id: "plan-b",
+      status: "published",
+      publishable: false,
+      created_at: `${DAY}T08:00:00Z`,
+    });
+    // Plan des reliquats : une seule tournée, publié après le plan principal.
+    second.trips = [
+      {
+        ...second.trips[1],
+        id: "trip-b1",
+        seq: 1,
+        stops: second.trips[1].stops.map((s) => ({ ...s, id: "stop-b1" })),
+      },
+    ];
+    second.metrics = { ...second.metrics, trips_count: 1 } as typeof second.metrics;
+    setup([main, second]);
+    const { user } = renderApp(URL);
+    const selector = await screen.findByRole("combobox", { name: "Plan et version affichés" });
+    expect(selector).toHaveValue("plan-1");
+    expect(
+      within(selector)
+        .getAllByRole("option")
+        .map((option) => option.textContent),
+    ).toEqual([
+      "Plan du jour 1 (2 tournées) · Version 1 · Publié, en vigueur · 05:42",
+      "Plan du jour 2 (1 tournée) · Version 1 · Publié, en vigueur · 09:00",
+    ]);
+    expect(screen.getByTestId("plans-in-force")).toHaveTextContent("2 plans du jour publiés ce jour");
+    expect(tripList().querySelectorAll("[data-trip-card]")).toHaveLength(2);
+
+    await user.selectOptions(selector, "plan-b");
+    await waitFor(() => expect(screen.getByTestId("screen-plan")).toHaveAttribute("data-plan-id", "plan-b"));
+    // Seules les tournées du plan choisi : liste, carte et sélection repartent de zéro.
+    expect(tripList().querySelectorAll("[data-trip-card]")).toHaveLength(1);
+    const map = screen.getByRole("figure", { name: "Carte du plan de tournées" });
+    expect(map.querySelectorAll("[data-route]")).toHaveLength(1);
+    expect(map.querySelector('[data-route="trip-1"]')).toBeNull();
+    expect(tripList().querySelector("[data-selected]")).toBeNull();
+  });
+
+  it("libellé et plan en vigueur fournis par le serveur (display_label, is_current) : utilisés tels quels", async () => {
+    loginAs("dispatcher");
+    const main = {
+      ...makePlan({ status: "published", publishable: false }),
+      display_label: "Plan du jour — version 3 publiée",
+      is_current: false,
+    };
+    const other = {
+      ...makePlan({
+        id: "plan-b",
+        root_plan_id: "plan-b",
+        status: "published",
+        publishable: false,
+        created_at: `${DAY}T08:00:00Z`,
+      }),
+      display_label: "Plan complémentaire — version 1 publiée",
+      is_current: true,
+    };
+    other.metrics = { ...other.metrics, trips_count: 1 } as typeof other.metrics;
+    setup([main, other]);
+    renderApp(URL);
+    const selector = await screen.findByRole("combobox", { name: "Plan et version affichés" });
+    // `is_current` l'emporte sur la déduction « publié + le plus de tournées ».
+    await waitFor(() => expect(selector).toHaveValue("plan-b"));
+    expect(
+      within(selector)
+        .getAllByRole("option")
+        .map((option) => option.textContent),
+    ).toEqual([
+      "Plan du jour — version 3 publiée · 05:42",
+      "Plan complémentaire — version 1 publiée · 09:00",
+    ]);
   });
 
   it("rôle sans droit d'écriture : lecture seule", async () => {
@@ -695,6 +817,63 @@ describe("Plan de tournées — version archivée par un événement", () => {
       await screen.findByText(/Cette version a été remplacée : la version 2 est en vigueur/),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Afficher la version en vigueur" })).toBeInTheDocument();
+  });
+});
+
+describe("Plan de tournées — version brouillon née d'un événement", () => {
+  const event = (planId: string) => ({
+    id: "event-1",
+    day: DAY,
+    type: "truck_breakdown" as const,
+    type_label: "Panne de camion",
+    action: null,
+    summary: "Camion LT-401-AA en panne à 09:30 : 2 arrêts transférés sur le camion LT-402-AB (tournée 3).",
+    occurred_at: `${DAY}T08:30:00Z`,
+    actor_id: "user-1",
+    actor_name: "Awa Dispatcher",
+    plan_id: planId,
+    plan_version: 2,
+    trip_id: null,
+    trip_seq: null,
+    truck_plate: null,
+    payload: {},
+  });
+
+  it("le dit en tête d'écran, avec les violations à corriger et le résumé de l'événement", async () => {
+    loginAs("dispatcher");
+    const published = makePlan({ status: "published", publishable: false });
+    const draft = {
+      ...asNewVersion(published),
+      blocking_count: 1,
+      publishable: false,
+      violations: [violation("1", "RM-03", "blocking", "Le chauffeur de la tournée 2 n'est pas affectable.")],
+    };
+    setup([published, draft], { events: [event(draft.id)] });
+    renderApp(`${URL}&plan=${draft.id}`);
+    const notice = await screen.findByTestId("event-draft-notice");
+    expect(notice).toHaveTextContent(
+      "Version 2 créée par un événement : 1 violation bloquante à corriger avant publication.",
+    );
+    expect(notice).toHaveTextContent("La version 1 publiée reste la référence du terrain d'ici là.");
+    expect(notice).toHaveTextContent("Panne de camion · 09:30");
+    expect(notice).toHaveTextContent("2 arrêts transférés sur le camion LT-402-AB");
+    expect(
+      within(screen.getByTestId("screen-plan")).getByRole("link", { name: "Journal des événements" }),
+    ).toHaveAttribute("href", `/journal?day=${DAY}`);
+    expect(screen.getByRole("button", { name: "Voir la version publiée" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Publier" })).toBeDisabled();
+  });
+
+  it("un brouillon né d'une modification manuelle garde le bandeau habituel", async () => {
+    loginAs("dispatcher");
+    const published = makePlan({ status: "published", publishable: false });
+    const draft = asNewVersion(published);
+    setup([published, draft], { events: [] });
+    renderApp(`${URL}&plan=${draft.id}`);
+    expect(
+      await screen.findByText(/Version 2 — brouillon\. La version 1 publiée reste la référence/),
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId("event-draft-notice")).not.toBeInTheDocument();
   });
 });
 

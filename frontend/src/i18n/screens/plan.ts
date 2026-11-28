@@ -6,12 +6,24 @@ export const planTexts = {
 
   selector: {
     label: "Plan et version affichés",
-    lineage: (index: number, kind: string) => `Plan ${index} — ${kind}`,
-    option: (version: number, status: string, time: string) => `Version ${version} · ${status} · ${time}`,
-    kinds: { computed: "calculé", manual_reference: "journée de référence", replay: "rejeu" },
-    kindBadges: { computed: "Calculé", manual_reference: "Journée de référence", replay: "Rejeu" },
-    version: (n: number) => `Version ${n}`,
-    single: (version: number) => `Version ${version}`,
+    /** Nature d'un plan : dit toujours de quoi il s'agit, dans la liste comme en tête d'écran. */
+    natures: { computed: "Plan du jour", manual_reference: "Journée de référence", replay: "Rejeu" },
+    /** Groupe de la liste : une lignée (un plan et ses versions). */
+    lineage: (nature: string, index: number | null, detail: string | null) =>
+      `${nature}${index ? ` ${index}` : ""}${detail ? ` — ${detail}` : ""}`,
+    trips: (n: number) => `${n} ${plural(n, "tournée", "tournées")}`,
+    named: (label: string) => `« ${label} »`,
+    /** Option : nature, version, statut, heure — complète même quand la liste est repliée. */
+    option: (nature: string, version: number, status: string, time: string) =>
+      `${nature} · Version ${version} · ${status} · ${time}`,
+    /** Plusieurs plans de même nature le même jour : « Plan du jour 2 (1 tournée) ». */
+    ranked: (nature: string, index: number, trips: string | null) =>
+      `${nature} ${index}${trips ? ` (${trips})` : ""}`,
+    severalInForce: (n: number) => `${n} plans du jour publiés ce jour : chacun a ses propres tournées.`,
+    inForce: "en vigueur",
+    inForceBadge: "En vigueur",
+    inForceHint: "Version de référence du terrain pour ce plan.",
+    single: (nature: string, version: number) => `${nature} · Version ${version}`,
   },
 
   header: {
@@ -66,6 +78,13 @@ export const planTexts = {
       `Version ${draft} — brouillon. La version ${published} publiée reste la référence du terrain tant que ce brouillon n'est pas publié.`,
     openPublished: "Voir la version publiée",
     replay: "Rejeu de comparaison : modifiable, mais non publiable.",
+    eventDraft: (version: number, blocking: number) =>
+      blocking > 0
+        ? `Version ${version} créée par un événement : ${blocking} ${plural(blocking, "violation bloquante", "violations bloquantes")} à corriger avant publication.`
+        : `Version ${version} créée par un événement : aucune violation bloquante, elle prendra effet à sa publication.`,
+    eventDraftReference: (published: number) =>
+      `La version ${published} publiée reste la référence du terrain d'ici là.`,
+    eventDraftOrigin: (type: string, time: string) => `${type} · ${time}`,
     superseded: (current: number) =>
       `Cette version a été remplacée : la version ${current} est en vigueur (publiée). Celle-ci est archivée, en lecture seule.`,
     supersededNow: (shown: number, current: number) =>
