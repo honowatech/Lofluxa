@@ -12,7 +12,7 @@ export type Plan = Schemas["PlanOut"];
 export type PlanTrip = Schemas["TripOut"];
 export type PlanStop = PlanTrip["stops"][number];
 export type StopDeliveryInput = Schemas["StopDeliveryIn"];
-export type StopResult = Schemas["app__loading__schemas__StopOut"];
+export type StopResult = Schemas["DeliveryStopOut"];
 export type TripStatusInput = Schemas["TripStatusIn"];
 
 export const TRIP_FLOW: readonly TripStatus[] = ["planned", "at_depot", "loaded", "in_progress", "completed"];

@@ -23,7 +23,7 @@ export type TripOut = components["schemas"]["TripOut"];
 export type PlanStopOut = TripOut["stops"][number];
 export type DepotOut = components["schemas"]["DepotOut"];
 export type ProductOut = components["schemas"]["ProductOut"];
-type PlanSummaryOut = components["schemas"]["app__planning__schemas__PlanSummaryOut"];
+type PlanSummaryOut = components["schemas"]["PlanSummaryOut"];
 
 /** Tournée d'un plan publié du jour, avec le plan qui la porte. */
 export interface PublishedTrip {

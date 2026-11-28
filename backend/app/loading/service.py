@@ -25,13 +25,13 @@ from app.loading.conversion import ASTM_NOTE, to_decimal, volume_at_15
 from app.loading.deviation import RULE_CODE, Gap, Rm13Result, evaluate_rm_13
 from app.loading.models import Loading, LoadingLine
 from app.loading.schemas import (
+    DeliveryStopOut,
     LoadingIn,
     LoadingLineOut,
     LoadingOut,
     LoadingSummaryOut,
     StopDeliveryIn,
     StopDeliveryLineOut,
-    StopOut,
     TripLoadingOut,
     TripStatusIn,
 )
@@ -303,11 +303,11 @@ def trip_out(ctx: TripContext) -> TripLoadingOut:
     )
 
 
-async def stop_out(session: AsyncSession, ctx: TripContext, stop: Stop) -> StopOut:
+async def stop_out(session: AsyncSession, ctx: TripContext, stop: Stop) -> DeliveryStopOut:
     station = ctx.stations.get(stop.station_id)
     order_ids = {d.order_id for d in stop.deliveries}
     orders = await _orders_by_id(session, order_ids)
-    return StopOut(
+    return DeliveryStopOut(
         id=stop.id,
         trip_id=stop.trip_id,
         trip_status=ctx.trip.status,
@@ -588,7 +588,7 @@ async def change_trip_status(
 
 async def record_delivery(
     session: AsyncSession, stop_id: uuid.UUID, payload: StopDeliveryIn, user: User
-) -> StopOut:
+) -> DeliveryStopOut:
     ctx, stop = await load_stop_context(session, stop_id, lock=True)
     ensure_published(ctx.plan)
     if ctx.trip.status != TripStatus.IN_PROGRESS:

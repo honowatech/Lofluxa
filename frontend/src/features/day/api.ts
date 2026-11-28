@@ -8,7 +8,7 @@ import type { components } from "@/lib/types/api.gen";
 
 type Schemas = components["schemas"];
 export type DaySummary = Schemas["DaySummaryOut"];
-export type PlanSummary = Schemas["app__planning__schemas__PlanSummaryOut"];
+export type PlanSummary = Schemas["PlanSummaryOut"];
 export type PlanPage = Schemas["Page_PlanSummaryOut_"];
 export type Dashboard = Schemas["DashboardOut"];
 export type DashboardAlert = Schemas["DashboardAlertOut"];

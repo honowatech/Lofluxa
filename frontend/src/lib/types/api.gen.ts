@@ -1787,10 +1787,59 @@ export interface components {
       /** Contact */
       contact?: string | null;
     };
+    /** ComparedPlanOut */
+    ComparedPlanOut: {
+      /**
+       * Id
+       * Format: uuid
+       */
+      id: string;
+      /**
+       * Day
+       * Format: date
+       */
+      day: string;
+      kind: components["schemas"]["PlanKind"];
+      status: components["schemas"]["PlanStatus"];
+      /** Version */
+      version: number;
+      /** Label */
+      label: string | null;
+      /** Title */
+      title: string;
+      /** Approximate */
+      approximate: boolean;
+      /** Parent Plan Id */
+      parent_plan_id: string | null;
+      /** Engine Version */
+      engine_version: string | null;
+      /** Computed At */
+      computed_at: string | null;
+    };
+    /** ComparedUnservedOut */
+    ComparedUnservedOut: {
+      /**
+       * Order Id
+       * Format: uuid
+       */
+      order_id: string;
+      /** Station Code */
+      station_code: string | null;
+      /** Station Name */
+      station_name: string | null;
+      /** Product Code */
+      product_code: string | null;
+      /** Requested L */
+      requested_l: number | null;
+      /** Reason Code */
+      reason_code: string;
+      /** Reason Text */
+      reason_text: string | null;
+    };
     /** ComparisonOut */
     ComparisonOut: {
-      plan_a: components["schemas"]["app__comparison__schemas__PlanSummaryOut"];
-      plan_b: components["schemas"]["app__comparison__schemas__PlanSummaryOut"];
+      plan_a: components["schemas"]["ComparedPlanOut"];
+      plan_b: components["schemas"]["ComparedPlanOut"];
       metrics_a: components["schemas"]["PlanMetricsOut"];
       metrics_b: components["schemas"]["PlanMetricsOut"];
       /** Deltas */
@@ -1801,9 +1850,9 @@ export interface components {
       /** Routes B */
       routes_b: components["schemas"]["TripRouteOut"][];
       /** Unserved A */
-      unserved_a: components["schemas"]["app__comparison__schemas__UnservedOut"][];
+      unserved_a: components["schemas"]["ComparedUnservedOut"][];
       /** Unserved B */
-      unserved_b: components["schemas"]["app__comparison__schemas__UnservedOut"][];
+      unserved_b: components["schemas"]["ComparedUnservedOut"][];
     };
     /** CompartmentCreate */
     CompartmentCreate: {
@@ -1920,7 +1969,7 @@ export interface components {
       day: string;
       /** Generated At */
       generated_at: string;
-      plan: components["schemas"]["app__comparison__schemas__PlanSummaryOut"] | null;
+      plan: components["schemas"]["ComparedPlanOut"] | null;
       pending_draft: components["schemas"]["PendingDraftOut"] | null;
       summary: components["schemas"]["DashboardSummaryOut"];
       /** Trips */
@@ -2062,6 +2111,46 @@ export interface components {
       requested_l?: number | null;
       priority?: components["schemas"]["OrderPriority"] | null;
       order_status?: components["schemas"]["OrderStatus"] | null;
+    };
+    /** DeliveryStopOut */
+    DeliveryStopOut: {
+      /**
+       * Id
+       * Format: uuid
+       */
+      id: string;
+      /**
+       * Trip Id
+       * Format: uuid
+       */
+      trip_id: string;
+      trip_status: components["schemas"]["TripStatus"];
+      /** Seq */
+      seq: number;
+      /**
+       * Station Id
+       * Format: uuid
+       */
+      station_id: string;
+      /** Station Code */
+      station_code: string | null;
+      /** Station Name */
+      station_name: string | null;
+      status: components["schemas"]["StopStatus"];
+      /** Planned Arrival At */
+      planned_arrival_at: string | null;
+      /** Planned Departure At */
+      planned_departure_at: string | null;
+      /** Actual Arrival At */
+      actual_arrival_at: string | null;
+      /** Actual Departure At */
+      actual_departure_at: string | null;
+      /** Skip Reason */
+      skip_reason: string | null;
+      /** Deliveries */
+      deliveries: components["schemas"]["StopDeliveryLineOut"][];
+      /** Trip All Stops Done */
+      trip_all_stops_done: boolean;
     };
     /** DeliveryVolumeIn */
     DeliveryVolumeIn: {
@@ -3439,7 +3528,7 @@ export interface components {
     /** Page[PlanSummaryOut] */
     Page_PlanSummaryOut_: {
       /** Items */
-      items: components["schemas"]["app__planning__schemas__PlanSummaryOut"][];
+      items: components["schemas"]["PlanSummaryOut"][];
       /** Total */
       total: number;
       /** Limit */
@@ -3803,7 +3892,7 @@ export interface components {
       /** Trips */
       trips: components["schemas"]["TripOut"][];
       /** Unserved */
-      unserved: components["schemas"]["app__planning__schemas__UnservedOut"][];
+      unserved: components["schemas"]["UnservedOut"][];
       /** Violations */
       violations: components["schemas"]["ViolationOut"][];
     };
@@ -3842,6 +3931,69 @@ export interface components {
      * @enum {string}
      */
     PlanStatus: "draft" | "published" | "archived";
+    /** PlanSummaryOut */
+    PlanSummaryOut: {
+      /**
+       * Id
+       * Format: uuid
+       */
+      id: string;
+      /**
+       * Day
+       * Format: date
+       */
+      day: string;
+      kind: components["schemas"]["PlanKind"];
+      status: components["schemas"]["PlanStatus"];
+      /** Version */
+      version: number;
+      /** Root Plan Id */
+      root_plan_id?: string | null;
+      /** Parent Plan Id */
+      parent_plan_id?: string | null;
+      /** Label */
+      label?: string | null;
+      /** Approximate */
+      approximate: boolean;
+      /** Engine Version */
+      engine_version?: string | null;
+      /** Computed At */
+      computed_at?: string | null;
+      /** Computed In Ms */
+      computed_in_ms?: number | null;
+      /** Prep Time S */
+      prep_time_s?: number | null;
+      metrics?: components["schemas"]["PlanAggregatesOut"] | null;
+      /**
+       * Blocking Count
+       * @default 0
+       */
+      blocking_count: number;
+      /**
+       * Warning Count
+       * @default 0
+       */
+      warning_count: number;
+      /**
+       * Publishable
+       * @description Brouillon calculé sans violation bloquante.
+       */
+      publishable: boolean;
+      /**
+       * Created At
+       * Format: date-time
+       */
+      created_at: string;
+      /**
+       * Updated At
+       * Format: date-time
+       */
+      updated_at: string;
+      /** Created By */
+      created_by?: string | null;
+      /** Created By Name */
+      created_by_name?: string | null;
+    };
     /** ProductCreate */
     ProductCreate: {
       /** Code */
@@ -4474,6 +4626,52 @@ export interface components {
       /** Actual L */
       actual_l: number | null;
     };
+    /** StopOut */
+    StopOut: {
+      /**
+       * Id
+       * Format: uuid
+       */
+      id: string;
+      /** Seq */
+      seq: number;
+      /**
+       * Station Id
+       * Format: uuid
+       */
+      station_id: string;
+      /** Station Code */
+      station_code?: string | null;
+      /** Station Name */
+      station_name?: string | null;
+      /** Station City */
+      station_city?: string | null;
+      /** Contact Name */
+      contact_name?: string | null;
+      /** Contact Phone */
+      contact_phone?: string | null;
+      /** Lat */
+      lat?: number | null;
+      /** Lon */
+      lon?: number | null;
+      /** Planned Arrival At */
+      planned_arrival_at?: string | null;
+      /** Planned Departure At */
+      planned_departure_at?: string | null;
+      /** Distance From Prev M */
+      distance_from_prev_m: number;
+      status: components["schemas"]["StopStatus"];
+      /** Actual Arrival At */
+      actual_arrival_at?: string | null;
+      /** Actual Departure At */
+      actual_departure_at?: string | null;
+      /** Skip Reason */
+      skip_reason?: string | null;
+      /** Planned L */
+      planned_l: number;
+      /** Deliveries */
+      deliveries: components["schemas"]["DeliveryOut"][];
+    };
     /**
      * StopStatus
      * @enum {string}
@@ -4793,7 +4991,7 @@ export interface components {
        */
       warning_count: number;
       /** Stops */
-      stops: components["schemas"]["app__planning__schemas__StopOut"][];
+      stops: components["schemas"]["StopOut"][];
       /** Loads */
       loads: components["schemas"]["LoadOut"][];
       /**
@@ -5072,6 +5270,43 @@ export interface components {
       /** Compartments */
       compartments?: components["schemas"]["CompartmentCreate"][] | null;
     };
+    /** UnservedOut */
+    UnservedOut: {
+      /**
+       * Id
+       * Format: uuid
+       */
+      id: string;
+      /**
+       * Order Id
+       * Format: uuid
+       */
+      order_id: string;
+      reason_code: components["schemas"]["UnservedReason"];
+      /** Reason Text */
+      reason_text?: string | null;
+      /** Station Id */
+      station_id?: string | null;
+      /** Station Code */
+      station_code?: string | null;
+      /** Station Name */
+      station_name?: string | null;
+      /** Lat */
+      lat?: number | null;
+      /** Lon */
+      lon?: number | null;
+      /** Product Id */
+      product_id?: string | null;
+      /** Product Code */
+      product_code?: string | null;
+      /** Product Label */
+      product_label?: string | null;
+      /** Requested L */
+      requested_l?: number | null;
+      priority?: components["schemas"]["OrderPriority"] | null;
+      /** @description `postponed` = reportée explicitement : ne bloque plus la publication (RM-15). */
+      order_status?: components["schemas"]["OrderStatus"] | null;
+    };
     /**
      * UnservedReason
      * @enum {string}
@@ -5273,241 +5508,6 @@ export interface components {
       stop_id?: string | null;
       /** Stop Seq */
       stop_seq?: number | null;
-    };
-    /** PlanSummaryOut */
-    app__comparison__schemas__PlanSummaryOut: {
-      /**
-       * Id
-       * Format: uuid
-       */
-      id: string;
-      /**
-       * Day
-       * Format: date
-       */
-      day: string;
-      kind: components["schemas"]["PlanKind"];
-      status: components["schemas"]["PlanStatus"];
-      /** Version */
-      version: number;
-      /** Label */
-      label: string | null;
-      /** Title */
-      title: string;
-      /** Approximate */
-      approximate: boolean;
-      /** Parent Plan Id */
-      parent_plan_id: string | null;
-      /** Engine Version */
-      engine_version: string | null;
-      /** Computed At */
-      computed_at: string | null;
-    };
-    /** UnservedOut */
-    app__comparison__schemas__UnservedOut: {
-      /**
-       * Order Id
-       * Format: uuid
-       */
-      order_id: string;
-      /** Station Code */
-      station_code: string | null;
-      /** Station Name */
-      station_name: string | null;
-      /** Product Code */
-      product_code: string | null;
-      /** Requested L */
-      requested_l: number | null;
-      /** Reason Code */
-      reason_code: string;
-      /** Reason Text */
-      reason_text: string | null;
-    };
-    /** StopOut */
-    app__loading__schemas__StopOut: {
-      /**
-       * Id
-       * Format: uuid
-       */
-      id: string;
-      /**
-       * Trip Id
-       * Format: uuid
-       */
-      trip_id: string;
-      trip_status: components["schemas"]["TripStatus"];
-      /** Seq */
-      seq: number;
-      /**
-       * Station Id
-       * Format: uuid
-       */
-      station_id: string;
-      /** Station Code */
-      station_code: string | null;
-      /** Station Name */
-      station_name: string | null;
-      status: components["schemas"]["StopStatus"];
-      /** Planned Arrival At */
-      planned_arrival_at: string | null;
-      /** Planned Departure At */
-      planned_departure_at: string | null;
-      /** Actual Arrival At */
-      actual_arrival_at: string | null;
-      /** Actual Departure At */
-      actual_departure_at: string | null;
-      /** Skip Reason */
-      skip_reason: string | null;
-      /** Deliveries */
-      deliveries: components["schemas"]["StopDeliveryLineOut"][];
-      /** Trip All Stops Done */
-      trip_all_stops_done: boolean;
-    };
-    /** PlanSummaryOut */
-    app__planning__schemas__PlanSummaryOut: {
-      /**
-       * Id
-       * Format: uuid
-       */
-      id: string;
-      /**
-       * Day
-       * Format: date
-       */
-      day: string;
-      kind: components["schemas"]["PlanKind"];
-      status: components["schemas"]["PlanStatus"];
-      /** Version */
-      version: number;
-      /** Root Plan Id */
-      root_plan_id?: string | null;
-      /** Parent Plan Id */
-      parent_plan_id?: string | null;
-      /** Label */
-      label?: string | null;
-      /** Approximate */
-      approximate: boolean;
-      /** Engine Version */
-      engine_version?: string | null;
-      /** Computed At */
-      computed_at?: string | null;
-      /** Computed In Ms */
-      computed_in_ms?: number | null;
-      /** Prep Time S */
-      prep_time_s?: number | null;
-      metrics?: components["schemas"]["PlanAggregatesOut"] | null;
-      /**
-       * Blocking Count
-       * @default 0
-       */
-      blocking_count: number;
-      /**
-       * Warning Count
-       * @default 0
-       */
-      warning_count: number;
-      /**
-       * Publishable
-       * @description Brouillon calculé sans violation bloquante.
-       */
-      publishable: boolean;
-      /**
-       * Created At
-       * Format: date-time
-       */
-      created_at: string;
-      /**
-       * Updated At
-       * Format: date-time
-       */
-      updated_at: string;
-      /** Created By */
-      created_by?: string | null;
-      /** Created By Name */
-      created_by_name?: string | null;
-    };
-    /** StopOut */
-    app__planning__schemas__StopOut: {
-      /**
-       * Id
-       * Format: uuid
-       */
-      id: string;
-      /** Seq */
-      seq: number;
-      /**
-       * Station Id
-       * Format: uuid
-       */
-      station_id: string;
-      /** Station Code */
-      station_code?: string | null;
-      /** Station Name */
-      station_name?: string | null;
-      /** Station City */
-      station_city?: string | null;
-      /** Contact Name */
-      contact_name?: string | null;
-      /** Contact Phone */
-      contact_phone?: string | null;
-      /** Lat */
-      lat?: number | null;
-      /** Lon */
-      lon?: number | null;
-      /** Planned Arrival At */
-      planned_arrival_at?: string | null;
-      /** Planned Departure At */
-      planned_departure_at?: string | null;
-      /** Distance From Prev M */
-      distance_from_prev_m: number;
-      status: components["schemas"]["StopStatus"];
-      /** Actual Arrival At */
-      actual_arrival_at?: string | null;
-      /** Actual Departure At */
-      actual_departure_at?: string | null;
-      /** Skip Reason */
-      skip_reason?: string | null;
-      /** Planned L */
-      planned_l: number;
-      /** Deliveries */
-      deliveries: components["schemas"]["DeliveryOut"][];
-    };
-    /** UnservedOut */
-    app__planning__schemas__UnservedOut: {
-      /**
-       * Id
-       * Format: uuid
-       */
-      id: string;
-      /**
-       * Order Id
-       * Format: uuid
-       */
-      order_id: string;
-      reason_code: components["schemas"]["UnservedReason"];
-      /** Reason Text */
-      reason_text?: string | null;
-      /** Station Id */
-      station_id?: string | null;
-      /** Station Code */
-      station_code?: string | null;
-      /** Station Name */
-      station_name?: string | null;
-      /** Lat */
-      lat?: number | null;
-      /** Lon */
-      lon?: number | null;
-      /** Product Id */
-      product_id?: string | null;
-      /** Product Code */
-      product_code?: string | null;
-      /** Product Label */
-      product_label?: string | null;
-      /** Requested L */
-      requested_l?: number | null;
-      priority?: components["schemas"]["OrderPriority"] | null;
-      /** @description `postponed` = reportée explicitement : ne bloque plus la publication (RM-15). */
-      order_status?: components["schemas"]["OrderStatus"] | null;
     };
   };
   responses: never;
@@ -6853,7 +6853,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          "application/json": components["schemas"]["app__loading__schemas__StopOut"];
+          "application/json": components["schemas"]["DeliveryStopOut"];
         };
       };
       /** @description Validation Error */

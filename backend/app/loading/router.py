@@ -19,12 +19,12 @@ from app.core.errors import AppError, ConflictError, NotFoundError, ValidationAp
 from app.core.pdf import _fmt_date
 from app.loading import mailer, service, sheet
 from app.loading.schemas import (
+    DeliveryStopOut,
     LoadingIn,
     LoadingOut,
     LoadingSheetEmailIn,
     LoadingSheetEmailOut,
     StopDeliveryIn,
-    StopOut,
     TripLoadingOut,
     TripStatusIn,
 )
@@ -75,10 +75,10 @@ async def change_trip_status(
     return await service.change_trip_status(session, trip_id, payload, user)
 
 
-@router.put("/stops/{stop_id}/delivery", response_model=StopOut)
+@router.put("/stops/{stop_id}/delivery", response_model=DeliveryStopOut)
 async def record_delivery(
     stop_id: uuid.UUID, payload: StopDeliveryIn, session: SessionDep, user: Writer
-) -> StopOut:
+) -> DeliveryStopOut:
     """Arrêt livré (heures et volumes réels par commande) ou sauté (motif obligatoire)."""
     return await service.record_delivery(session, stop_id, payload, user)
 

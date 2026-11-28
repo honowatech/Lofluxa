@@ -6,7 +6,7 @@ type Schemas = components["schemas"];
 export type Plan = Schemas["PlanOut"];
 /** Les noms `PlanSummaryOut`, `StopOut` et `UnservedOut` existent dans plusieurs modules du back-end :
  * l'OpenAPI les préfixe. Les deux derniers sont déduits du plan pour ne pas dépendre de ce préfixe. */
-export type PlanSummary = Schemas["app__planning__schemas__PlanSummaryOut"];
+export type PlanSummary = Schemas["PlanSummaryOut"];
 export type Trip = Schemas["TripOut"];
 export type Stop = Trip["stops"][number];
 export type Delivery = Schemas["DeliveryOut"];

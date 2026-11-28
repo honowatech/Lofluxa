@@ -24,7 +24,7 @@ class _Out(BaseModel):
 # --------------------------------------------------------------------------- comparaison
 
 
-class PlanSummaryOut(_Out):
+class ComparedPlanOut(_Out):
     id: uuid.UUID
     day: date
     kind: PlanKind
@@ -146,7 +146,7 @@ class TripRouteOut(_Out):
     stops: list[RouteStopOut]
 
 
-class UnservedOut(_Out):
+class ComparedUnservedOut(_Out):
     order_id: uuid.UUID
     station_code: str | None
     station_name: str | None
@@ -157,16 +157,16 @@ class UnservedOut(_Out):
 
 
 class ComparisonOut(_Out):
-    plan_a: PlanSummaryOut
-    plan_b: PlanSummaryOut
+    plan_a: ComparedPlanOut
+    plan_b: ComparedPlanOut
     metrics_a: PlanMetricsOut
     metrics_b: PlanMetricsOut
     deltas: list[MetricDeltaOut]
     verdict: VerdictOut
     routes_a: list[TripRouteOut]
     routes_b: list[TripRouteOut]
-    unserved_a: list[UnservedOut]
-    unserved_b: list[UnservedOut]
+    unserved_a: list[ComparedUnservedOut]
+    unserved_b: list[ComparedUnservedOut]
 
 
 # --------------------------------------------------------------------------- journée de référence
@@ -279,7 +279,7 @@ class PendingDraftOut(_Out):
 class DashboardOut(_Out):
     day: date
     generated_at: UtcDatetime
-    plan: PlanSummaryOut | None  # plan publié du jour, None s'il n'y en a pas
+    plan: ComparedPlanOut | None  # plan publié du jour, None s'il n'y en a pas
     pending_draft: PendingDraftOut | None  # None le plus souvent
     summary: DashboardSummaryOut
     trips: list[DashboardTripOut]

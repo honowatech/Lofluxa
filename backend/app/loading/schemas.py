@@ -188,7 +188,7 @@ class StopDeliveryLineOut(BaseModel):
     actual_l: float | None
 
 
-class StopOut(BaseModel):
+class DeliveryStopOut(BaseModel):
     id: uuid.UUID
     trip_id: uuid.UUID
     trip_status: TripStatus

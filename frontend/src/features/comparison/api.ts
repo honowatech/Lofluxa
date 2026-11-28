@@ -12,16 +12,16 @@ import type { components } from "@/lib/types/api.gen";
 type Schemas = components["schemas"];
 
 export type Comparison = Schemas["ComparisonOut"];
-export type PlanSummary = Schemas["app__comparison__schemas__PlanSummaryOut"];
+export type PlanSummary = Schemas["ComparedPlanOut"];
 /** Ligne de `GET /plans` (résumé du lot L5). */
-export type PlanRow = Schemas["app__planning__schemas__PlanSummaryOut"];
+export type PlanRow = Schemas["PlanSummaryOut"];
 export type PlanKind = Schemas["PlanKind"];
 export type PlanMetrics = Schemas["PlanMetricsOut"];
 export type MetricDelta = Schemas["MetricDeltaOut"];
 export type Verdict = Schemas["VerdictOut"];
 export type TripRoute = Schemas["TripRouteOut"];
 export type RouteStop = Schemas["RouteStopOut"];
-export type Unserved = Schemas["app__comparison__schemas__UnservedOut"];
+export type Unserved = Schemas["ComparedUnservedOut"];
 export type ReferenceDayImport = Schemas["ReferenceDayImportOut"];
 export type ImportIssue = Schemas["ImportIssueOut"];
 export type Task = Schemas["TaskOut"];
