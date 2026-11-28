@@ -16,14 +16,48 @@ pnpm dev            # http://localhost:5173 — proxy /api → http://localhost:
 L'API : `./scripts/dev_setup.sh` puis `cd backend && uv run uvicorn app.main:app_instance --port 8000`
 (compte du seed : `admin@honowa.tech` / `admin-dev-only`).
 
-| Commande        | Rôle                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `pnpm dev`      | serveur de développement                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| `pnpm build`    | contrôle des types + site statique dans `dist/` (servi par Caddy)                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| `pnpm lint`     | ESLint (zéro avertissement) + Prettier                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| `pnpm test`     | Vitest + Testing Library + MSW                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| `pnpm e2e`      | Playwright, **contre la vraie API, sans doublure**. Prérequis : `./scripts/dev_setup.sh` sur une base `tourneo` vierge et un worker Celery (`cd backend && uv run celery -A app.worker.celery_app worker`) ; l'API est lancée par Playwright si elle ne tourne pas. Sans argument, `e2e/run.mjs` enchaîne les parcours groupe par groupe dans un ordre compatible avec leurs jeux d'essai (Comparaison, Journée / Commandes, Plan, puis socle) ; avec arguments (`pnpm e2e e2e/login.e2e.ts`), ils sont transmis à Playwright. |
-| `pnpm captures` | régénère `docs/captures/*.png` (doublures complètes, aucun back-end requis)                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Commande        | Rôle                                                                                               |
+| --------------- | -------------------------------------------------------------------------------------------------- |
+| `pnpm dev`      | serveur de développement                                                                           |
+| `pnpm build`    | contrôle des types + site statique dans `dist/` (servi par Caddy)                                  |
+| `pnpm lint`     | ESLint (zéro avertissement) + Prettier                                                             |
+| `pnpm test`     | Vitest + Testing Library + MSW                                                                     |
+| `pnpm e2e`      | Playwright, **contre la vraie API, sans doublure** — voir « Parcours de bout en bout » ci-dessous. |
+| `pnpm captures` | régénère `docs/captures/*.png` (doublures complètes, aucun back-end requis)                        |
+
+### Parcours de bout en bout (`pnpm e2e`)
+
+Trois processus, sur une base préparée par `./scripts/dev_setup.sh` :
+
+```bash
+# 1. API SANS limitation de débit : la suite se connecte bien plus de 10 fois par minute depuis une seule adresse
+cd backend && TOURNEO_RATE_LIMIT_ENABLED=false uv run uvicorn app.main:app_instance --port 8000
+# 2. worker Celery : calcul de plan, recalcul et rejeu sont des tâches de fond
+cd backend && uv run celery -A app.worker.celery_app worker --loglevel=warning
+# 3. les parcours
+cd frontend && pnpm e2e
+```
+
+- Si aucune API ne tourne, Playwright la lance lui-même avec cette variable ; **une API déjà lancée garde son
+  propre réglage**. Le worker n'est jamais lancé par Playwright.
+- **Contrôle préalable** (`e2e/prerequis.setup.ts`) : avant le premier parcours, la suite vérifie que l'API
+  répond (base et Redis compris), que la limitation de débit est bien désactivée et qu'un worker Celery
+  répond. S'il manque quelque chose, aucun parcours n'est lancé et le message donne la commande à exécuter.
+- `pnpm e2e` sans argument (`e2e/run.mjs`) enchaîne les parcours groupe par groupe, dans un ordre compatible
+  avec leurs jeux d'essai (Comparaison, Journée / Commandes, Plan, Chargement / Suivi / Journal, puis socle).
+  Avec des arguments (`pnpm e2e e2e/login.e2e.ts`, `-g "…"`, `--headed`), ils sont transmis à Playwright.
+- **Connexion dans un parcours** : `e2e/auth.ts`, commun à tous les lots.
+
+  ```ts
+  import { ADMIN, fetchTokens, openSession } from "./auth";
+
+  await openSession(page); // session admin ouverte par jeton, avant `page.goto(...)`
+  await openSession(page, { email: "dispatcher@…", password: "…" });
+  const { access_token } = await fetchTokens(); // préparer des données par l'API
+  ```
+
+  Seul `login.e2e.ts` passe par le formulaire (`submitLogin`). La limitation de débit reste vérifiée : côté
+  serveur par les tests du back-end, côté écran par une réponse 429 simulée (`login.e2e.ts`, `app.test.tsx`).
 
 ### Variables d'environnement (`.env.example`)
 
@@ -179,6 +213,15 @@ await api("/plans/compute", { method: "POST", body: { day } });
 `useCan("plan.write")`, `useCanSee("comparison")`. Jetons en `localStorage` (`tourneo.tokens`), déconnexion
 propagée entre onglets. Gardes de routes : `RequireAuth`, `RequireScreen` (`src/app/guards.tsx`).
 
+Droits (`roles.ts`, alignés sur les `require_roles` du back-end) : `orders.write`, `plan.write`,
+`comparison.write`, `events.write`, `availability.resources.write` → dispatcher ; `availability.stocks.write`,
+`events.shortage.write` → supply ; `loading.write`, `deliveries.write` → fleet et dispatcher ;
+`referentials.write`, `administration.write` → admin seul ; `audit.read` → manager. `admin` passe partout.
+
+Démarrage : la session stockée n'est effacée que sur un refus d'authentification (401 / 403). Si `/me` est
+interrompu (rechargement pendant le chargement), si le réseau est coupé ou si le serveur est en erreur, les
+jetons sont conservés : `useSession().bootstrapError` porte le message et la garde propose « Réessayer ».
+
 ### Jour J — `@/lib/useDay`
 
 `const { day, setDay, isToday, previous, next } = useDay();` — conservé dans l'URL (`?day=`), par défaut le
@@ -194,6 +237,7 @@ jour courant à Douala, transmis par les liens de navigation. `withDay(path, day
 | `formatLocalTime("2027-01-12T06:30:00Z")`                                                            | horodatage UTC → `07:30` (Africa/Douala, RM-20)                                                                                                         |
 | `formatDate("2027-01-12")`                                                                           | → `12/01/2027` ; `formatDateLong` → `mar. 12 janv. 2027` ; `formatDateTime` → `12/01/2027 07:30`                                                        |
 | `formatNumber`, `formatPercent`                                                                      | nombres en notation française                                                                                                                           |
+| `formatSigned(-120, 0, "L")`, `formatSignedPercent(1.84, 2)`                                         | écarts **signés** → `−120 L`, `+1,84 %` (vrai signe moins, pas de « −0 »)                                                                               |
 | `todayLocal()`, `addDays`, `daysUntil`, `dayBoundsUtc`, `secondsToHM`, `hmToSeconds`, `parseDecimal` | aides de dates, d'heures et de saisie                                                                                                                   |
 
 ### Alertes de la coquille — `@/lib/alerts`
@@ -446,7 +490,7 @@ const sensors = useSortableSensors(); // mêmes capteurs que la liste autonome
 ### Statuts, états, notifications, PDF
 
 ```tsx
-<StatusBadge kind="order" value={order.status} />      // truck · driver · order · plan · trip · stop · import · priority · active · severity · audit
+<StatusBadge kind="order" value={order.status} />      // truck · driver · order · plan · trip · stop · import · priority · active · severity · audit · event
 <ExpiryBadge date={driver.license_expiry} />           // rouge si expiré, orange si proche
 <EmptyState title="Aucune commande" action={<Button>Importer</Button>} />
 <LoadingState /> · <ErrorState error={error} onRetry={refetch} /> · <Skeleton /> · <Spinner />
@@ -454,6 +498,24 @@ notify.success("Plan publié"); notify.apiError(error, fr.errors.saveFailed);   
 <PdfButton path={`/trips/${id}/route-sheet.pdf`} label="Feuille de route" />
 <PageHeader title="…" subtitle="…" actions={…} /> · <Notice tone="warning">…</Notice>   // info · success · warning · blocking · neutral
 ```
+
+Avancement et filtres :
+
+```tsx
+// Frise d'étapes : passées cochées, courante annoncée (aria-current="step")
+<Steps label="Avancement de la tournée" current={trip.status}
+       steps={TRIP_STATUSES.map((s) => ({ id: s, label: fr.status.trip[s] }))} />
+// Barre segmentée : un segment par élément ; `segments` pour colorer chacun (livré, sauté, en attente)
+<SegmentedProgress done={3} total={5} label="3 arrêts livrés sur 5" />
+<SegmentedProgress segments={["success", "warning", "pending"]} label="…" />
+// Puces de filtre à compteur (boutons à bascule)
+<FilterChipGroup label="Filtrer par type">
+  <FilterChip label="Tous" count={12} pressed={type === null} onClick={() => setType(null)} />
+</FilterChipGroup>
+```
+
+`NumberInput` / `NumberField` avec `unit` : une largeur passée par `className` (`w-24`) dimensionne l'ensemble
+champ + unité (l'unité reste collée au champ) ; `wrapperClassName` pour styler l'enveloppe.
 
 Primitives (`components/ui/`) : `Button`, `Input`, `Textarea`, `NativeSelect`, `Label`, `Checkbox`, `Switch`,
 `Dialog` (centré ou panneau latéral), `AlertDialog`, `DropdownMenu`, `Popover`, `Tabs`, `Tip`, `Badge`.

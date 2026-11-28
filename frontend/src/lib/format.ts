@@ -72,6 +72,24 @@ export function formatPercent(value: Maybe<number>, fractionDigits = 0): string 
   return `${formatNumber(value, fractionDigits)}${NBSP}%`;
 }
 
+/**
+ * Nombre **signé** (écart, variation) : `+1 250`, `−3,5`, `0`. Le signe moins est le vrai signe typographique.
+ * `unit` ajoute une unité après une espace insécable : `formatSigned(-120, 0, "L")` → `−120 L`.
+ */
+export function formatSigned(value: Maybe<number>, fractionDigits = 0, unit?: string): string {
+  if (missing(value)) return EMPTY;
+  const text = formatNumber(Math.abs(value), fractionDigits);
+  // Un écart arrondi à zéro ne porte pas de signe (pas de « −0,0 »).
+  const zero = Number(Math.abs(value).toFixed(fractionDigits)) === 0;
+  const sign = zero ? "" : value > 0 ? "+" : "−";
+  return `${sign}${text}${unit ? `${NBSP}${unit}` : ""}`;
+}
+
+/** Pourcentage **signé** : `formatSignedPercent(1.84, 2)` → `+1,84 %`, `formatSignedPercent(-100)` → `−100 %`. */
+export function formatSignedPercent(value: Maybe<number>, fractionDigits = 0): string {
+  return formatSigned(value, fractionDigits, "%");
+}
+
 function toDate(value: Maybe<string | Date>): Date | null {
   if (!value) return null;
   const date = typeof value === "string" ? parseISO(value) : value;
