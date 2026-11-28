@@ -91,6 +91,15 @@ class OrderOut(BaseModel):
     import_batch_id: uuid.UUID | None
     created_at: UtcDatetime
     updated_at: UtcDatetime
+    # Vrai si la commande vient de l'import d'une journée de référence (F8.1) : elle n'est pas à
+    # exploiter, et n'apparaît dans la liste qu'avec `include_reference=true`.
+    is_reference: bool = False
+    # Reliquat (RM-16), d'après les plans calculés publiés ; nuls pour une commande de référence.
+    # planned_l : volume planifié ; delivered_l : volume réellement livré ;
+    # remaining_l : volume restant à planifier (0 pour une commande annulée ou reportée).
+    planned_l: float | None = None
+    delivered_l: float | None = None
+    remaining_l: float | None = None
     # Avertissements F3.4, calculés à chaque lecture pour les commandes `draft` et `confirmed` :
     # `tank_unknown` (cuve non renseignée), `exceeds_tank_capacity` (confirmation impossible).
     warnings: list[OrderWarning] = []

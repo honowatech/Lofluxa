@@ -43,6 +43,7 @@ from app.core.deps import CurrentUser, Page, PageDep, PageParams, SessionDep, re
 from app.core.enums import OrderPriority, OrderStatus, Role
 from app.core.errors import ConflictError, NotFoundError, RuleViolationError, ValidationAppError
 from app.orders.models import Order
+from app.orders.service import not_reference_order
 from app.planning.violations.eligibility import driver_block_reason, truck_block_reason
 from app.referentials.models import Depot, Driver, Product, Truck
 from app.users.models import User
@@ -469,10 +470,13 @@ async def put_drivers(day: date, payload: DriverDaysIn, session: SessionDep) -> 
 @router.get("/availability/summary", response_model=DaySummaryOut)
 async def day_summary(day: date, session: SessionDep, _: CurrentUser) -> DaySummaryOut:
     """Compteurs de l'écran « Journée » : commandes par statut, camions et chauffeurs affectables,
-    stocks dépôt renseignés ou non."""
+    stocks dépôt renseignés ou non. Les commandes d'une journée de référence (F8.1) ne sont pas
+    comptées."""
     by_status = {status.value: 0 for status in OrderStatus}
     rows = await session.execute(
-        select(Order.status, func.count()).where(Order.day == day).group_by(Order.status)
+        select(Order.status, func.count())
+        .where(Order.day == day, not_reference_order())
+        .group_by(Order.status)
     )
     for status, count in rows:
         by_status[OrderStatus(status).value] = count
@@ -482,6 +486,7 @@ async def day_summary(day: date, session: SessionDep, _: CurrentUser) -> DaySumm
             .select_from(Order)
             .where(
                 Order.day == day,
+                not_reference_order(),
                 Order.priority == OrderPriority.URGENT,
                 Order.status.in_([OrderStatus.DRAFT, OrderStatus.CONFIRMED]),
             )

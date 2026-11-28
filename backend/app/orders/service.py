@@ -20,6 +20,10 @@ Variante synchrone pour les tâches Celery : `set_orders_status_sync(session, or
 Sur un objet déjà chargé : `apply_status(order, target)` (pure, sans accès base).
 Lecture de la table des transitions : `ALLOWED_TRANSITIONS`, `can_transition(current, target)`.
 
+Journée de référence (F8.1) : `not_reference_order()` — condition SQL à ajouter à toute lecture de
+commandes « à exploiter » (les commandes importées avec une journée de référence n'en sont pas) ;
+`await reference_order_ids(session, orders)` ; volumes livrés : `await delivered_volumes(session, ids)`.
+
 Contrôle F3.4 : `await check_tank_capacity(session, station_id, product_id, requested_l)` ;
 avertissements à afficher en lecture : `await order_warnings(session, orders)`
 → {order_id: [{code, message}]}.
@@ -30,13 +34,15 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import ColumnElement, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
-from app.core.enums import OrderStatus
+from app.core.enums import ImportKind, OrderStatus, PlanKind, PlanStatus, StopStatus
 from app.core.errors import ConflictError, NotFoundError
+from app.imports.models import ImportBatch
 from app.orders.models import Order
+from app.planning.models import Plan, Stop, StopDelivery, Trip
 from app.referentials.models import StationTank
 
 S = OrderStatus
@@ -248,3 +254,53 @@ async def order_warnings(
         tanks.setdefault(tank.station_id, []).append(tank)
     result = {order.id: tank_warnings(order, tanks.get(order.station_id, [])) for order in concerned}
     return {order_id: warnings for order_id, warnings in result.items() if warnings}
+
+
+# --- Journée de référence (F8.1) et volumes livrés ------------------------------------------
+
+
+def _reference_batches():
+    return select(ImportBatch.id).where(ImportBatch.kind == ImportKind.REFERENCE_DAY)
+
+
+def not_reference_order() -> ColumnElement[bool]:
+    """Condition SQL : la commande ne vient pas de l'import d'une journée de référence (F8.1).
+
+    Ces commandes décrivent une journée déjà effectuée (plan `manual_reference`) : elles ne sont pas
+    à exploiter et sont écartées par défaut de la liste des commandes et du résumé du jour."""
+    return or_(Order.import_batch_id.is_(None), Order.import_batch_id.not_in(_reference_batches()))
+
+
+async def reference_order_ids(session: AsyncSession, orders: Iterable[Order]) -> set[uuid.UUID]:
+    """Parmi `orders`, celles qui viennent d'une journée de référence (une requête pour le lot)."""
+    by_batch: dict[uuid.UUID, list[uuid.UUID]] = {}
+    for order in orders:
+        if order.import_batch_id is not None:
+            by_batch.setdefault(order.import_batch_id, []).append(order.id)
+    if not by_batch:
+        return set()
+    batches = await session.execute(_reference_batches().where(ImportBatch.id.in_(by_batch)))
+    return {order_id for batch_id in batches.scalars() for order_id in by_batch[batch_id]}
+
+
+async def delivered_volumes(session: AsyncSession, order_ids: Iterable[uuid.UUID]) -> dict[uuid.UUID, float]:
+    """Volume réellement livré par commande (`stop_deliveries.actual_l`) dans les plans calculés
+    `published`, hors arrêts sautés. Commande absente du résultat = rien de livré."""
+    ids = list(order_ids)
+    if not ids:
+        return {}
+    rows = await session.execute(
+        select(StopDelivery.order_id, func.sum(StopDelivery.actual_l))
+        .join(Stop, Stop.id == StopDelivery.stop_id)
+        .join(Trip, Trip.id == Stop.trip_id)
+        .join(Plan, Plan.id == Trip.plan_id)
+        .where(
+            StopDelivery.order_id.in_(ids),
+            StopDelivery.actual_l.is_not(None),
+            Plan.status == PlanStatus.PUBLISHED,
+            Plan.kind == PlanKind.COMPUTED,
+            Stop.status != StopStatus.SKIPPED,
+        )
+        .group_by(StopDelivery.order_id)
+    )
+    return {order_id: float(total) for order_id, total in rows.all()}
