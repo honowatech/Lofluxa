@@ -107,26 +107,28 @@ async def test_modeles_telechargeables_et_importables(client, auth_headers, prod
     admin = await auth_headers("admin")
     reader = await auth_headers("manager")
     for kind in ("depots", "stations", "trucks", "drivers", "orders"):
+        # Les commandes du modèle n'ont pas de date : elles prennent la journée choisie à l'import.
+        params = {"day": "2027-03-04"} if kind == "orders" else {}
         response = await client.get(f"/imports/templates/{kind}", headers=reader)
         assert response.status_code == 200, kind
         assert response.headers["content-type"].startswith("application/vnd.openxmlformats")
         assert f'filename="{kind}.xlsx"' in response.headers["content-disposition"]
         assert "Lisez-moi" in load_workbook(io.BytesIO(response.content)).sheetnames
 
-        batch = (await preview(client, admin, kind, response.content, f"{kind}.xlsx")).json()
+        batch = (await preview(client, admin, kind, response.content, f"{kind}.xlsx", **params)).json()
         assert batch["status"] == "previewed", (kind, batch["report"]["issues"])
         assert batch["report"]["summary"]["created"] == len(batch["report"]["items"]) > 0
         assert (await apply(client, admin, batch)).status_code == 200, kind
 
         as_csv = await client.get(f"/imports/templates/{kind}", params={"format": "csv"}, headers=reader)
         assert as_csv.status_code == 200 and as_csv.headers["content-type"].startswith("text/csv")
-        again = (await preview(client, admin, kind, as_csv.content, f"{kind}.csv")).json()
+        again = (await preview(client, admin, kind, as_csv.content, f"{kind}.csv", **params)).json()
         assert again["status"] == "previewed", (kind, again["report"]["issues"])
         assert again["report"]["summary"]["unchanged"] == len(again["report"]["items"]), kind
 
-    assert (await client.get("/stations", headers=reader)).json()["total"] == 2
-    assert (await client.get("/trucks", headers=reader)).json()["total"] == 2
-    assert (await client.get("/drivers", headers=reader)).json()["total"] == 2
+    assert (await client.get("/stations", headers=reader)).json()["total"] == 6
+    assert (await client.get("/trucks", headers=reader)).json()["total"] == 4
+    assert (await client.get("/drivers", headers=reader)).json()["total"] == 5
     assert (await client.get("/depots", headers=reader)).json()["total"] == 2
     assert (
         await client.get("/imports/templates/depots", params={"format": "pdf"}, headers=reader)

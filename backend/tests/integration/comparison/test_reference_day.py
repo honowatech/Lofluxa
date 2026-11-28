@@ -600,5 +600,6 @@ async def test_modele_importable_sur_les_referentiels_modeles(client, db, produc
     assert (metrics.trucks_used, metrics.drivers_used, metrics.trips_count) == (1, 1, 2)
     assert (metrics.orders_requested, metrics.orders_served) == (3, 2)
     assert metrics.distance_actual_m == 45_000 and metrics.distance_estimated_m > 0
-    # Seule violation bloquante de l'exemple : le grand camion envoyé à Akwa (gabarit moyen), RM-09.
-    assert [v.rule_code for v in bundle.plan.violations if v.severity == Severity.BLOCKING] == ["RM-09"]
+    # Plus aucune violation bloquante : dans les modèles du lot L3, `ST-AKWA` accepte désormais le
+    # gabarit grand du camion LT 123 AB (l'exemple portait auparavant une violation RM-09).
+    assert [v.rule_code for v in bundle.plan.violations if v.severity == Severity.BLOCKING] == []

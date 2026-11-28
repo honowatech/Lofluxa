@@ -696,7 +696,11 @@ _STATUS_LABELS = {
     OrderStatus.PLANNED: "planifiée",
     OrderStatus.LOADED: "chargée",
     OrderStatus.DELIVERED: "livrée",
+    OrderStatus.CANCELLED: "annulée",
+    OrderStatus.POSTPONED: "reportée",
 }
+# Statuts terminaux d'une commande qui ne sera pas livrée ce jour-là.
+_CLOSED = (OrderStatus.CANCELLED, OrderStatus.POSTPONED)
 
 
 class OrdersKind(RecordKind):
@@ -745,12 +749,15 @@ class OrdersKind(RecordKind):
         existing: dict[tuple[date, uuid.UUID, uuid.UUID], list[Order]] = {}
         if records and stations:
             rows = await session.execute(
-                select(Order).where(
+                select(Order)
+                .where(
                     Order.day.in_({r.day for r in records}),
                     Order.station_id.in_([s.id for s in stations.values()]),
-                    Order.status.not_in([OrderStatus.CANCELLED, OrderStatus.POSTPONED]),
                 )
+                .order_by(Order.created_at, Order.id)
             )
+            # Tous les statuts comptent : une ligne dont la clé correspond à une commande existante,
+            # même reportée, annulée ou livrée, ne crée jamais de doublon (question L3-15).
             for order in rows.scalars():
                 existing.setdefault((order.day, order.station_id, order.product_id), []).append(order)
         seen: dict[tuple[date, str, str], int] = {}
@@ -780,27 +787,48 @@ class OrdersKind(RecordKind):
             if station is None or product is None:
                 continue
             matches = existing.get((record.day, station.id, product.id), [])
-            if len(matches) > 1:
+            active = [o for o in matches if o.status not in _CLOSED]
+            if len(active) > 1:
                 plan.error(
                     record.row,
                     spec.header("station_code"),
                     record.station_code,
-                    f"{len(matches)} commandes existent déjà pour cette date, cette station et ce produit : "
+                    f"{len(active)} commandes existent déjà pour cette date, cette station et ce produit : "
                     "modifiez-les à l'écran Commandes.",
                 )
                 continue
-            order = matches[0] if matches else None
+            if active:
+                order = active[0]
+            else:
+                # Seulement des commandes closes (reportées, annulées) : la ligne identique à l'une d'elles
+                # est « inchangée », sinon on compare à la plus récente.
+                closed = [o for o in matches if not scalar_changes(o, record, spec, self.FIELDS)[0]]
+                order = (closed or matches)[-1] if matches else None
             changes, updates = scalar_changes(order, record, spec, self.FIELDS)
+            status = _STATUS_LABELS.get(order.status, order.status.value) if order is not None else ""
             if order is not None and changes and order.status != OrderStatus.DRAFT:
+                advice = (
+                    "elle n'est ni recréée ni modifiée par l'import : saisissez une nouvelle commande à "
+                    "l'écran Commandes si besoin."
+                    if order.status in _CLOSED
+                    else "modifiez-la à l'écran Commandes."
+                )
                 plan.error(
                     record.row,
                     spec.header("requested_l"),
                     record.requested_l,
-                    f"Une commande {_STATUS_LABELS.get(order.status, order.status.value)} existe déjà pour "
-                    "cette date, cette station et ce produit, avec des valeurs différentes : modifiez-la à "
-                    "l'écran Commandes.",
+                    f"Une commande {status} existe déjà pour cette date, cette station et ce produit, "
+                    f"avec des valeurs différentes : {advice}",
                 )
                 continue
+            if order is not None and order.status in _CLOSED:
+                plan.warning(
+                    record.row,
+                    spec.header("station_code"),
+                    record.station_code,
+                    f"Une commande {status} existe déjà pour cette date, cette station et ce produit : "
+                    "elle reste inchangée et n'est pas recréée.",
+                )
             if not station.active:
                 plan.warning(
                     record.row,

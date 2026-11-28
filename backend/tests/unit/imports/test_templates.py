@@ -28,7 +28,7 @@ def test_modele_structure(kind):
     assert workbook.sheetnames == [spec.sheet, "Lisez-moi"]
     data = workbook[spec.sheet]
     assert [c.value for c in data[1]] == [column.header for column in spec.columns]
-    assert 2 <= data.max_row - 1 <= 4  # deux à quatre lignes d'exemple
+    assert data.max_row - 1 == len(spec.examples) >= 2  # lignes d'exemple
     readme = [row[0] for row in workbook["Lisez-moi"].iter_rows(values_only=True) if row[0]]
     for column in spec.columns:  # chaque colonne est expliquée
         assert column.header in readme and column.help

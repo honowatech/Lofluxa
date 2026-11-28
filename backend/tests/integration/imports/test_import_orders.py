@@ -3,6 +3,7 @@
 import uuid
 from datetime import date, time
 
+import pytest
 import pytest_asyncio
 from sqlalchemy import select
 
@@ -186,3 +187,85 @@ async def test_import_commandes_journee_imposee_et_doublons(client, auth_headers
 
     invalid = await preview(client, dispatcher, "orders", xlsx(HEADERS, rows), day="12/01/2027")
     assert invalid.status_code == 422
+
+
+@pytest.mark.parametrize("status", [s for s in OrderStatus if s != OrderStatus.DRAFT])
+async def test_reimport_ne_recree_jamais_une_commande_existante(
+    client, auth_headers, db, products, stations, status
+):
+    """Question L3-15 : quel que soit le statut de la commande existante (reportée, annulée, livrée…),
+    la même ligne réimportée est « inchangée », une ligne différente est refusée ; jamais de doublon."""
+    labels = {
+        "confirmed": "confirmée",
+        "planned": "planifiée",
+        "loaded": "chargée",
+        "delivered": "livrée",
+        "cancelled": "annulée",
+        "postponed": "reportée",
+    }
+    dispatcher = await auth_headers("dispatcher")
+    first = (await preview(client, dispatcher, "orders", xlsx(HEADERS, order_rows()))).json()
+    assert (await apply(client, dispatcher, first)).status_code == 200
+    for order in await orders_in_db(db):
+        order.status = status
+    await db.commit()
+
+    # Même fichier : rien n'est créé, tout est annoncé inchangé.
+    same = (await preview(client, dispatcher, "orders", xlsx(HEADERS, order_rows()))).json()
+    assert same["status"] == "previewed", same["report"]["issues"]
+    assert same["report"]["summary"]["created"] == 0 and same["report"]["summary"]["unchanged"] == 3
+    notices = [i["message"] for i in same["report"]["issues"] if "existe déjà" in i["message"]]
+    if status in (OrderStatus.CANCELLED, OrderStatus.POSTPONED):
+        assert len(notices) == 3 and all(f"commande {labels[status.value]}" in m for m in notices)
+        assert all("n'est pas recréée" in m for m in notices)
+    else:
+        assert notices == []
+    assert (await apply(client, dispatcher, same)).status_code == 200
+    orders = await orders_in_db(db)
+    assert len(orders) == 3 and all(o.status == status for o in orders)
+
+    # Volume différent : ligne refusée, le message dit le statut de la commande existante.
+    rows = order_rows()
+    rows[0][3] = 9000
+    changed = (await preview(client, dispatcher, "orders", xlsx(HEADERS, rows))).json()
+    assert changed["status"] == "rejected"
+    assert issues(changed) == [(2, "Volume (L)")]
+    assert f"commande {labels[status.value]} existe déjà" in changed["report"]["issues"][0]["message"]
+    assert changed["report"]["summary"]["created"] == 0
+    assert (await apply(client, dispatcher, changed)).status_code == 409
+    assert sorted(float(o.requested_l) for o in await orders_in_db(db)) == [12000, 15000.5, 20000]
+
+
+async def test_reimport_apres_report_puis_nouvelle_saisie(client, auth_headers, db, products, stations):
+    """Commande reportée + nouvelle commande saisie pour la même clé : l'import suit la commande vivante."""
+    dispatcher = await auth_headers("dispatcher")
+    first = (await preview(client, dispatcher, "orders", xlsx(HEADERS, order_rows()))).json()
+    assert (await apply(client, dispatcher, first)).status_code == 200
+    postponed = (await orders_in_db(db))[0]
+    postponed.status = OrderStatus.POSTPONED
+    db.add(
+        Order(
+            day=DAY,
+            station_id=postponed.station_id,
+            product_id=postponed.product_id,
+            requested_l=7000,
+            status=OrderStatus.DRAFT,
+        )
+    )
+    await db.commit()
+
+    rows = order_rows()
+    rows[0][3] = 8000
+    batch = (await preview(client, dispatcher, "orders", xlsx(HEADERS, rows))).json()
+    assert batch["status"] == "previewed", batch["report"]["issues"]
+    assert batch["report"]["summary"] == {
+        "created": 0,
+        "updated": 1,
+        "unchanged": 2,
+        "errors": 0,
+        "warnings": 2,
+    }
+    assert changes(batch["report"]["items"][0])["requested_l"] == (7000, 8000)
+    assert (await apply(client, dispatcher, batch)).status_code == 200
+    volumes = sorted((float(o.requested_l), o.status.value) for o in await orders_in_db(db))
+    assert volumes == [(8000, "draft"), (12000, "postponed"), (15000.5, "draft"), (20000, "draft")]

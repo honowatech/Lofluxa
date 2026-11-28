@@ -113,8 +113,20 @@ class ExcelImportSource:
         signalées en erreur) et une cellule « Date » vide prend cette valeur."""
         spec = cols.ORDERS
         orders: list[OrderIn] = []
-        for line in self._lines(spec, defaults={"day": day} if day else None):
+        for line in self._lines(spec):
             values = line.values
+            if "day" not in values and line.valid:
+                if day:
+                    values["day"] = day
+                else:
+                    self._issue(
+                        line.number,
+                        spec.header("day"),
+                        None,
+                        "Date vide : indiquez la date de livraison sur la ligne, ou choisissez la journée "
+                        "à importer.",
+                    )
+                    line.valid = False
             if day and values.get("day") and values["day"] != day:
                 self._issue(
                     line.number,

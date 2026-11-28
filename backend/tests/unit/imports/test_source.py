@@ -24,39 +24,72 @@ def test_lecture_des_modeles_xlsx_et_csv():
     for build, name in ((build_template, "f.xlsx"), (build_csv_template, "f.csv")):
         stations = ExcelImportSource(build(SPECS["stations"]), name)
         records = stations.fetch_stations()
-        assert stations.issues == [] and stations.row_count == 3
-        assert [(s.code, s.row, len(s.tanks)) for s in records] == [("ST-AKWA", 2, 2), ("ST-BONAB", 4, 1)]
-        assert records[0].max_truck_size == TruckSize.MEDIUM
+        assert stations.issues == [] and stations.row_count == 10
+        assert [(s.code, s.row, len(s.tanks)) for s in records] == [
+            ("ST-AKWA", 2, 2),
+            ("ST-BONAB", 4, 1),
+            ("ST-DEIDO", 5, 2),
+            ("ST-BASSA", 7, 2),
+            ("ST-EDEA", 9, 1),
+            ("ST-MVAN", 10, 2),
+        ]
+        assert records[0].max_truck_size == TruckSize.LARGE and records[2].max_truck_size == TruckSize.SMALL
         assert [(t.row, t.product_code, t.capacity_l) for t in records[0].tanks] == [
             (2, "SUPER", 30000),
             (3, "GASOIL", 40000),
         ]
 
         trucks = ExcelImportSource(build(SPECS["trucks"]), name).fetch_trucks()
-        assert [(t.plate, len(t.compartments)) for t in trucks] == [("LT 123 AB", 3), ("LT 456 CD", 1)]
+        assert [(t.plate, t.size.value, len(t.compartments)) for t in trucks] == [
+            ("LT 123 AB", "large", 3),
+            ("LT 789 EF", "medium", 2),
+            ("CE 234 GH", "small", 2),
+            ("LT 456 CD", "small", 1),
+        ]
         assert trucks[0].compartments[0].allowed_product_codes == "all"
         assert trucks[0].compartments[1].allowed_product_codes == ["SUPER", "GASOIL"]
 
         drivers = ExcelImportSource(build(SPECS["drivers"]), name).fetch_drivers()
+        assert len(drivers) == 5
         assert (
-            drivers[0].license_expiry == date(2028, 6, 30) and drivers[0].default_truck_plate == "LT 123 AB"
+            drivers[0].license_expiry == date(2030, 6, 30) and drivers[0].default_truck_plate == "LT 123 AB"
         )
+        assert drivers[4].license_expiry == date(2025, 6, 30)  # exemple de permis expiré
 
         assert [d.code for d in ExcelImportSource(build(SPECS["depots"]), name).fetch_depots()] == [
             "SCDP-DLA",
             "SCDP-YDE",
         ]
 
-        orders = ExcelImportSource(build(SPECS["orders"]), name).fetch_orders(date(2027, 1, 12))
-        assert len(orders) == 3
+        # Les commandes d'exemple n'ont pas de date : elles prennent la journée demandée.
+        orders = ExcelImportSource(build(SPECS["orders"]), name).fetch_orders(date(2027, 3, 4))
+        assert len(orders) == 7 and {o.day for o in orders} == {date(2027, 3, 4)}
         assert orders[0].window_start == time(8, 0) and orders[1].priority == OrderPriority.URGENT
 
 
-def test_fetch_orders_filtre_sur_la_journee():
-    content = build_csv_template(SPECS["orders"])
+def test_fetch_orders_date_vide_et_journee_imposee():
+    content = (
+        b"Date;Code station;Produit;Volume (L)\n"
+        b";ST1;SUPER;1000\n"
+        b"12/01/2027;ST1;GASOIL;2000\n"
+        b"13/01/2027;ST2;GASOIL;3000\n"
+        b"32/01/2027;ST3;GASOIL;3000\n"
+    )
+    # Journée imposée : la date vide la prend, une autre date est refusée.
     source = ExcelImportSource(content, "orders.csv")
-    assert source.fetch_orders(date(2027, 1, 13)) == []
-    assert [(i.row, i.column) for i in source.issues] == [(2, "Date"), (3, "Date"), (4, "Date")]
+    assert [(o.row, o.day) for o in source.fetch_orders(date(2027, 1, 12))] == [
+        (2, date(2027, 1, 12)),
+        (3, date(2027, 1, 12)),
+    ]
+    assert sorted((i.row, i.column) for i in source.issues) == [(4, "Date"), (5, "Date")]
+    # Sans journée : toutes les dates du fichier, mais une date vide est une erreur explicite.
+    source = ExcelImportSource(content, "orders.csv")
+    assert [o.row for o in source.fetch_orders()] == [3, 4]
+    assert sorted((i.row, i.column) for i in source.issues) == [(2, "Date"), (5, "Date")]
+    assert "choisissez la journée" in next(i for i in source.issues if i.row == 2).message
+    # La colonne Date peut même être absente quand la journée est donnée.
+    source = ExcelImportSource(b"Code station;Produit;Volume (L)\nST1;SUPER;1000\n", "orders.csv")
+    assert len(source.fetch_orders(date(2027, 1, 12))) == 1 and source.issues == []
 
 
 def test_anomalies_ligne_colonne_valeur_message():
