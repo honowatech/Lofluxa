@@ -48,6 +48,11 @@ export function createOrdersMocks() {
     created_at: "2027-01-11T15:00:00Z",
     updated_at: "2027-01-11T15:00:00Z",
     warnings: [],
+    // Reliquat (RM-16) : rien de planifié ni de livré tant qu'aucun plan publié ne porte la commande.
+    is_reference: false,
+    planned_l: 0,
+    delivered_l: 0,
+    remaining_l: requested_l,
     ...extra,
   });
 

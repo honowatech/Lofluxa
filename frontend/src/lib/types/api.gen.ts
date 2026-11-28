@@ -298,7 +298,8 @@ export interface paths {
     /**
      * Day Summary
      * @description Compteurs de l'écran « Journée » : commandes par statut, camions et chauffeurs affectables,
-     *     stocks dépôt renseignés ou non.
+     *     stocks dépôt renseignés ou non. Les commandes d'une journée de référence (F8.1) ne sont pas
+     *     comptées.
      */
     get: operations["day_summary_api_v1_availability_summary_get"];
     put?: never;
@@ -785,6 +786,9 @@ export interface paths {
     /**
      * List Orders
      * @description Commandes, filtrables par jour, station, produit, statut(s) et priorité.
+     *
+     *     Les commandes d'une journée de référence (F8.1) ne sont pas des commandes à exploiter : elles
+     *     sont écartées, sauf avec `include_reference=true` (elles portent alors `is_reference`).
      */
     get: operations["list_orders_api_v1_orders_get"];
     put?: never;
@@ -3321,6 +3325,17 @@ export interface components {
       created_at: string;
       /** Updated At */
       updated_at: string;
+      /**
+       * Is Reference
+       * @default false
+       */
+      is_reference: boolean;
+      /** Planned L */
+      planned_l?: number | null;
+      /** Delivered L */
+      delivered_l?: number | null;
+      /** Remaining L */
+      remaining_l?: number | null;
       /**
        * Warnings
        * @default []
@@ -6942,6 +6957,8 @@ export interface operations {
         /** @description Répétable : ?status=draft&status=… */
         status?: components["schemas"]["OrderStatus"][] | null;
         priority?: components["schemas"]["OrderPriority"] | null;
+        /** @description Inclure les commandes importées avec une journée de référence (F8.1) */
+        include_reference?: boolean;
         limit?: number;
         offset?: number;
       };
