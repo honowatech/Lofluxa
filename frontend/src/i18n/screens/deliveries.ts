@@ -79,6 +79,8 @@ export const deliveriesTexts = {
     save: "Enregistrer la livraison",
     update: "Corriger la livraison",
     edit: "Corriger",
+    partial: "Livrée en partie : reliquat à replanifier",
+    partialNotice: "Commande livrée en partie : reliquat à replanifier.",
     open: "Saisir la livraison",
     skip: "Arrêt sauté…",
     skipTitle: "Arrêt sauté",

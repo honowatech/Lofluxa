@@ -10,7 +10,7 @@ import { EmptyState, ErrorState, LoadingState } from "@/components/states";
 import { Badge } from "@/components/ui/badge";
 import { NativeSelect } from "@/components/ui/input";
 import { fr } from "@/i18n/fr";
-import { useCan, useRole } from "@/lib/auth";
+import { useCan } from "@/lib/auth";
 import { formatDateLong, formatLiters, formatLocalTime } from "@/lib/format";
 import { useDay } from "@/lib/useDay";
 import { cn } from "@/lib/utils";
@@ -29,10 +29,7 @@ const LOADING_FILTERS: Record<LoadingFilter, (trip: TripLoading) => boolean> = {
 
 export default function LoadingPage() {
   const { day } = useDay();
-  // L'API ouvre l'écriture à `fleet` et `dispatcher` (la table des droits du socle ne cite que `fleet`).
-  const fleetWrite = useCan("loading.write");
-  const role = useRole();
-  const canWrite = fleetWrite || role === "dispatcher";
+  const canWrite = useCan("loading.write");
   const [params, setParams] = useSearchParams();
   const depotId = params.get("depot");
   const selectedId = params.get("trip");

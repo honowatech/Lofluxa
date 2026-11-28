@@ -83,6 +83,21 @@ describe("Suivi des livraisons — écran", () => {
     expect(within(delivered).getByText(/ne peut plus être marqué « sauté »/)).toBeInTheDocument();
   });
 
+  it("livraison partielle : la commande garde un reliquat à replanifier", async () => {
+    const { mocks, user } = setup();
+    const first = await stopCard(1);
+    // La première commande de l'arrêt n'était planifiée qu'en partie (RM-16).
+    mocks.partialOrders.add(mocks.stop(1, 1).deliveries[0].order_id);
+    await user.type(within(first).getByRole("textbox", { name: "Arrivée réelle, arrêt 1" }), "0745");
+    await user.click(within(first).getByRole("button", { name: "Enregistrer la livraison" }));
+    expect(
+      await screen.findByText("Commande livrée en partie : reliquat à replanifier."),
+    ).toBeInTheDocument();
+    const delivered = await stopCard(1);
+    await waitFor(() => expect(within(delivered).getAllByTestId("partial")).toHaveLength(1));
+    expect(within(delivered).getByTestId("partial")).toHaveTextContent("reliquat à replanifier");
+  });
+
   it("arrêt sauté : motif obligatoire, puis non réversible", async () => {
     const { mocks, user } = setup();
     const first = await stopCard(1);

@@ -40,6 +40,22 @@ export function DelayBadge({ seconds, className }: { seconds: number | null; cla
   );
 }
 
+/**
+ * Commande livrée en partie : un volume a été livré mais la commande n'est pas « livrée » (il lui reste un
+ * reliquat à replanifier, RM-16). Déduit de la réponse de l'API, sans règle propre à l'écran.
+ */
+function isPartial(
+  stop: { status: string },
+  line: { actual_l?: number | null; order_status?: string | null },
+): boolean {
+  return (
+    stop.status === "delivered" &&
+    (line.actual_l ?? 0) > 0 &&
+    !!line.order_status &&
+    line.order_status !== "delivered"
+  );
+}
+
 type Mode = "view" | "deliver" | "skip";
 
 export function StopCard({
@@ -104,8 +120,9 @@ export function StopCard({
             })),
           };
     record.mutate(input, {
-      onSuccess: () => {
+      onSuccess: (result) => {
         notify.success(form === "skip" ? t.stop.skipped(stop.seq) : t.stop.saved(stop.seq));
+        if (result.deliveries.some((line) => isPartial(result, line))) notify.warning(t.stop.partialNotice);
         setMode("view");
         setSubmitted(false);
       },
@@ -239,6 +256,11 @@ export function StopCard({
                 )}
                 {line.order_status && stop.status !== "pending" && (
                   <StatusBadge kind="order" value={line.order_status} />
+                )}
+                {isPartial(stop, line) && (
+                  <Badge tone="warning" data-testid="partial">
+                    {t.stop.partial}
+                  </Badge>
                 )}
               </li>
             ))}

@@ -6,6 +6,7 @@ import { Link } from "react-router-dom";
 import { useConfirm } from "@/components/ConfirmDialog";
 import { Notice } from "@/components/PageHeader";
 import { PdfButton } from "@/components/PdfButton";
+import { SegmentedProgress } from "@/components/SegmentedProgress";
 import { StatusBadge } from "@/components/StatusBadge";
 import { NumberInput, TimeInput } from "@/components/forms";
 import { notify } from "@/components/notify";
@@ -32,21 +33,26 @@ export function tripDelay(trip: TripSummary, planTrip: PlanTrip | undefined): nu
   return delaySeconds(trip.planned_depart_at, trip.actual_depart_at);
 }
 
-export function ProgressBar({ done, total, className }: { done: number; total: number; className?: string }) {
-  return (
-    <div
-      role="progressbar"
-      aria-label={t.list.progressLabel(done, total)}
-      aria-valuemin={0}
-      aria-valuemax={total}
-      aria-valuenow={done}
-      className={cn("flex h-1.5 gap-0.5", className)}
-    >
-      {Array.from({ length: total }, (_, index) => (
-        <span key={index} className={cn("flex-1 rounded-full", index < done ? "bg-success" : "bg-border")} />
-      ))}
-    </div>
-  );
+/** Barre d'avancement des arrêts : livrés en vert, sautés en orange, à livrer en gris. */
+export function StopsProgress({
+  planTrip,
+  done,
+  total,
+  className,
+}: {
+  planTrip?: PlanTrip;
+  done: number;
+  total: number;
+  className?: string;
+}) {
+  const label = t.list.progressLabel(done, total);
+  if (!planTrip) return <SegmentedProgress done={done} total={total} label={label} className={className} />;
+  const segments = [...planTrip.stops]
+    .sort((a, b) => a.seq - b.seq)
+    .map((stop) =>
+      stop.status === "delivered" ? "success" : stop.status === "skipped" ? "warning" : "pending",
+    );
+  return <SegmentedProgress segments={segments} label={label} className={className} />;
 }
 
 export function TripDetail({
@@ -111,7 +117,7 @@ export function TripDetail({
 
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-md border bg-muted/30 px-3 py-2">
         <span className="text-xs font-medium text-muted-foreground">{t.trip.progress}</span>
-        <ProgressBar done={done} total={stops.length} className="h-2 min-w-40 flex-1" />
+        <StopsProgress planTrip={planTrip} done={done} total={stops.length} className="h-2 min-w-40 flex-1" />
         <span className="text-sm font-semibold" data-testid="trip-progress">
           {t.list.progress(done, stops.length)}
         </span>

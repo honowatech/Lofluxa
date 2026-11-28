@@ -11,6 +11,7 @@ import { readFileSync } from "node:fs";
 
 import { expect, test, type Browser, type Page } from "@playwright/test";
 
+import { openSession } from "./auth";
 import { ACCOUNTS, call, seedPublishedPlan, type Seed, type SeedTrip } from "./l13-seed";
 
 const CAPTURES = !!process.env.L13_CAPTURES;
@@ -89,12 +90,10 @@ async function open(browser: Browser, account: { email: string; password: string
     deviceScaleFactor: CAPTURES ? 2 : 1,
   });
   const page = await context.newPage();
-  await page.goto("/connexion");
-  await page.getByLabel("Adresse e-mail").fill(account.email);
-  await page.getByLabel("Mot de passe", { exact: true }).fill(account.password);
-  await page.getByRole("button", { name: "Se connecter" }).click();
-  await expect(page.getByTestId("user-menu")).toBeVisible();
+  // Session ouverte par jeton (aide commune) : seul le parcours de connexion passe par le formulaire.
+  await openSession(page, account);
   await page.goto(path);
+  await expect(page.getByTestId("user-menu")).toBeVisible();
   return { context, page };
 }
 
@@ -236,7 +235,10 @@ test("dispatcher : une livraison, un arrêt sauté, clôture de la tournée", as
   }
   await first.getByRole("button", { name: "Enregistrer la livraison" }).click();
   await expect(first.getByText("Livré", { exact: true })).toBeVisible();
-  await expect(first.getByTestId("delay")).toHaveText("Retard 15 min");
+  // L'heure saisie est à la minute, l'heure prévue a des secondes : le retard attendu est recalculé.
+  const typed = Math.floor((Date.parse(firstStop.planned_arrival_at) + 15 * 60_000) / 60_000) * 60_000;
+  const lateMinutes = Math.round((typed - Date.parse(firstStop.planned_arrival_at)) / 60_000);
+  await expect(first.getByTestId("delay")).toHaveText(`Retard ${lateMinutes} min`);
   await expect(detail.getByTestId("trip-progress")).toHaveText(`1 / ${trip.stops.length} arrêts`);
   // Livré : corrigeable, mais plus « sautable ».
   await expect(first.getByRole("button", { name: "Corriger" })).toBeVisible();

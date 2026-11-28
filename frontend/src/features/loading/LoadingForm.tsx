@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { fr } from "@/i18n/fr";
 import { isApiError } from "@/lib/api";
-import { formatLiters, formatNumber, formatPercent } from "@/lib/format";
+import { formatLiters, formatNumber, formatPercent, formatSigned, formatSignedPercent } from "@/lib/format";
 import type { IsoDate } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -77,15 +77,9 @@ function initialDraft(loads: PlannedLoad[], loading: Loading | null): Draft {
 const valid = (value: number | null): value is number => value !== null && !Number.isNaN(value);
 const rowFilled = (row: Row) => row.observed !== null || row.temp !== null || row.density !== null;
 
-function signed(value: number, digits: number): string {
-  const text = formatNumber(Math.abs(value), digits);
-  return value > 0 ? `+${text}` : value < 0 ? `−${text}` : text;
-}
-function signedPct(value: number | null): string {
-  if (value === null) return formatPercent(null);
-  return `${value > 0 ? "+" : value < 0 ? "−" : ""}${formatPercent(Math.abs(value), 2)}`;
-}
-const liters = (value: number, digits = 0) => `${signed(value, digits)}\u00a0${t.form.litersUnit}`;
+const signed = (value: number, digits: number) => formatSigned(value, digits);
+const signedPct = (value: number | null) => formatSignedPercent(value, 2);
+const liters = (value: number, digits = 0) => formatSigned(value, digits, t.form.litersUnit);
 
 interface LineView {
   load: PlannedLoad;

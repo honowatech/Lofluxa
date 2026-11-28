@@ -15,7 +15,7 @@ import { cn } from "@/lib/utils";
 
 import { TRIP_FLOW, usePlans, useTrips, type PlanTrip, type TripStatus, type TripSummary } from "./api";
 import { DelayBadge } from "./StopCard";
-import { ProgressBar, TripDetail, tripDelay } from "./TripDetail";
+import { StopsProgress, TripDetail, tripDelay } from "./TripDetail";
 
 const t = fr.screens.deliveries;
 
@@ -162,13 +162,13 @@ function TripCard({
       </span>
       <span className="truncate text-xs text-muted-foreground">
         {trip.driver_name ?? t.list.noDriver} · {trip.depot_code}
-        {showPlan && ` · ${t.list.plan(trip.plan_version, trip.plan_label ?? null)}`} ·{" "}
-        <span className="num">
+        {showPlan && ` · ${t.list.plan(trip.plan_version, trip.plan_label ?? null)}`}
+      </span>
+      <StopsProgress planTrip={planTrip} done={done} total={trip.stop_count} />
+      <span className="flex items-center gap-2 text-xs">
+        <span className="num text-muted-foreground">
           {formatLocalTime(trip.planned_depart_at)} → {formatLocalTime(trip.planned_return_at)}
         </span>
-      </span>
-      <ProgressBar done={done} total={trip.stop_count} />
-      <span className="flex items-center gap-2 text-xs">
         <span className="font-medium">{t.list.progress(done, trip.stop_count)}</span>
         <DelayBadge
           seconds={trip.status === "planned" ? null : tripDelay(trip, planTrip)}

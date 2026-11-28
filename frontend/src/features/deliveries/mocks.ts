@@ -20,6 +20,8 @@ export interface DeliveryMocks {
   plan: Plan;
   stop: (tripSeq: number, stopSeq: number) => PlanStop;
   requests: { method: string; path: string; body: unknown }[];
+  /** Commandes planifiées en partie : une fois livrées, elles gardent un reliquat (statut « confirmed »). */
+  partialOrders: Set<string>;
 }
 
 export function createDeliveryMocks(day: IsoDate): DeliveryMocks {
@@ -140,6 +142,7 @@ export function createDeliveryMocks(day: IsoDate): DeliveryMocks {
     loading: null,
   });
   const requests: DeliveryMocks["requests"] = [];
+  const partialOrders = new Set<string>();
   const WRITERS = ["fleet", "dispatcher"] as const;
 
   const handlers = [
@@ -188,7 +191,8 @@ export function createDeliveryMocks(day: IsoDate): DeliveryMocks {
         target.skip_reason = null;
         for (const line of target.deliveries) {
           line.actual_l = input.deliveries?.find((d) => d.order_id === line.order_id)?.actual_l ?? 0;
-          line.order_status = line.actual_l > 0 ? "delivered" : "confirmed";
+          line.order_status =
+            line.actual_l > 0 && !partialOrders.has(line.order_id) ? "delivered" : "confirmed";
         }
       }
       target.actual_arrival_at = input.actual_arrival_at ?? null;
@@ -231,5 +235,6 @@ export function createDeliveryMocks(day: IsoDate): DeliveryMocks {
     plan,
     stop: (tripSeq, stopSeq) => planTrips[tripSeq - 1].stops[stopSeq - 1],
     requests,
+    partialOrders,
   };
 }

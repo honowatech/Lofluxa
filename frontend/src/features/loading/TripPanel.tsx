@@ -1,11 +1,12 @@
 /** Détail d'une tournée au dépôt : étapes de statut, formulaire de chargement, fiche PDF et envoi par e-mail. */
-import { ArrowRight, Check, Mail, PackageCheck, Truck, Warehouse } from "lucide-react";
+import { ArrowRight, Mail, PackageCheck, Truck, Warehouse } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 
 import { Notice } from "@/components/PageHeader";
 import { PdfButton } from "@/components/PdfButton";
 import { StatusBadge } from "@/components/StatusBadge";
+import { Steps } from "@/components/Steps";
 import { TimeInput } from "@/components/forms";
 import { notify } from "@/components/notify";
 import { ErrorState, LoadingState, Spinner } from "@/components/states";
@@ -15,7 +16,6 @@ import { isApiError, useSettings } from "@/lib/api";
 import { formatKm, formatLiters, formatLocalTime } from "@/lib/format";
 import type { IsoDate } from "@/lib/types";
 import { withDay } from "@/lib/useDay";
-import { cn } from "@/lib/utils";
 
 import {
   TRIP_FLOW,
@@ -189,27 +189,11 @@ function StatusSteps({ trip, canWrite, dirty }: { trip: TripLoading; canWrite: b
   return (
     <div className="flex flex-col gap-2 rounded-md border bg-muted/30 px-3 py-2">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-        <ol aria-label={t.steps.label} className="flex flex-wrap items-center gap-1 text-xs">
-          {TRIP_FLOW.map((status, position) => (
-            <li
-              key={status}
-              aria-current={position === index ? "step" : undefined}
-              className={cn(
-                "flex items-center gap-1 rounded-sm border px-2 py-1",
-                position < index && "border-success/25 bg-success-soft text-success",
-                position === index && "border-primary bg-primary font-semibold text-primary-foreground",
-                position > index && "border-border bg-card text-muted-foreground",
-              )}
-            >
-              {position < index ? (
-                <Check className="size-3" aria-hidden />
-              ) : (
-                <span className="num">{position + 1}</span>
-              )}
-              {fr.status.trip[status]}
-            </li>
-          ))}
-        </ol>
+        <Steps
+          label={t.steps.label}
+          current={trip.status}
+          steps={TRIP_FLOW.map((status) => ({ id: status, label: fr.status.trip[status] }))}
+        />
         <div className="ml-auto flex flex-wrap items-end gap-2">
           {canWrite && trip.status === "loaded" && (
             <div className="flex flex-col gap-0.5">

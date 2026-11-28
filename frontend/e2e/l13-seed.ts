@@ -1,17 +1,15 @@
 /**
- * Mise en données du lot L13 contre la vraie API : référentiels (fichiers modèles), comptes `fleet`,
+ * Mise en données du lot L13 contre la vraie API : ressources propres au lot (préfixe L13), comptes `fleet`,
  * `dispatcher` et `supply`, stocks, commandes confirmées, plan calculé puis publié pour le jour demandé.
  *
  * Depuis un test Playwright : `const seed = await seedPublishedPlan()` (jour vierge choisi automatiquement).
  * En ligne de commande      : `node --experimental-strip-types e2e/l13-seed.ts 2031-03-04`
  * Prérequis : API sur :8000 et un worker Celery (le calcul du plan est une tâche de fond).
  */
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const API = process.env.TOURNEO_API ?? "http://localhost:8000/api/v1";
-const TEMPLATES = resolve(dirname(fileURLToPath(import.meta.url)), "../../data/templates");
 const ADMIN = { email: "admin@honowa.tech", password: "admin-dev-only" };
 
 export const ACCOUNTS = {
@@ -73,29 +71,24 @@ async function ensureUsers(admin: string): Promise<void> {
   }
 }
 
-async function importFile(admin: string, kind: string): Promise<void> {
-  const form = new FormData();
-  form.append("file", new Blob([readFileSync(resolve(TEMPLATES, `${kind}.xlsx`))]), `${kind}.xlsx`);
-  const batch = await call<{ id: string; status: string; report?: unknown }>(`/imports/${kind}/preview`, {
-    method: "POST",
-    token: admin,
-    form,
-  });
-  if (batch.status !== "previewed") {
-    throw new Error(`Import ${kind} refusé : ${JSON.stringify(batch).slice(0, 1500)}`);
-  }
-  // Constaté une fois : un `apply` envoyé aussitôt après le `preview` répond 404 « Lot d'import introuvable »
-  // (le lot n'est pas encore visible). On réessaie brièvement.
-  for (let attempt = 0; ; attempt += 1) {
-    try {
-      await call(`/imports/${batch.id}/apply`, { method: "POST", token: admin });
-      return;
-    } catch (error) {
-      if (attempt >= 4 || !String(error).includes("→ 404")) throw error;
-      await new Promise((done) => setTimeout(done, 300));
-    }
+/** Lit une liste entière, page par page (une base partagée dépasse vite 200 lignes). */
+export async function listAll<T>(path: string, token: string): Promise<T[]> {
+  const items: T[] = [];
+  const separator = path.includes("?") ? "&" : "?";
+  for (;;) {
+    const page = await call<Paged<T>>(`${path}${separator}limit=200&offset=${items.length}`, { token });
+    items.push(...page.items);
+    if (page.items.length === 0 || items.length >= page.total) return items;
   }
 }
+
+/** Dépôts du lot : les tournées chargent au premier ; le second sert de dépôt de repli (pénurie). */
+const DEPOTS: [string, string, number, number][] = [
+  ["L13-DEPOT-A", "Dépôt Douala Port (L13)", 4.0435, 9.7043],
+  ["L13-DEPOT-B", "Dépôt Bonabéri (L13)", 4.0712, 9.6701],
+];
+/** Camions et chauffeurs disponibles au calcul du plan : deux camions, donc deux tournées chacun. */
+const PLANNED_TRUCKS = 2;
 
 const HOURS = Object.fromEntries(
   ["mon", "tue", "wed", "thu", "fri", "sat"].map((weekday) => [weekday, [["06:00", "20:00"]]]),
@@ -145,7 +138,27 @@ const ORDERS: [string, string, number, "normal" | "urgent"][] = [
 
 /** Stations, camions et chauffeurs supplémentaires (créés une seule fois, retrouvés par code / nom). */
 async function ensureFleet(admin: string, productId: (code: string) => string): Promise<void> {
-  const stations = (await call<Paged<Named>>("/stations?limit=200", { token: admin })).items;
+  const depots = await listAll<Named>("/depots", admin);
+  for (const [code, name, lat, lon] of DEPOTS) {
+    if (depots.some((depot) => depot.code === code)) continue;
+    await call("/depots", {
+      method: "POST",
+      token: admin,
+      body: {
+        code,
+        name,
+        operator: "scdp",
+        lat,
+        lon,
+        opening_hours: Object.fromEntries(
+          Object.keys(HOURS).map((weekday) => [weekday, [["06:00", "18:00"]]]),
+        ),
+        avg_wait_min: 90,
+        max_loadings_per_truck_day: 2,
+      },
+    });
+  }
+  const stations = await listAll<Named>("/stations", admin);
   for (const [code, name, lat, lon, contact_email] of STATIONS) {
     if (stations.some((station) => station.code === code)) continue;
     await call("/stations", {
@@ -171,8 +184,7 @@ async function ensureFleet(admin: string, productId: (code: string) => string): 
       },
     });
   }
-  const trucks = (await call<Paged<{ id: string; plate: string }>>("/trucks?limit=200", { token: admin }))
-    .items;
+  const trucks = await listAll<{ id: string; plate: string }>("/trucks", admin);
   for (const [plate, size, capacities] of TRUCKS) {
     if (trucks.some((truck) => truck.plate === plate)) continue;
     await call("/trucks", {
@@ -240,6 +252,16 @@ export interface Seed {
   /** Jeton administrateur, pour préparer des états par l'API sans nouvelle connexion (débit limité). */
   adminToken: string;
   trips: SeedTrip[];
+  /** Les deux dépôts du lot : `[dépôt de chargement, dépôt de repli]`. */
+  depots: { id: string; code: string; name: string }[];
+}
+
+/** Écrit une disponibilité du jour pour toute une liste, par lots de 400 lignes au plus. */
+async function put<T>(path: string, token: string, rows: T[], items: (row: T) => unknown[]): Promise<void> {
+  const all = rows.flatMap(items);
+  for (let start = 0; start < all.length; start += 400) {
+    await call(path, { method: "PUT", token, body: { items: all.slice(start, start + 400) } });
+  }
 }
 
 /** Jour sans aucun plan, loin dans le futur (hors dimanche : dépôt fermé) : chaque exécution a le sien. */
@@ -261,18 +283,48 @@ export async function seedPublishedPlan(requestedDay?: string): Promise<Seed> {
   const day = requestedDay ?? (await freeDay(admin));
   await ensureUsers(admin);
 
-  // Dépôts (et référentiels) des fichiers modèles : seulement sur une base sans dépôt. Sur une base déjà
-  // remplie par d'autres lots, le script n'ajoute que ses propres stations, camions et chauffeurs (`L13…`).
-  const existing = await call<Paged<Named>>("/depots?limit=1", { token: admin });
-  if (existing.total === 0) {
-    for (const kind of ["depots", "stations", "trucks", "drivers"]) await importFile(admin, kind);
-  }
-
-  const depots = (await call<Paged<Named>>("/depots?limit=200", { token: admin })).items;
-  const products = (await call<Paged<Named>>("/products?limit=200", { token: admin })).items;
+  // Le script ne s'appuie que sur SES ressources (préfixe L13) : sur une base partagée avec d'autres lots,
+  // les dépôts, camions et chauffeurs des autres sont neutralisés pour ce jour seulement.
+  const products = await listAll<Named>("/products", admin);
   const productId = (code: string) => products.find((product) => product.code === code)?.id as string;
   await ensureFleet(admin, productId);
-  const stations = (await call<Paged<Named>>("/stations?limit=200", { token: admin })).items;
+
+  const allDepots = await listAll<Named & { name: string }>("/depots", admin);
+  const depots = DEPOTS.map(([code]) => allDepots.find((depot) => depot.code === code)).filter(
+    (depot): depot is Named & { name: string } => !!depot,
+  );
+  const stocks = (available: (depot: Named) => number) =>
+    put(`/availability/depot-stocks?day=${day}`, admin, allDepots, (depot) =>
+      products.map((product) => ({
+        depot_id: depot.id,
+        product_id: product.id,
+        available_l: available(depot),
+      })),
+    );
+  // Au calcul, seul le premier dépôt a du stock : toutes les tournées y chargent.
+  await stocks((depot) => (depot.id === depots[0].id ? 400_000 : 0));
+
+  const plates = TRUCKS.map(([plate]) => plate);
+  const trucks = await listAll<{ id: string; plate: string }>("/trucks", admin);
+  const drivers = await listAll<{ id: string; license_no: string | null }>("/drivers", admin);
+  const mine = (driver: { license_no: string | null }) => driver.license_no?.startsWith("L13-") ?? false;
+  const rank = (driver: { license_no: string | null }) => Number(driver.license_no?.slice(-2, -1));
+  const fleet = (planned: boolean) =>
+    Promise.all([
+      put(`/availability/trucks?day=${day}`, admin, trucks, (truck) => [
+        {
+          truck_id: truck.id,
+          available:
+            plates.includes(truck.plate) && (!planned || plates.indexOf(truck.plate) < PLANNED_TRUCKS),
+        },
+      ]),
+      put(`/availability/drivers?day=${day}`, admin, drivers, (driver) => [
+        { driver_id: driver.id, available: mine(driver) && (!planned || rank(driver) < PLANNED_TRUCKS) },
+      ]),
+    ]);
+  await fleet(true);
+
+  const stations = await listAll<Named>("/stations", admin);
   for (const [stationCode, productCode, requested_l, priority] of ORDERS) {
     const station = stations.find((item) => item.code === stationCode);
     if (!station) throw new Error(`Station ${stationCode} absente.`);
@@ -282,19 +334,8 @@ export async function seedPublishedPlan(requestedDay?: string): Promise<Seed> {
       body: { day, station_id: station.id, product_id: productId(productCode), requested_l, priority },
     });
   }
-  await call(`/availability/depot-stocks?day=${day}`, {
-    method: "PUT",
-    token: admin,
-    body: {
-      items: depots.flatMap((depot) =>
-        products.map((product) => ({ depot_id: depot.id, product_id: product.id, available_l: 400_000 })),
-      ),
-    },
-  });
 
-  const orders = (
-    await call<Paged<{ id: string; status: string }>>(`/orders?day=${day}&limit=200`, { token: admin })
-  ).items;
+  const orders = await listAll<{ id: string; status: string }>(`/orders?day=${day}`, admin);
   const drafts = orders.filter((order) => order.status === "draft").map((order) => order.id);
   if (drafts.length > 0)
     await call("/orders/confirm", { method: "POST", token: admin, body: { order_ids: drafts } });
@@ -321,7 +362,17 @@ export async function seedPublishedPlan(requestedDay?: string): Promise<Seed> {
     method: "POST",
     token: admin,
   });
-  return { day, planId, adminToken: admin, trips: [...plan.trips].sort((a, b) => a.seq - b.seq) };
+  // Plan publié : les autres camions et chauffeurs du lot redeviennent disponibles (remplaçants d'une panne)
+  // et le second dépôt reçoit du stock (dépôt de repli d'une pénurie).
+  await fleet(false);
+  await stocks((depot) => (depots.some((own) => own.id === depot.id) ? 400_000 : 0));
+  return {
+    day,
+    planId,
+    adminToken: admin,
+    trips: [...plan.trips].sort((a, b) => a.seq - b.seq),
+    depots: depots.map(({ id, code, name }) => ({ id, code, name })),
+  };
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
