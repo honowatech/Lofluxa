@@ -21,7 +21,9 @@
 7. avec `--ab` : import de `reference_day.xlsx` (journée A manuelle fabriquée par
    `make_reference_day.py`), rejeu par le moteur, comparaison A/B et, avec `--pdf`, rapport PDF.
 
-`--no-orders` : référentiels et stocks seulement (utile avant `--ab` sur une base vide de commandes).
+`--no-orders` : référentiels et stocks seulement. `--ab` sans `--compute` n'importe pas non plus les
+commandes du jour (la journée de référence crée les siennes) ; attention, réimporter `orders.xlsx`
+après le report d'une commande la recrée, car l'import ignore les commandes reportées (question L3-15).
 
 Rejouable sans doublons : un second passage n'annonce que des lignes « inchangées », ne ressaisit pas un
 stock identique et ne confirme que les commandes encore en brouillon.
@@ -494,7 +496,8 @@ async def _main(args: argparse.Namespace) -> None:
             day=args.day,
             admin=(args.admin_email, args.admin_password),
             compute=args.compute,
-            orders=not args.no_orders,
+            # `--ab` seul : la journée de référence apporte ses propres commandes.
+            orders=not (args.no_orders or (args.ab and not args.compute)),
         )
         comparison = await run_ab(api, args.name, day=args.day, pdf=args.pdf) if args.ab else None
     print_summary(summary)
