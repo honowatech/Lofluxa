@@ -26,6 +26,8 @@ let day: string;
 let broken: SeedTrip;
 /** Seconde tournée du même camion, encore planifiée au moment de la panne. */
 let later: SeedTrip;
+/** Tournée d'un autre camion, chargée et partie avant la pénurie. */
+let loadedTrip: SeedTrip;
 let dispatcher: { context: BrowserContext; page: Page };
 
 test.describe.configure({ mode: "serial" });
@@ -81,6 +83,41 @@ async function run(trip: SeedTrip, delivered: number, complete: boolean): Promis
   }
 }
 
+/**
+ * Camion de réserve du parcours (`L13 777 EV`, hors plan) : sans lui, la flotte du jeu d'essai ne laisse
+ * aucun camion éligible pour reprendre la seconde tournée du camion en panne (capacité, RM-14).
+ * Créé une seule fois, puis rendu disponible pour le jour du parcours.
+ */
+async function ensureSpareTruck(): Promise<void> {
+  const token = seed.adminToken;
+  const plate = "L13 777 EV";
+  const found = await call<{ items: { id: string; plate: string }[] }>(
+    `/trucks?q=${encodeURIComponent(plate)}&limit=50`,
+    { token },
+  );
+  const spare =
+    found.items.find((truck) => truck.plate === plate) ??
+    (await call<{ id: string }>("/trucks", {
+      method: "POST",
+      token,
+      body: {
+        plate,
+        size: "large",
+        avg_speed_kmh: 40,
+        cost_per_km: 600,
+        compartments: [12000, 10000, 8000, 5000].map((capacity_l, index) => ({
+          position: index + 1,
+          capacity_l,
+        })),
+      },
+    }));
+  await call(`/availability/trucks?day=${day}`, {
+    method: "PUT",
+    token,
+    body: { items: [{ truck_id: spare.id, available: true }] },
+  });
+}
+
 test.beforeAll(async () => {
   test.setTimeout(300_000);
   seed = await seedPublishedPlan();
@@ -91,7 +128,13 @@ test.beforeAll(async () => {
   const pair = [...byTruck.values()].find((trips) => trips.length === 2 && trips[0].stops.length >= 2);
   expect(pair, "le plan d'essai contient un camion à deux tournées").toBeTruthy();
   [broken, later] = pair as [SeedTrip, SeedTrip];
+  await ensureSpareTruck();
   await run(broken, 1, false);
+  // Une tournée d'un autre camion, chargée en gasoil et partie : son volume compte dans le « déjà chargé ».
+  const other = seed.trips.find((trip) => trip.truck_id !== broken.truck_id && gasoil(trip) > 1);
+  expect(other, "le plan d'essai contient une autre tournée chargée en gasoil").toBeTruthy();
+  loadedTrip = other as SeedTrip;
+  await run(loadedTrip, 0, false);
 });
 
 test.afterAll(async () => {
@@ -238,7 +281,10 @@ test("dispatcher : panne d'un camion à deux tournées → enchaînement → nou
   // Résultat tel que le serveur le renvoie : publiée, ou en brouillon avec ses violations.
   const result = dialog.getByTestId("plan-result");
   await expect(result).toContainText(/Version \d+ (du plan publiée|en brouillon|du plan en brouillon)/);
-  const published = /du plan publiée/.test(await result.innerText());
+  const resultText = await result.innerText();
+  test.info().annotations.push({ type: "version après enchaînement", description: resultText });
+  const published = /du plan publiée/.test(resultText);
+  await shot(page, "l13-15-journal-enchainement-resultat");
   if (published) {
     // La tournée de remplacement repart du dépôt : elle est dans l'écran Chargement, sur le nouveau camion.
     await dialog.getByRole("link", { name: "Ouvrir son chargement" }).click();
@@ -248,7 +294,6 @@ test("dispatcher : panne d'un camion à deux tournées → enchaînement → nou
     await expect(result.getByRole("link", { name: /Ouvrir le plan/ })).toBeVisible();
     await expect(dialog.getByRole("link", { name: "Ouvrir son chargement" })).toHaveCount(0);
   }
-  test.info().annotations.push({ type: "version après enchaînement", description: await result.innerText() });
 
   // Le journal porte les deux événements, avec leur motif.
   await page.goto(`/journal?day=${day}`);
@@ -262,7 +307,7 @@ test("pénurie produit : déclarée par l'écran (supply), traitée par le dispa
   browser,
 }) => {
   // Stock total du jour = déjà chargé + 4 000 L : les tournées de gasoil non chargées ne sont plus couvertes.
-  const loaded = gasoil(broken);
+  const loaded = gasoil(loadedTrip);
   const stock = loaded + 4000;
 
   // Supply voit le Journal et déclare ; l'assistant de réaffectation ne lui est pas proposé.
@@ -274,13 +319,11 @@ test("pénurie produit : déclarée par l'écran (supply), traitée par le dispa
   await form.getByRole("combobox", { name: "Produit" }).selectOption({ label: "Gasoil" });
   const field = form.getByRole("textbox", { name: "Nouveau stock disponible" });
 
-  if (loaded > 1) {
-    // Refus expliqué : le stock total ne peut pas être inférieur à ce qui est déjà chargé.
-    await field.fill("1");
-    await form.getByRole("button", { name: "Déclarer" }).click();
-    await expect(form.getByRole("alert")).toContainText("Déclaration refusée");
-    await expect(form.getByRole("alert")).toContainText("Le stock saisi est le stock total du jour");
-  }
+  // Refus expliqué : le stock total ne peut pas être inférieur à ce qui est déjà chargé.
+  await field.fill("1");
+  await form.getByRole("button", { name: "Déclarer" }).click();
+  await expect(form.getByRole("alert")).toContainText("Déclaration refusée");
+  await expect(form.getByRole("alert")).toContainText("Le stock saisi est le stock total du jour");
 
   await field.fill(String(stock));
   await form.getByRole("button", { name: "Déclarer" }).click();

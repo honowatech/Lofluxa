@@ -63,3 +63,21 @@ tous les appels sont dans `frontend/src/features/events/api.ts`.
   `lib/auth/roles.ts` (contournement conservé à l'écran 7 ; pénurie déclarée en `admin` dans le parcours e2e).
 - **Jeu de données des parcours** : tout ce que `e2e/l13-seed.ts` crée est préfixé `L13` (stations `L13-…`, camions
   `L13 …`, permis `L13-…`, noms suffixés « (L13) ») et le script est rejouable sur une base remplie par d'autres lots.
+
+## Reprise (semaine du 28/11) — choix et constats ajoutés
+
+| # | Question | Choix fait |
+|---|---|---|
+| L13-20 | Enchaînement d'une panne sur les autres tournées du camion : le serveur ne publie pas de lui-même un brouillon déjà existant. | Pour la suite d'un même incident, l'assistant envoie `publish: true`, uniquement si le brouillon est né de l'étape précédente (`version_created`) : la version est publiée dès qu'elle n'a plus de violation bloquante. À confirmer avec le lot L10. |
+| L13-21 | Livraison partielle (défaut D8 en cours de correction) : comment reconnaître une commande livrée en partie ? | D'après la réponse de l'API seulement : un volume livré > 0 sur une commande dont le statut n'est pas « livrée » → mention « Livrée en partie : reliquat à replanifier ». Testé sur doublure ; à revoir si le correctif renvoie un autre signal. |
+| L13-22 | Journal, écart E5 : heure de l'événement et heure de saisie. | La date est affichée avec l'heure quand l'événement n'est pas daté du jour J. `EventOut` n'expose pas d'heure de saisie (`created_at`) : la distinction événement / saisie reste impossible côté écran, et l'ordre du fil mélange toujours les deux. |
+
+- **`POST /events/product-shortage` après une panne** : le gasoil déjà chargé sur la tournée d'origine n'est plus compté
+  (« Déjà chargé 0 L », un stock de 1 L est accepté). Attendu : refus `stock_below_loaded`. Peut être voulu
+  (rechargement au dépôt, question L10-1) : à trancher.
+- **Jeu d'essai des parcours** : `e2e/l13-seed.ts` n'utilise plus que les ressources du lot (deux dépôts `L13-DEPOT-A/B`,
+  stations, camions, chauffeurs) ; les dépôts, camions et chauffeurs des autres lots sont neutralisés pour le seul jour
+  du parcours (stock à 0, indisponibilité du jour). Le parcours des événements crée un camion de réserve `L13 777 EV`.
+- **Catalogue** : adoptés `Steps`, `SegmentedProgress`, `FilterChip`, `formatSigned`, `formatSignedPercent`,
+  `Notice tone="success"`. Gardés localement : la pastille de type d'événement (`StatusBadge kind="event"` n'a pas
+  d'icône) et la carte radio de l'assistant (pas d'équivalent).
