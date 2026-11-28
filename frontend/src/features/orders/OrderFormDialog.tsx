@@ -117,7 +117,13 @@ export function OrderFormDialog({
               <Notice tone="neutral">{t.form.notEditable(fr.status.order[order.status])}</Notice>
             )}
             <FormSection title={t.form.orderSection}>
-              <SelectField name="station_id" label={t.form.station} options={stationOptions} required />
+              <SelectField
+                name="station_id"
+                label={t.form.station}
+                options={stationOptions}
+                required
+                autoFocus={!order}
+              />
               <FieldRow cols={3}>
                 <SelectField name="product_id" label={t.form.product} options={productOptions} required />
                 <LitersField name="requested_l" label={t.form.volume} required />

@@ -5,24 +5,31 @@
  *   L11_CAPTURES=1 pnpm exec playwright test --project=e2e --trace off l11-captures
  *
  * Ignoré par `pnpm e2e` sans cette variable : les captures ne sont régénérées que sur demande. Le scénario
- * modifie le jour choisi (`L11_CAPTURE_DAY`, défaut 2027-01-14) : le relancer demande un jour encore vierge.
+ * travaille sur un jour encore vierge de 2028 (ou `L11_CAPTURE_DAY`) : il est relançable tel quel.
  */
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Browser, type Page } from "@playwright/test";
 
+import { openSession, type Credentials } from "./auth";
 import {
-  API,
+  Api,
   DISPATCHER,
-  ensureAccounts,
-  ensureDemo,
-  ensureTemplates,
-  login,
+  DRIVER_FREE,
+  DRIVER_OTHER,
+  freshDay,
   MANAGER,
-  openAs,
+  NAME_TAG,
+  seedDemoOrders,
+  seedL11,
+  STATION,
+  STATION_NO_KEROSENE,
   SUPPLY,
+  TAG,
+  TRUCK_SMALL,
 } from "./l11-seed";
 
-const DAY = process.env.L11_CAPTURE_DAY ?? "2027-01-14";
 const OUT = "docs/captures";
+/** Camion demandé par deux chauffeurs dans la capture du conflit d'affectation. */
+const PLATE = new RegExp(`^${TAG}402-AB`);
 
 test.use({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 });
 test.skip(!process.env.L11_CAPTURES, "captures régénérées sur demande (L11_CAPTURES=1)");
@@ -34,51 +41,40 @@ const shot = async (page: Page, name: string) => {
   await page.screenshot({ path: `${OUT}/${name}.png`, animations: "disabled" });
 };
 
-test("captures des écrans Journée, Commandes du jour et Disponibilité du jour", async ({ page, request }) => {
-  test.setTimeout(300_000);
-  const admin = await ensureAccounts(request);
-  await ensureTemplates(request, admin);
-  await ensureDemo(request, admin, DAY);
+/** Un onglet par rôle : la session est déposée avant le premier chargement (`e2e/auth.ts`). */
+async function pageAs(browser: Browser, credentials: Credentials): Promise<Page> {
+  const page = await (await browser.newContext()).newPage();
+  await openSession(page, credentials);
+  return page;
+}
 
-  // Deux commandes de plus pour illustrer le contrôle de volume F3.4 : un refus et un avertissement.
-  const headers = { Authorization: `Bearer ${(await login(request, DISPATCHER)) as string}` };
-  const list = async (resource: string) =>
-    (
-      (await (await request.get(`${API}${resource}`, { headers, params: { limit: 500 } })).json()) as {
-        items: { id: string; code: string; tanks?: { product_id: string }[] }[];
-      }
-    ).items;
-  const products = await list("/products");
-  const stations = await list("/stations");
-  const product = (code: string) => products.find((p) => p.code === code)?.id as string;
-  const akwa = stations.find((s) => s.code === "DLA01") as (typeof stations)[number];
-  const noKerosene = stations.find(
-    (s) => s.code.startsWith("DLA") && !s.tanks?.some((tank) => tank.product_id === product("PETROLE")),
-  ) as (typeof stations)[number];
-  const base = { day: DAY, priority: "normal", window_start: null, window_end: null };
-  await request.post(`${API}/orders`, {
-    headers,
-    data: {
-      ...base,
-      station_id: akwa.id,
-      product_id: product("GASOIL"),
-      requested_l: 42000,
-      comment: "Groupe électrogène du marché",
-    },
+test("captures des écrans Journée, Commandes du jour et Disponibilité du jour", async ({ browser }) => {
+  test.setTimeout(300_000);
+  const seed = await seedL11();
+  const dispatcher = await Api.as(DISPATCHER);
+  // Jour encore vierge (ou celui demandé par `L11_CAPTURE_DAY`) : les 20 commandes de `demo_douala`, plus deux
+  // commandes qui illustrent le contrôle de volume F3.4 — un refus et un avertissement.
+  const DAY = process.env.L11_CAPTURE_DAY ?? (await freshDay(dispatcher));
+  await seedDemoOrders(seed, DAY);
+  const extra = { day: DAY, priority: "normal", window_start: null, window_end: null };
+  await dispatcher.call("POST", "/orders", {
+    ...extra,
+    station_id: seed.stations.get(STATION.code),
+    product_id: seed.products.get("GASOIL"),
+    requested_l: 42000,
+    comment: "Groupe électrogène du marché",
   });
-  await request.post(`${API}/orders`, {
-    headers,
-    data: {
-      ...base,
-      station_id: noKerosene.id,
-      product_id: product("PETROLE"),
-      requested_l: 2500,
-      comment: null,
-    },
+  await dispatcher.call("POST", "/orders", {
+    ...extra,
+    station_id: seed.stations.get(STATION_NO_KEROSENE.code),
+    product_id: seed.products.get("PETROLE"),
+    requested_l: 2500,
+    comment: null,
   });
 
   /* ------------------------------------------------------------ Supply : stocks dépôt */
-  await openAs(page, request, SUPPLY, `/disponibilite?day=${DAY}`);
+  let page = await pageAs(browser, SUPPLY);
+  await page.goto(`/disponibilite?day=${DAY}`);
   const cells = page.getByTestId("stocks-grid").getByRole("textbox");
   await expect(cells.first()).toBeVisible();
   const volumes = ["64000", "9000", "71000", "180000", "24000", "150000"];
@@ -109,13 +105,15 @@ test("captures des écrans Journée, Commandes du jour et Disponibilité du jour
   await page.getByTestId("stock-history").getByRole("button", { name: "Fermer" }).first().click();
 
   /* ------------------------------------------------------- Dispatcher : commandes du jour */
-  await openAs(page, request, DISPATCHER, `/commandes?day=${DAY}`);
+  await page.context().close();
+  page = await pageAs(browser, DISPATCHER);
+  await page.goto(`/commandes?day=${DAY}`);
   const orders = page.getByRole("grid", { name: "Commandes du jour" });
   await expect(orders.getByRole("row")).toHaveCount(23);
 
   await page.getByRole("button", { name: "Nouvelle commande" }).click();
   const form = page.getByRole("dialog", { name: "Nouvelle commande" });
-  await form.getByLabel(/^Station/).selectOption({ label: "DLA03 — OLA Bonapriso" });
+  await form.getByLabel(/^Station/).selectOption({ label: `${TAG}DLA03 — OLA Bonapriso` });
   await form.getByLabel(/^Produit/).selectOption({ label: "Gasoil" });
   await form.getByLabel(/^Volume demandé/).fill("8000");
   await form.getByLabel(/^Priorité/).selectOption({ label: "Urgente" });
@@ -156,18 +154,22 @@ test("captures des écrans Journée, Commandes du jour et Disponibilité du jour
   const trucks = page.getByRole("grid", { name: "Camions du jour" });
   await trucks
     .getByRole("row")
-    .filter({ hasText: "LT-403-AC" })
+    .filter({ hasText: TRUCK_SMALL })
     .getByRole("button", { name: /^Actions/ })
     .click();
   await page.getByRole("menuitem", { name: "Marquer indisponible…" }).click();
   const mark = page.getByRole("dialog", { name: "Marquer indisponible pour la journée" });
   await mark.getByLabel(/^Motif du jour/).fill("Visite technique annuelle");
   await mark.getByRole("button", { name: "Marquer indisponible" }).click();
-  await expect(trucks.getByRole("row").filter({ hasText: "LT-403-AC" })).toContainText("RM-04");
+  await expect(trucks.getByRole("row").filter({ hasText: TRUCK_SMALL })).toContainText("RM-04");
+  // La base de développement porte aussi les données des autres lots : la capture montre le jeu L11.
+  await page.getByRole("searchbox").fill(TAG);
   await shot(page, "l11-09-disponibilite-camions");
 
   await page.getByRole("tab", { name: "Chauffeurs" }).click();
   const drivers = page.getByRole("grid", { name: "Chauffeurs du jour" });
+  await page.getByRole("searchbox").fill(NAME_TAG.trim());
+  await expect(drivers.getByRole("row").filter({ hasText: DRIVER_FREE })).toBeVisible();
   const assign = async (driver: string, plate: RegExp) => {
     const cell = drivers.getByRole("row").filter({ hasText: driver }).getByRole("gridcell").nth(3);
     await cell.click();
@@ -177,9 +179,9 @@ test("captures des écrans Journée, Commandes du jour et Disponibilité du jour
     await select.selectOption(option as string);
     await page.keyboard.press("Enter");
   };
-  await assign("Yves Mbarga", /^LT 123 AB/);
-  await expect(drivers.getByRole("row").filter({ hasText: "Yves Mbarga" })).toContainText("jour");
-  await assign("Paul Tchoupo", /^LT 123 AB/);
+  await assign(DRIVER_FREE, PLATE);
+  await expect(drivers.getByRole("row").filter({ hasText: DRIVER_FREE })).toContainText("jour");
+  await assign(DRIVER_OTHER, PLATE);
   await expect(page.getByRole("alertdialog", { name: "Camion déjà affecté" })).toBeVisible();
   await shot(page, "l11-11-disponibilite-chauffeurs-conflit");
   await page.getByRole("alertdialog").getByRole("button", { name: "Ne rien changer" }).click();
@@ -202,8 +204,10 @@ test("captures des écrans Journée, Commandes du jour et Disponibilité du jour
   await shot(page, "l11-03-journee-plan-calcule");
 
   /* ------------------------------------------------------------ Direction : lecture seule */
-  await openAs(page, request, MANAGER, `/commandes?day=${DAY}`);
+  await page.context().close();
+  page = await pageAs(browser, MANAGER);
+  await page.goto(`/commandes?day=${DAY}`);
   await expect(page.getByText(/Lecture seule/)).toBeVisible();
-  await expect(orders.getByRole("row").nth(1)).toBeVisible();
+  await expect(page.getByRole("grid", { name: "Commandes du jour" }).getByRole("row").nth(1)).toBeVisible();
   await shot(page, "l11-12-commandes-lecture-seule");
 });

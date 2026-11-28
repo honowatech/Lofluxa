@@ -145,14 +145,14 @@ export default function OrdersPage() {
   };
 
   const patch = async (order: Order, changes: OrderPatch) => {
-    try {
-      const updated = await mutations.patch.mutateAsync({ id: order.id, changes });
-      setRefusal((current) => (current?.order.id === order.id ? null : current));
-      remember(updated);
-    } catch (error) {
-      explain(error, order, "update");
-      throw error;
-    }
+    const updated = await mutations.patch.mutateAsync({ id: order.id, changes });
+    setRefusal((current) => (current?.order.id === order.id ? null : current));
+    remember(updated);
+  };
+
+  /** Échec d'une édition dans le tableau : le refus F3.4 est expliqué dans le bandeau, le reste est notifié. */
+  const onCellError = (error: unknown, order: Order) => {
+    if (!explain(error, order, "update")) notify.apiError(error, fr.errors.saveFailed);
   };
 
   const save = async (input: OrderInput, order: Order | null) => {
@@ -566,6 +566,8 @@ export default function OrdersPage() {
         onRowActivate={(order) => setEditing({ order })}
         empty={canWrite ? `${t.empty} ${t.emptyHint}` : t.empty}
         className="min-h-0 flex-1"
+        onCellError={onCellError}
+        footer={(displayed) => <Totals orders={displayed} products={productList} />}
         toolbar={
           canWrite && (
             <>
@@ -592,8 +594,6 @@ export default function OrdersPage() {
           )
         }
       />
-
-      <Totals orders={rows} products={productList} />
 
       <OrderFormDialog
         open={editing !== null}

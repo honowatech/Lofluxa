@@ -129,6 +129,9 @@ export const dayTexts = {
 
   alerts: {
     title: "Alertes du jour",
+    pendingDraft: (version: number) => `Version ${version} du plan en brouillon, non publiée`,
+    pendingDraftTitle: "Une version du plan est restée en brouillon",
+    openDraft: "Ouvrir le brouillon",
     none: "Aucune alerte pour ce jour.",
     count: (n: number) => plural(n, "alerte", "alertes"),
     trip: (seq: number) => `Tournée ${seq}`,

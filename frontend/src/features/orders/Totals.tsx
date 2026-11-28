@@ -1,4 +1,4 @@
-/** Pied de tableau : totaux par produit et par statut des commandes affichées. */
+/** Pied de tableau (`DataTable footer`) : totaux par produit et par statut des commandes affichées. */
 import { StatusBadge } from "@/components/StatusBadge";
 import { fr } from "@/i18n/fr";
 import { formatLiters } from "@/lib/format";
@@ -55,10 +55,11 @@ export function Totals({ orders, products }: { orders: Order[]; products: Produc
     .sort((a, b) => a.code.localeCompare(b.code, "fr"));
 
   return (
-    <footer
+    <div
+      role="group"
       aria-label={t.title}
       data-testid="orders-totals"
-      className="flex flex-wrap items-center gap-x-6 gap-y-1.5 rounded-md border bg-card px-3 py-2"
+      className="flex flex-wrap items-center gap-x-6 gap-y-1.5 px-1 py-0.5"
     >
       {orders.length === 0 ? (
         <p className="text-xs text-muted-foreground">{t.none}</p>
@@ -110,6 +111,6 @@ export function Totals({ orders, products }: { orders: Order[]; products: Produc
           </p>
         </>
       )}
-    </footer>
+    </div>
   );
 }

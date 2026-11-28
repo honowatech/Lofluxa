@@ -8,6 +8,13 @@ import { fr } from "@/i18n/fr";
 
 const t = fr.screens.availability.resource;
 
+/** Noms cités dans un bandeau : les premiers, puis « et n autres » (le tableau donne la liste complète). */
+const MAX_NAMES = 6;
+export function nameList(names: string[]): string {
+  if (names.length <= MAX_NAMES) return names.join(", ");
+  return `${names.slice(0, MAX_NAMES).join(", ")} ${t.andOthers(names.length - MAX_NAMES)}`;
+}
+
 export const dayOptions = [
   { value: "true", label: t.availableToday },
   { value: "false", label: t.unavailableToday },

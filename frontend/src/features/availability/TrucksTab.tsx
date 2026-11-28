@@ -12,7 +12,14 @@ import { EMPTY, formatLiters } from "@/lib/format";
 import { TRUCK_STATUSES } from "@/lib/types";
 
 import { useSaveTrucks, useTruckDays, type TruckDay } from "./api";
-import { assignableOptions, AssignabilityCell, DayBadge, dayOptions, MarkUnavailableDialog } from "./shared";
+import {
+  assignableOptions,
+  AssignabilityCell,
+  DayBadge,
+  dayOptions,
+  MarkUnavailableDialog,
+  nameList,
+} from "./shared";
 
 const t = fr.screens.availability.trucks;
 const r = fr.screens.availability.resource;
@@ -23,9 +30,9 @@ export function TrucksTab({ day, canWrite }: { day: string; canWrite: boolean })
   const save = useSaveTrucks(day);
   const [state, setState] = useDataTableState({ pageSize: 100, sorting: [{ id: "plate", desc: false }] });
   const [marking, setMarking] = useState<TruckDay[] | null>(null);
-  // Le tableau garde sa sélection quand une action en masse passe par la boîte de motif : on le remonte ensuite.
+  // Sélection pilotée : une action en masse qui passe par la boîte de motif la vide une fois enregistrée.
+  const [selected, setSelected] = useState<string[]>([]);
   const [fromSelection, setFromSelection] = useState(false);
-  const [tableKey, setTableKey] = useState(0);
   const rows = list.data ?? NONE;
 
   const setAvailability = async (trucks: TruckDay[], available: boolean, reason: string | null = null) => {
@@ -171,14 +178,10 @@ export function TrucksTab({ day, canWrite }: { day: string; canWrite: boolean })
         <Notice tone="warning" icon={<TriangleAlert className="size-3.5 shrink-0" />}>
           <strong className="font-semibold">{t.blockedNotice(blocked)}</strong>
           {" — "}
-          {rows
-            .filter((truck) => !truck.assignable)
-            .map((truck) => truck.plate)
-            .join(", ")}
+          {nameList(rows.filter((truck) => !truck.assignable).map((truck) => truck.plate))}
         </Notice>
       )}
       <DataTable<TruckDay>
-        key={tableKey}
         caption={t.caption}
         columns={columns}
         data={rows}
@@ -199,16 +202,18 @@ export function TrucksTab({ day, canWrite }: { day: string; canWrite: boolean })
           },
         ]}
         selectable={canWrite}
+        selectedRowIds={selected}
+        onSelectionChange={(ids) => setSelected(ids)}
         bulkActions={
           canWrite
             ? [
                 {
                   label: r.markSelection,
                   icon: <CalendarX />,
-                  // La boîte de motif prend le relais ; la sélection est conservée jusqu'à l'enregistrement.
                   onClick: (selection) => {
                     setFromSelection(true);
                     setMarking(selection);
+                    // La sélection reste en place tant que le motif n'est pas enregistré (boîte annulable).
                     throw new Error("motif demandé");
                   },
                 },
@@ -242,7 +247,7 @@ export function TrucksTab({ day, canWrite }: { day: string; canWrite: boolean })
         onClose={() => setMarking(null)}
         onSubmit={async (reason) => {
           await setAvailability(marking ?? [], false, reason);
-          if (fromSelection) setTableKey((key) => key + 1);
+          if (fromSelection) setSelected([]);
         }}
       />
     </div>

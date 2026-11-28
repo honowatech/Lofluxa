@@ -1,7 +1,7 @@
 /** Écran 2 — Journée (accueil) : résumé du jour, calcul du plan, plans du jour, alertes. */
-import { Lock, RefreshCw } from "lucide-react";
+import { ArrowRight, CircleAlert, Lock, RefreshCw, TriangleAlert } from "lucide-react";
 import { useMemo } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
 import { Notice, PageHeader } from "@/components/PageHeader";
 import { ErrorState } from "@/components/states";
@@ -22,12 +22,54 @@ import {
   type Dashboard,
   type DaySummary,
 } from "./api";
-import { ComputePanel } from "./ComputePanel";
+import { ComputePanel, planLink } from "./ComputePanel";
 import { PlansTable } from "./PlansTable";
 import { EVENTS_PATH, RecentEvents } from "./RecentEvents";
 import { SummaryCards } from "./SummaryCards";
 
 const t = fr.screens.day;
+
+const PENDING_DRAFT = "pending_draft";
+
+/**
+ * Version du plan restée en brouillon après un événement ou une modification (`pending_draft`) : première des
+ * alertes, avec l'accès direct au brouillon à publier.
+ */
+function PendingDraftNotice({ dashboard, day }: { dashboard: Dashboard | undefined; day: string }) {
+  const alert = dashboard?.alerts.find((candidate) => candidate.code === PENDING_DRAFT);
+  const draft = dashboard?.pending_draft;
+  const planId = draft?.plan_id ?? (alert?.payload?.plan_id as string | undefined);
+  if (!alert && !draft) return null;
+  const blocking = alert ? alert.severity === "blocking" : (draft?.blocking_count ?? 0) > 0;
+  return (
+    <Notice
+      tone={blocking ? "blocking" : "warning"}
+      icon={
+        blocking ? (
+          <CircleAlert className="size-3.5 shrink-0" />
+        ) : (
+          <TriangleAlert className="size-3.5 shrink-0" />
+        )
+      }
+      action={
+        planId && (
+          <Button asChild size="sm" variant="outline">
+            <Link to={planLink(planId, day)}>
+              {t.alerts.openDraft}
+              <ArrowRight />
+            </Link>
+          </Button>
+        )
+      }
+      className="items-start"
+    >
+      <strong className="font-semibold">
+        {draft ? t.alerts.pendingDraft(draft.version) : t.alerts.pendingDraftTitle}
+      </strong>
+      {alert ? ` — ${alert.message}` : ""}
+    </Notice>
+  );
+}
 
 /** Alerte du jour : une violation au format commun, plus l'écran où la traiter. */
 type DayAlert = Violation & { to: string };
@@ -38,7 +80,9 @@ function buildAlerts(
   summary: DaySummary | undefined,
   day: string,
 ): DayAlert[] {
-  const alerts: DayAlert[] = (dashboard?.alerts ?? []).map((alert) => {
+  // La version restée en brouillon a son propre bandeau, en tête (voir `PendingDraftNotice`).
+  const listed = (dashboard?.alerts ?? []).filter((alert) => alert.code !== PENDING_DRAFT);
+  const alerts: DayAlert[] = listed.map((alert) => {
     const context = [
       alert.trip_seq != null ? t.alerts.trip(alert.trip_seq) : null,
       alert.occurred_at ? formatLocalTime(alert.occurred_at) : null,
@@ -173,7 +217,8 @@ export default function DayPage() {
             />
           </div>
         ) : (
-          <div className="flex min-w-0 flex-col gap-3">
+          <div className="flex min-w-0 flex-col gap-3" data-testid="day-alerts">
+            <PendingDraftNotice dashboard={dashboard.data} day={day} />
             <ViolationsPanel
               violations={alerts}
               title={t.alerts.title}

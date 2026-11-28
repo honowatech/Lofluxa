@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tip } from "@/components/ui/tooltip";
 import { fr } from "@/i18n/fr";
-import { EMPTY, formatDateTime, formatDuration } from "@/lib/format";
+import { EMPTY, formatDateTime, formatSeconds } from "@/lib/format";
 import { withDay } from "@/lib/useDay";
 
 import { computeTiming, useComputePlan, type PlanSummary } from "./api";
@@ -61,7 +61,7 @@ function LastCompute({ plan }: { plan: PlanSummary | undefined }) {
     [
       t.last.duration,
       <span className="num">
-        {plan.computed_in_ms == null ? EMPTY : formatDuration(plan.computed_in_ms / 1000, { seconds: true })}
+        {plan.computed_in_ms == null ? EMPTY : formatSeconds(plan.computed_in_ms / 1000)}
       </span>,
     ],
     [t.last.engine, <span className="num">{plan.engine_version ?? EMPTY}</span>],
@@ -69,12 +69,10 @@ function LastCompute({ plan }: { plan: PlanSummary | undefined }) {
       t.last.distances,
       plan.approximate ? (
         <Tip label={t.last.approximateHint}>
-          <span tabIndex={0} className="inline-flex rounded-sm focus-ring" data-testid="approximate-flag">
-            <Badge tone="warning">
-              <TriangleAlert className="size-3" aria-hidden />
-              {t.last.approximate}
-            </Badge>
-          </span>
+          <Badge tone="warning" tabIndex={0} data-testid="approximate-flag">
+            <TriangleAlert className="size-3" aria-hidden />
+            {t.last.approximate}
+          </Badge>
         </Tip>
       ) : (
         <Badge tone="success">{t.last.exact}</Badge>
@@ -180,7 +178,7 @@ export function ComputePanel({
 
       {task?.state === "succeeded" && (
         <Notice
-          tone="info"
+          tone="success"
           icon={<CircleCheck className="size-3.5 shrink-0" />}
           action={
             <span className="flex items-center gap-1">

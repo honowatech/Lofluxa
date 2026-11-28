@@ -146,6 +146,46 @@ describe("Journée — événements et liens", () => {
     );
   });
 
+  it("place en tête la version restée en brouillon, avec l'accès direct au plan", async () => {
+    const { state } = setup();
+    state.dashboard.pending_draft = {
+      plan_id: "plan-brouillon",
+      version: 3,
+      created_at: "2027-01-12T09:20:00Z",
+      created_by_name: "Awa Dispatcher",
+      blocking_count: 0,
+    } as typeof state.dashboard.pending_draft;
+    state.dashboard.alerts.unshift({
+      source: "plan",
+      severity: "warning",
+      code: "pending_draft",
+      message: "La version 3 créée après la panne du camion LT 482 AB n'est pas publiée.",
+      trip_id: null,
+      trip_seq: null,
+      event_id: null,
+      event_type: null,
+      occurred_at: "2027-01-12T09:20:00Z",
+      payload: { plan_id: "plan-brouillon", version: 3 },
+    });
+    loginAs("dispatcher");
+    renderApp(ROUTE);
+    const alerts = await screen.findByTestId("day-alerts");
+    const notice = await within(alerts).findByText("Version 3 du plan en brouillon, non publiée");
+    // Premier élément de la colonne des alertes, avant le panneau des violations.
+    expect(alerts.firstElementChild).toContainElement(notice);
+    expect(alerts.firstElementChild).toHaveTextContent(
+      "La version 3 créée après la panne du camion LT 482 AB n'est pas publiée.",
+    );
+    expect(within(alerts).getByRole("link", { name: /Ouvrir le brouillon/ })).toHaveAttribute(
+      "href",
+      `/plan?plan=plan-brouillon&day=${MOCK_DAY}`,
+    );
+    // Pas de doublon dans la liste des alertes.
+    const panel = within(alerts).getByRole("region", { name: "Alertes du jour" });
+    await waitFor(() => expect(within(panel).getAllByRole("listitem")).toHaveLength(5));
+    expect(panel).not.toHaveTextContent("n'est pas publiée");
+  });
+
   it("mène d'une alerte à l'écran où la traiter", async () => {
     setup();
     loginAs("dispatcher");
@@ -197,7 +237,7 @@ describe("Journée — plans du jour et dernier calcul", () => {
     // État du dernier calcul : le plus récent des plans calculés.
     const last = screen.getByTestId("last-compute");
     expect(last).toHaveTextContent("12/01/2027 06:42");
-    expect(last).toHaveTextContent(/3\ss/);
+    expect(last).toHaveTextContent(/3,5\ss/);
     expect(last).toHaveTextContent("moteur-1.4.2");
     expect(last).toHaveTextContent("Distances routières");
     expect(last).toHaveTextContent("Awa Dispatcher");

@@ -16,7 +16,14 @@ import { isApiError } from "@/lib/api/errors";
 import { DRIVER_STATUSES } from "@/lib/types";
 
 import { useDriverDays, useSaveDrivers, useTruckDays, type DriverDay } from "./api";
-import { assignableOptions, AssignabilityCell, DayBadge, dayOptions, MarkUnavailableDialog } from "./shared";
+import {
+  assignableOptions,
+  AssignabilityCell,
+  DayBadge,
+  dayOptions,
+  MarkUnavailableDialog,
+  nameList,
+} from "./shared";
 
 const t = fr.screens.availability.drivers;
 const r = fr.screens.availability.resource;
@@ -29,9 +36,9 @@ export function DriversTab({ day, canWrite }: { day: string; canWrite: boolean }
   const confirm = useConfirm();
   const [state, setState] = useDataTableState({ pageSize: 100, sorting: [{ id: "full_name", desc: false }] });
   const [marking, setMarking] = useState<DriverDay[] | null>(null);
-  // Le tableau garde sa sélection quand une action en masse passe par la boîte de motif : on le remonte ensuite.
+  // Sélection pilotée : une action en masse qui passe par la boîte de motif la vide une fois enregistrée.
+  const [selected, setSelected] = useState<string[]>([]);
   const [fromSelection, setFromSelection] = useState(false);
-  const [tableKey, setTableKey] = useState(0);
   const rows = list.data ?? NONE;
   // Lu par les actions des colonnes sans les reconstruire à chaque rafraîchissement (une cellule en cours
   // d'édition ne doit pas être remontée parce que la liste vient d'être relue).
@@ -91,10 +98,7 @@ export function DriversTab({ day, canWrite }: { day: string; canWrite: boolean }
       ]),
   );
   const truckOptions = useMemo(
-    () => [
-      { value: "", label: t.usualTruck },
-      ...(JSON.parse(truckLabels) as [string, string][]).map(([value, label]) => ({ value, label })),
-    ],
+    () => [...(JSON.parse(truckLabels) as [string, string][]).map(([value, label]) => ({ value, label }))],
     [truckLabels],
   );
 
@@ -133,7 +137,16 @@ export function DriversTab({ day, canWrite }: { day: string; canWrite: boolean }
           edit: canWrite
             ? {
                 type: "select",
-                options: truckOptions,
+                // Par ligne : le premier choix rappelle le camion habituel du chauffeur.
+                options: (driver) => [
+                  {
+                    value: "",
+                    label: driver.default_truck_plate
+                      ? t.usualTruckOf(driver.default_truck_plate)
+                      : t.usualTruck,
+                  },
+                  ...truckOptions,
+                ],
                 // Seule une affectation du jour est une valeur saisie ; le camion habituel est la valeur par défaut.
                 getValue: (driver) => (driver.assignment_source === "daily" ? driver.truck_id : null),
                 onCommit: (driver, value) => assignTruck(driver, value === null ? null : String(value)),
@@ -263,11 +276,10 @@ export function DriversTab({ day, canWrite }: { day: string; canWrite: boolean }
         <Notice tone="blocking" icon={<CircleAlert className="size-3.5 shrink-0" />}>
           <strong className="font-semibold">{t.rm03Notice(rm03.length)}</strong>
           {" — "}
-          {rm03.map((driver) => driver.full_name).join(", ")}. {t.rm03Hint}
+          {nameList(rm03.map((driver) => driver.full_name))}. {t.rm03Hint}
         </Notice>
       )}
       <DataTable<DriverDay>
-        key={tableKey}
         caption={t.caption}
         columns={columns}
         data={rows}
@@ -288,6 +300,8 @@ export function DriversTab({ day, canWrite }: { day: string; canWrite: boolean }
           },
         ]}
         selectable={canWrite}
+        selectedRowIds={selected}
+        onSelectionChange={(ids) => setSelected(ids)}
         bulkActions={
           canWrite
             ? [
@@ -297,6 +311,7 @@ export function DriversTab({ day, canWrite }: { day: string; canWrite: boolean }
                   onClick: (selection) => {
                     setFromSelection(true);
                     setMarking(selection);
+                    // La sélection reste en place tant que le motif n'est pas enregistré (boîte annulable).
                     throw new Error("motif demandé");
                   },
                 },
@@ -331,7 +346,7 @@ export function DriversTab({ day, canWrite }: { day: string; canWrite: boolean }
         onClose={() => setMarking(null)}
         onSubmit={async (reason) => {
           await setAvailability(marking ?? [], false, reason);
-          if (fromSelection) setTableKey((key) => key + 1);
+          if (fromSelection) setSelected([]);
         }}
       />
     </div>
