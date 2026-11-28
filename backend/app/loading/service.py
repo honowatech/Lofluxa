@@ -11,12 +11,20 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.deps import Page, PageParams
-from app.core.enums import EventType, OrderStatus, PlanStatus, Severity, StopStatus, TripStatus
+from app.core.enums import (
+    EventType,
+    OrderStatus,
+    PlanKind,
+    PlanStatus,
+    Severity,
+    StopStatus,
+    TripStatus,
+)
 from app.core.errors import ConflictError, NotFoundError, ValidationAppError
 from app.core.settings_store import get_setting
 from app.core.time import to_local, utcnow
@@ -37,7 +45,7 @@ from app.loading.schemas import (
 )
 from app.orders import service as orders_service
 from app.orders.models import Order
-from app.planning.models import ConstraintViolation, Plan, Stop, Trip
+from app.planning.models import ConstraintViolation, Plan, Stop, StopDelivery, Trip
 from app.referentials.models import Depot, Driver, Product, Station, Truck, TruckCompartment
 from app.users.models import User
 
@@ -102,9 +110,32 @@ class TripContext:
         for line in self.loading.lines if self.loading else []:
             loaded[line.compartment_id] = loaded.get(line.compartment_id, Decimal(0)) + line.volume_15_l
             observed[line.compartment_id] = observed.get(line.compartment_id, Decimal(0)) + line.observed_l
-        planned = self.planned_by_compartment
+        planned = self.planned_at_loading
         labels = {key: self.compartment_label(key) for key in {*planned, *loaded}}
         return evaluate_rm_13(planned, loaded, self.tolerance_pct, labels, observed)
+
+    @property
+    def planned_at_loading(self) -> dict[uuid.UUID, Decimal]:
+        """Volumes planifiés auxquels le chargement se compare (RM-13) : ceux du **moment du
+        chargement** (`loading_lines.planned_l`), pas ceux d'un plan modifié depuis.
+
+        Tant que le plan de chargement de la tournée n'a pas changé pour les compartiments chargés,
+        c'est le plan courant qui sert (il compte aussi les compartiments planifiés non chargés).
+        S'il a changé après le chargement (panne : des arrêts sont transférés et la tournée
+        d'origine ne garde qu'une partie de ses volumes), seule la référence conservée sur les
+        lignes du chargement fait foi : un événement ultérieur ne crée pas d'écart de chargement.
+        """
+        current = self.planned_by_compartment
+        if self.loading is None:
+            return current
+        kept: dict[uuid.UUID, Decimal] = {}
+        for line in self.loading.lines:
+            if line.planned_l is None:
+                return current  # chargement antérieur à la conservation du planifié
+            kept[line.compartment_id] = kept.get(line.compartment_id, Decimal(0)) + line.planned_l
+        if all(current.get(compartment) == planned for compartment, planned in kept.items()):
+            return current
+        return kept
 
     @property
     def all_stops_done(self) -> bool:
@@ -586,6 +617,67 @@ async def change_trip_status(
 # ── Livraisons (F7.4) ─────────────────────────────────────────────────────────
 
 
+async def _delivered_and_pending(
+    session: AsyncSession, order_ids: set[uuid.UUID]
+) -> dict[uuid.UUID, tuple[Decimal, Decimal]]:
+    """Par commande, sur les plans calculés `published` : (volume réellement livré sur les arrêts
+    `delivered`, volume planifié sur les arrêts encore `pending`)."""
+    if not order_ids:
+        return {}
+    delivered = func.coalesce(
+        func.sum(
+            case((Stop.status == StopStatus.DELIVERED, func.coalesce(StopDelivery.actual_l, 0)), else_=0)
+        ),
+        0,
+    )
+    pending = func.coalesce(
+        func.sum(case((Stop.status == StopStatus.PENDING, StopDelivery.planned_l), else_=0)), 0
+    )
+    rows = await session.execute(
+        select(StopDelivery.order_id, delivered, pending)
+        .join(Stop, Stop.id == StopDelivery.stop_id)
+        .join(Trip, Trip.id == Stop.trip_id)
+        .join(Plan, Plan.id == Trip.plan_id)
+        .where(
+            StopDelivery.order_id.in_(order_ids),
+            Plan.status == PlanStatus.PUBLISHED,
+            Plan.kind == PlanKind.COMPUTED,
+        )
+        .group_by(StopDelivery.order_id)
+    )
+    return {order_id: (to_decimal(done), to_decimal(todo)) for order_id, done, todo in rows.all()}
+
+
+async def _settle_orders(session: AsyncSession, ctx: TripContext, orders: dict[uuid.UUID, Order]) -> None:
+    """Statut des commandes d'un arrêt livré (RM-16), sans jamais refuser la saisie d'une livraison
+    partielle :
+
+    - **entièrement livrée** (somme des volumes réellement livrés sur les plans publiés ≥ volume
+      demandé, à la tolérance `loading_tolerance_pct` près) → `delivered` ;
+    - sinon, si le reste est déjà planifié sur un arrêt encore en attente d'un plan publié → statut
+      inchangé (la suite arrive) ;
+    - sinon → `confirmed` : le reliquat reste à replanifier.
+
+    Les commandes annulées ou reportées ne sont plus suivies. Une commande déjà `delivered` est
+    définitive : la corriger sous le seuil est refusé par la machine à états des commandes (409).
+    """
+    followed = {oid: order for oid, order in orders.items() if order.status in _FOLLOWED}
+    totals = await _delivered_and_pending(session, set(followed))
+    share = (Decimal(100) - ctx.tolerance_pct) / Decimal(100)
+    complete: list[uuid.UUID] = []
+    to_replan: list[uuid.UUID] = []
+    for order_id, order in followed.items():
+        done, todo = totals.get(order_id, (Decimal(0), Decimal(0)))
+        threshold = order.requested_l * share
+        if done > 0 and done >= threshold:
+            complete.append(order_id)
+        elif done + todo < threshold:
+            to_replan.append(order_id)
+    await orders_service.mark_fully_delivered(session, complete)
+    # `release_to_confirmed` : planned | loaded → confirmed (idempotente pour `confirmed`).
+    await orders_service.release_to_confirmed(session, to_replan)
+
+
 async def record_delivery(
     session: AsyncSession, stop_id: uuid.UUID, payload: StopDeliveryIn, user: User
 ) -> DeliveryStopOut:
@@ -642,13 +734,8 @@ async def record_delivery(
             # Une ligne par commande et par arrêt ; en cas de doublon, le volume va sur la première.
             delivery.actual_l = given[delivery.order_id] if delivery.order_id not in assigned else Decimal(0)
             assigned.add(delivery.order_id)
-        # Répercussion par la machine à états des commandes (lot L4) : `loaded → delivered` ;
-        # volume livré nul → commande à replanifier (`confirmed`). Transition interdite → 409.
-        concerned = {oid: order for oid, order in orders.items() if order.status in _FOLLOWED}
-        await orders_service.mark_delivered(session, [oid for oid in concerned if given[oid] > 0])
-        await orders_service.release_to_confirmed(
-            session, [oid for oid, order in concerned.items() if given[oid] == 0 and order.status in _IN_TRIP]
-        )
+        await session.flush()
+        await _settle_orders(session, ctx, orders)
 
     station = ctx.stations.get(stop.station_id)
     session.add(

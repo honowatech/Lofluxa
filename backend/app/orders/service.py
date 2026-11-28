@@ -10,6 +10,8 @@ idempotentes : une commande déjà dans le statut visé est laissée telle quell
     await mark_planned(session, order_ids)      # publication d'un plan      confirmed → planned
     await mark_loaded(session, order_ids)       # chargement enregistré      planned   → loaded
     await mark_delivered(session, order_ids)    # livraison enregistrée      loaded    → delivered
+    await mark_fully_delivered(session, ids)    # commande entièrement livrée (RM-16, lot L6)
+                                                #   confirmed | planned | loaded → delivered
     await release_to_confirmed(session, ids)    # retirée d'un plan publié,  planned | loaded → confirmed
                                                 #   ou arrêt non livré
     await mark_postponed(session, order_ids)    # report explicite (RM-15, F6.3)
@@ -148,6 +150,34 @@ async def mark_loaded(session: AsyncSession, order_ids: Iterable[uuid.UUID]) -> 
 async def mark_delivered(session: AsyncSession, order_ids: Iterable[uuid.UUID]) -> list[Order]:
     """Livraison enregistrée en station : `loaded → delivered`."""
     return await set_orders_status(session, order_ids, S.DELIVERED)
+
+
+# Statuts d'où une commande **entièrement livrée** peut passer à `delivered` (lot L6, RM-16). Une
+# commande planifiée en plusieurs fois reste `confirmed` (reliquat à replanifier) ou `planned` tant
+# que tout n'est pas livré : sa dernière livraison la clôt sans passer par `loaded`.
+FULLY_DELIVERED_FROM = frozenset({S.CONFIRMED, S.PLANNED, S.LOADED})
+
+
+async def mark_fully_delivered(session: AsyncSession, order_ids: Iterable[uuid.UUID]) -> list[Order]:
+    """Commande entièrement livrée (somme des livraisons réelles ≥ volume demandé) :
+    `confirmed | planned | loaded → delivered`. Tout ou rien, idempotente ; les autres statuts
+    lèvent `ConflictError` (409 `invalid_order_transition`). C'est l'appelant (enregistrement des
+    livraisons, lot L6) qui établit que la commande est entièrement livrée."""
+    ids = list(dict.fromkeys(order_ids))
+    if not ids:
+        return []
+    rows = (await session.execute(select(Order).where(Order.id.in_(ids)).with_for_update())).scalars().all()
+    by_id = {order.id: order for order in rows}
+    missing = [oid for oid in ids if oid not in by_id]
+    if missing:
+        raise NotFoundError("Commande introuvable.", details=[{"order_id": str(oid)} for oid in missing])
+    for order in rows:
+        if order.status != S.DELIVERED and order.status not in FULLY_DELIVERED_FROM:
+            raise transition_error(order, S.DELIVERED)
+    for order in rows:
+        order.status = S.DELIVERED
+    await session.flush()
+    return [by_id[oid] for oid in ids]
 
 
 async def release_to_confirmed(session: AsyncSession, order_ids: Iterable[uuid.UUID]) -> list[Order]:

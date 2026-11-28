@@ -16,14 +16,18 @@ d'abord été écrits en `xfail`, puis ont servi de preuve de correction (détai
 - D6, RM-08 n'était pas cumulée entre les plans publiés du jour :
   `test_RM_08_second_plan_publie_du_jour_respecte_le_stock_restant` ;
 - D7, le motif d'indisponibilité d'un chauffeur était en anglais :
-  `test_motif_d_indisponibilite_du_chauffeur_en_francais`.
+  `test_motif_d_indisponibilite_du_chauffeur_en_francais` ;
+- D8, la livraison d'une commande planifiée en partie était refusée :
+  `test_livraison_d_une_commande_planifiee_en_partie_puis_reprise_du_reliquat`.
 
-Un défaut encore ouvert se trouve dans `tests/e2e/test_defauts_integration.py`.
+Les défauts encore ouverts se trouvent dans `tests/e2e/test_defauts_integration.py` (aucun à ce jour).
 """
 
 from __future__ import annotations
 
 from collections import Counter
+
+import run_day
 
 from app.planning.fixtures import load_problem
 from tests.e2e.conftest import compute_day, get_plan, load, loading_payload, published_day
@@ -207,3 +211,64 @@ async def test_motif_d_indisponibilite_du_chauffeur_en_francais(api, db, tasks):
     on_leave = next(d for d in drivers if d["status"] == "leave")
     assert on_leave["assignable"] is False
     assert "leave" not in on_leave["block_reason"] and "congé" in on_leave["block_reason"]
+
+
+# ------------------------------------------------------------- livraison partielle (L4 × L5 × L6)
+
+
+async def test_livraison_d_une_commande_planifiee_en_partie_puis_reprise_du_reliquat(api, db, tasks):
+    summary, plan = await published_day(api, db, tasks)
+    day = summary.day.isoformat()
+    await api.login("supply", "supply@demo.tourneo.cm", "demo-tourneo-2027")
+
+    # Pénurie de gasoil (5 000 L de moins que le plan), traitée par « réduire » : nouvelle version publiée.
+    shortage = await run_day.declare_shortage(api, plan)
+    reduced_orders = {o["order_id"] for t in shortage["impacted_trips"] for o in t["orders"]}
+    resolved, plan = await run_day.resolve_shortage(api, shortage, "reduce")
+    assert resolved["status"] == "resolved" and resolved["results"][-1]["published"] is True
+    orders = {o["id"]: o for o in await api.get_all("/orders", "dispatcher", day=day)}
+    # RM-16 : les commandes réduites ne sont planifiées qu'en partie, elles restent « confirmed ».
+    assert {orders[o]["status"] for o in reduced_orders} == {"confirmed"}
+    trip = next(
+        t
+        for t in plan["trips"]
+        if any(d["order_id"] in reduced_orders for s in t["stops"] for d in s["deliveries"])
+    )
+    partial = [d for s in trip["stops"] for d in s["deliveries"] if d["order_id"] in reduced_orders]
+    assert all(0 < d["planned_l"] < d["requested_l"] for d in partial)
+
+    # Fleet charge la tournée, part, et saisit les livraisons aux volumes planifiés.
+    await run_day.load_and_depart(api, trip)
+    for stop in trip["stops"]:
+        arrival = stop["planned_arrival_at"]
+        body = {
+            "actual_arrival_at": arrival,
+            "deliveries": [
+                {"order_id": d["order_id"], "actual_l": d["planned_l"]} for d in stop["deliveries"]
+            ],
+        }
+        response = await api.call(
+            "PUT", f"/stops/{stop['id']}/delivery", "fleet", json=body, expected=(200, 409)
+        )
+        # Attendu : la livraison partielle est enregistrée (le reliquat reste à replanifier).
+        assert response.status_code == 200, response.text
+        assert response.json()["status"] == "delivered"
+
+    # RM-16 : livrées en partie, les commandes restent « confirmed », leur reliquat reste à planifier.
+    orders = {o["id"]: o for o in await api.get_all("/orders", "dispatcher", day=day)}
+    assert {orders[o]["status"] for o in reduced_orders} == {"confirmed"}
+    planned = {d["order_id"]: d["planned_l"] for d in partial}
+
+    # Le second calcul du jour reprend exactement le reliquat de chaque commande réduite.
+    second = await compute_day(api, db, tasks, summary)
+    replanned = {
+        d["order_id"]: d["planned_l"]
+        for t in second["trips"]
+        for s in t["stops"]
+        for d in s["deliveries"]
+        if d["order_id"] in reduced_orders
+    }
+    unserved = {u["order_id"] for u in second["unserved"]}
+    assert set(replanned) | unserved >= reduced_orders
+    for order_id, liters in replanned.items():
+        assert liters == orders[order_id]["requested_l"] - planned[order_id]

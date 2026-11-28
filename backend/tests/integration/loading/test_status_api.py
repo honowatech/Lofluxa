@@ -327,18 +327,20 @@ async def test_arret_livre_ne_peut_plus_etre_saute(client, db, auth_headers, sce
     assert scenario.orders[2].status == OrderStatus.DELIVERED
 
 
-async def test_arret_saute_ne_peut_plus_etre_livre(client, db, auth_headers, scenario):
+async def test_arret_saute_puis_livre_par_correction(client, auth_headers, scenario):
+    # La commande d'un arrêt sauté repart en « confirmed » ; si l'arrêt est finalement livré (erreur de
+    # saisie corrigée), elle est clôturée directement.
     headers = await auth_headers("fleet")
     await _to_in_progress(client, headers, scenario)
     url = f"/stops/{scenario.stops[1].id}/delivery"
     await client.put(url, json={"skip_reason": "Station fermée"}, headers=headers)
+    assert scenario.orders[2].status == OrderStatus.CONFIRMED
 
     response = await client.put(url, json=_deliver(scenario, 1), headers=headers)
 
-    assert response.status_code == 409
-    assert response.json()["code"] == "invalid_order_transition"
-    await db.refresh(scenario.stops[1])
-    assert scenario.stops[1].status == StopStatus.SKIPPED  # rien n'a été modifié
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "delivered"
+    assert scenario.orders[2].status == OrderStatus.DELIVERED
 
 
 @pytest.mark.parametrize(
