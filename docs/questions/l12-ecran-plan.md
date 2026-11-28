@@ -35,6 +35,7 @@ l'API réelle sont décrits en fin de fichier (le back-end n'a pas été modifi�
 | A3 | `GET /plans/{id}` — compartiments vides | — | Tous les compartiments du camion | **Corrigé** : nouveau champ `trips[].compartments[]` (`loads` inchangé) | Utilisé par le plan de chargement (L12-12). |
 | A4 | OpenAPI | — | Noms de schémas uniques | `PlanSummaryOut`, `StopOut`, `UnservedOut` existent dans plusieurs modules : les types générés s'appellent `app__planning__schemas__PlanSummaryOut`… | `features/plan/types.ts` déduit `Stop` et `Unserved` de `PlanOut` ; seul `PlanSummary` cite le nom préfixé. |
 | A5 | `POST /plans/{id}/trips/{trip_id}/…` | Modification | Résumé de ce qui a été fait | **Corrigé** : `last_edit: {action, summary}` dans la réponse | L'annonce (zone `aria-live`) reprend `last_edit.summary` tel quel ; le texte reconstruit côté écran est supprimé. |
+| A6 | `POST /plans/compute` | Jeu `demo_douala`, stock de gasoil du dépôt ramené à 30 000 L (43 000 L demandés), jour d'essai tombant un **dimanche** | Comme les autres jours : 30 000 L de gasoil planifiés, 2 commandes non servies (`depot_stock`), aucune violation | 36 000 L de gasoil planifiés pour 30 000 L de stock, 1 seule commande non servie, RM-08 bloquant dès le calcul (reproduit 3 fois sur 3 un dimanche, 0 fois sur 5 les autres jours ; stations et dépôt ouverts tous les jours dans le jeu) | Aucun dans l'écran (il affiche fidèlement la violation). Mes jeux d'essai évitent le dimanche (`e2e/l12-seed.ts`) pour ne pas dépendre de ce défaut. |
 
 ## Besoins non couverts par les composants partagés
 

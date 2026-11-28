@@ -117,7 +117,13 @@ export async function freshDay(): Promise<string> {
   const api = await sharedApi();
   for (let attempt = 0; attempt < 50; attempt += 1) {
     const offset = Math.floor(Math.random() * 2190);
-    const day = new Date(Date.UTC(2050, 0, 1) + offset * 86_400_000).toISOString().slice(0, 10);
+    const date = new Date(Date.UTC(2050, 0, 1) + offset * 86_400_000);
+    // Pas de dimanche : constaté sur l'API, un calcul lancé pour un dimanche avec un stock de gasoil insuffisant
+    // planifie plus que le stock (36 000 L pour 30 000 L, RM-08 bloquant dès le calcul) alors que le même jeu,
+    // un autre jour, s'arrête au stock. Défaut du moteur signalé (docs/questions/l12-ecran-plan.md, A6) ;
+    // les parcours de l'écran n'ont pas à en dépendre.
+    if (date.getUTCDay() === 0) continue;
+    const day = date.toISOString().slice(0, 10);
     const [orders, plans] = await Promise.all([
       api.call<{ total: number }>("GET", `/orders?day=${day}&limit=1`),
       api.call<{ total: number }>("GET", `/plans?day=${day}&limit=1`),
