@@ -83,6 +83,7 @@ export function mockDashboard(): Dashboard {
     day: MOCK_DAY,
     generated_at: "2027-01-12T06:00:00Z",
     plan: null,
+    pending_draft: null,
     summary: {
       trips_total: 0,
       trips_by_status: {},

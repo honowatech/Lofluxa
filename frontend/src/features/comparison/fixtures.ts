@@ -376,6 +376,7 @@ export const NO_TRIPS = build(
 export const DASHBOARD: Dashboard = {
   day: DAY,
   generated_at: "2027-01-12T09:05:00Z",
+  pending_draft: null,
   plan: { ...summary(PLANS[1], "Plan du jour"), version: 3 },
   summary: {
     trips_total: 3,
@@ -484,6 +485,7 @@ export const DASHBOARD: Dashboard = {
 export const DASHBOARD_NO_PLAN: Dashboard = {
   day: DAY,
   generated_at: "2027-01-12T09:05:00Z",
+  pending_draft: null,
   plan: null,
   summary: {
     trips_total: 0,

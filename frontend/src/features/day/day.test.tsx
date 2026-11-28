@@ -156,12 +156,13 @@ describe("Journée — événements et liens", () => {
     expect(router.state.location.search).toBe(`?day=${MOCK_DAY}`);
   });
 
-  it("n'interroge pas le journal pour un rôle qui n'y a pas accès", async () => {
+  it("affiche aussi les derniers événements à l'agent Supply, qui a accès au journal", async () => {
+    // Le journal est ouvert à tous les rôles (Supply y déclare les pénuries) : le bloc suit ce droit.
     setup();
     loginAs("supply");
     renderApp(ROUTE);
     await screen.findByTestId("summary-stocks");
-    expect(screen.queryByTestId("recent-events")).not.toBeInTheDocument();
+    expect(await screen.findByTestId("recent-events")).toBeInTheDocument();
   });
 });
 

@@ -1921,6 +1921,7 @@ export interface components {
       /** Generated At */
       generated_at: string;
       plan: components["schemas"]["app__comparison__schemas__PlanSummaryOut"] | null;
+      pending_draft: components["schemas"]["PendingDraftOut"] | null;
       summary: components["schemas"]["DashboardSummaryOut"];
       /** Trips */
       trips: components["schemas"]["DashboardTripOut"][];
@@ -3559,6 +3560,31 @@ export interface components {
        * @description Nouveau mot de passe, à communiquer à l'utilisateur.
        */
       password: string;
+    };
+    /**
+     * PendingDraftOut
+     * @description Version brouillon en attente de publication dans la lignée du plan publié du jour.
+     */
+    PendingDraftOut: {
+      /**
+       * Plan Id
+       * Format: uuid
+       */
+      plan_id: string;
+      /** Version */
+      version: number;
+      /** Created At */
+      created_at: string;
+      /** Created By Name */
+      created_by_name: string | null;
+      /** Blocking Count */
+      blocking_count: number;
+      /** Warning Count */
+      warning_count: number;
+      /** Reason */
+      reason: string | null;
+      /** Message */
+      message: string;
     };
     /**
      * PlanAggregatesOut
