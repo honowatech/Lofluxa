@@ -9,10 +9,12 @@
  */
 import { expect, test, type Page } from "@playwright/test";
 
-import { ADMIN, Api, freshDay, seedPlan } from "./l12-seed";
+import { ADMIN, Api, freshDay, releaseSeed, seedPlan } from "./l12-seed";
 
 test.describe.configure({ mode: "serial" });
 test.setTimeout(180_000);
+// Les camions, chauffeurs et dépôts du jeu ne restent pas en service pour les parcours des autres lots.
+test.afterAll(releaseSeed);
 
 interface ApiStop {
   id: string;
@@ -22,6 +24,7 @@ interface ApiStop {
 interface ApiTrip {
   id: string;
   seq: number;
+  driver_id?: string | null;
   truck_capacity_l: number;
   planned_l: number;
   stops: ApiStop[];
@@ -57,7 +60,7 @@ async function dragTo(page: Page, handle: ReturnType<Page["locator"]>, target: R
 test("plan calculé → déplacer un arrêt → verrouiller → publier → feuille de route → nouvelle version", async ({
   page,
 }) => {
-  const day = freshDay();
+  const day = await freshDay();
   const { planId, token } = await seedPlan({ fixture: "demo_douala", day });
   expect(planId).toBeTruthy();
   // Une seule connexion par l'API (10 connexions par minute et par adresse) : le jeton de la mise en données est réutilisé.
@@ -190,7 +193,7 @@ test("plan calculé → déplacer un arrêt → verrouiller → publier → feui
 });
 
 test("édition au clavier et vue tableau contre la vraie API", async ({ page }) => {
-  const day = freshDay();
+  const day = await freshDay();
   const { planId, token } = await seedPlan({ fixture: "demo_douala", day });
   const api = new Api(token);
   const initial = await api.call<ApiPlan>("GET", `/plans/${planId}`);
@@ -225,7 +228,7 @@ test("urgente non servie → reporter → publier ; liens d'exécution ; version
   page,
 }) => {
   // Aucun gasoil au dépôt : la commande urgente de gasoil ne peut pas être servie (RM-15).
-  const day = freshDay();
+  const day = await freshDay();
   const { planId, token, driverIds } = await seedPlan({ fixture: "demo_douala", day, stocks: { GASOIL: 0 } });
   const api = new Api(token);
 
@@ -265,10 +268,14 @@ test("urgente non servie → reporter → publier ; liens d'exécution ; version
   // Détail d'une tournée publiée : camion entier (tous les compartiments), liens Chargement et Suivi.
   const list = page.getByRole("region", { name: "Liste des tournées" });
   const detail = page.getByRole("region", { name: "Détail de la tournée" });
-  const trips = (
-    await api.call<ApiPlan & { trips: (ApiTrip & { compartments: unknown[] })[] }>("GET", `/plans/${planId}`)
-  ).trips;
-  const trip = trips[0];
+  type PublishedTrip = ApiTrip & { compartments: unknown[]; driver_id: string | null };
+  const trips = (await api.call<ApiPlan & { trips: PublishedTrip[] }>("GET", `/plans/${planId}`)).trips;
+  // Tournée dont le chauffeur ne conduit qu'elle ce jour-là : le déclarer indisponible ne laisse aucune autre
+  // tournée sans chauffeur affectable (RM-03), la nouvelle version peut donc être publiée par l'événement.
+  const trip = trips.find(
+    (candidate) => trips.filter((other) => other.driver_id === candidate.driver_id).length === 1,
+  ) as PublishedTrip;
+  expect(trip, "une tournée dont le chauffeur n'a pas d'autre tournée").toBeTruthy();
   await list.getByRole("button", { name: `Afficher la tournée ${trip.seq}` }).click();
   await expect(detail.getByTestId("truck-tank").locator("> div")).toHaveCount(trip.compartments.length);
   await expect(

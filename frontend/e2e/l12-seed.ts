@@ -5,8 +5,18 @@
  * Depuis un test Playwright :   const { planId } = await seedPlan({ fixture: "demo_douala", day });
  * En ligne de commande :        node --experimental-strip-types e2e/l12-seed.ts demo_douala 2027-01-12
  *
- * Idempotent pour les référentiels (retrouvés par code / immatriculation / nom) ; les commandes et le plan
- * sont créés à chaque appel : utiliser un jour neuf par exécution (`freshDay()`).
+ * Tout ce que ce script crée est préfixé `ZL12` (codes de dépôts et de stations, immatriculations, numéros de
+ * permis, noms de stations, de dépôts, de chauffeurs et de transporteurs) : les jeux d'essai des autres lots,
+ * dans la même base, ne réutilisent ni ne modifient ces lignes, et réciproquement. Le « Z » les classe en fin
+ * de toute liste triée par code ou par nom : un parcours d'un autre lot qui prend « la première station » (ou
+ * le premier camion) ne tombe jamais sur une ligne de ce lot.
+ * Les dépôts des autres lots reçoivent un stock nul pour le jour d'essai : le plan ne charge qu'aux dépôts du jeu.
+ * Hors de ses parcours, ce lot ne doit pas non plus fournir de ressources aux plans des autres : `releaseSeed()`
+ * (à appeler en fin de fichier de test) met ses camions en « réservé », ses chauffeurs en « repos » et désactive
+ * ses dépôts ; `seedPlan()` les remet en service.
+ * Rejouable sur une base déjà remplie : les référentiels sont retrouvés par code / immatriculation / nom ; les
+ * commandes et le plan sont créés à chaque appel, pour un jour encore vierge (`freshDay()` : ni commande ni
+ * plan, pris dans une plage d'années réservée à ce lot).
  * Les camions et chauffeurs étrangers au jeu sont marqués indisponibles pour le jour, afin que le plan ne
  * dépende pas des autres jeux déjà chargés.
  */
@@ -93,11 +103,35 @@ export interface SeedResult {
   driverIds: Record<string, string>;
 }
 
-/** Jour de 2027 tiré au hasard (les habilitations des jeux expirent fin 2027) : un plan neuf par exécution. */
-export function freshDay(): string {
-  const start = Date.UTC(2027, 1, 1);
-  const offset = Math.floor(Math.random() * 300);
-  return new Date(start + offset * 86_400_000).toISOString().slice(0, 10);
+/** Préfixes de tout ce que ce lot crée dans la base partagée par les parcours des autres lots (codes, noms). */
+export const TAG = "ZL12-";
+export const NAME_TAG = "ZL12 ";
+/** Permis et habilitations des chauffeurs du jeu : valables sur toute la plage de jours du lot. */
+const DOCUMENTS_EXPIRY = "2069-12-31";
+
+/**
+ * Jour encore vierge (aucune commande, aucun plan), tiré au hasard entre 2050 et 2055, à l'écart des jours des
+ * autres lots : chaque exécution a son plan, même sur une base déjà remplie par des passes précédentes.
+ */
+export async function freshDay(): Promise<string> {
+  const api = await sharedApi();
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const offset = Math.floor(Math.random() * 2190);
+    const day = new Date(Date.UTC(2050, 0, 1) + offset * 86_400_000).toISOString().slice(0, 10);
+    const [orders, plans] = await Promise.all([
+      api.call<{ total: number }>("GET", `/orders?day=${day}&limit=1`),
+      api.call<{ total: number }>("GET", `/plans?day=${day}&limit=1`),
+    ]);
+    if (orders.total === 0 && plans.total === 0) return day;
+  }
+  throw new Error("Aucun jour vierge trouvé entre 2050 et 2055");
+}
+
+/** Une seule connexion par processus de test (les connexions sont limitées par minute et par adresse). */
+let shared: Promise<Api> | null = null;
+function sharedApi(): Promise<Api> {
+  shared ??= Api.login();
+  return shared;
 }
 
 const hm = (seconds: number) =>
@@ -164,12 +198,49 @@ export class Api {
   }
 }
 
+/**
+ * Met en service (ou retire du service) tout ce que ce lot a créé comme ressources planifiables : camions,
+ * chauffeurs, dépôts. Retirées, elles n'entrent dans aucun calcul de plan lancé par un autre lot.
+ */
+async function setInService(api: Api, inService: boolean): Promise<void> {
+  const [trucks, drivers, depots] = await Promise.all([
+    api.all("/trucks"),
+    api.all("/drivers"),
+    api.all("/depots"),
+  ]);
+  for (const truck of trucks.filter((t) => String(t.plate).startsWith(TAG))) {
+    const status = inService ? "available" : "reserved";
+    if (truck.status !== status) await api.call("PUT", `/trucks/${truck.id}`, { status });
+  }
+  for (const driver of drivers.filter((d) => String(d.full_name).startsWith(NAME_TAG))) {
+    const status = inService ? "available" : "rest";
+    // Les documents sont remis à la date du lot : un chauffeur créé par une version antérieure du script reste affectable.
+    const upToDate = driver.license_expiry === DOCUMENTS_EXPIRY && driver.hazmat_expiry === DOCUMENTS_EXPIRY;
+    if (driver.status !== status || !upToDate) {
+      await api.call("PUT", `/drivers/${driver.id}`, {
+        status,
+        license_expiry: DOCUMENTS_EXPIRY,
+        hazmat_cert: true,
+        hazmat_expiry: DOCUMENTS_EXPIRY,
+      });
+    }
+  }
+  for (const depot of depots.filter((d) => String(d.code).startsWith(TAG))) {
+    if (depot.active !== inService) await api.call("PUT", `/depots/${depot.id}`, { active: inService });
+  }
+}
+
+/** À appeler en fin de fichier de test (`test.afterAll`) : les ressources du lot sortent du service. */
+export async function releaseSeed(): Promise<void> {
+  await setInService(await sharedApi(), false);
+}
+
 export async function seedPlan(options: SeedOptions): Promise<SeedResult> {
   const { fixture = "demo_douala", day } = options;
   const problem = JSON.parse(
     readFileSync(resolve(HERE, `../../data/fixtures/${fixture}/problem.json`), "utf8"),
   ) as Problem;
-  const api = await Api.login();
+  const api = await sharedApi();
 
   const products = await api.all("/products");
   const productId = (code: string) => {
@@ -183,21 +254,23 @@ export async function seedPlan(options: SeedOptions): Promise<SeedResult> {
   const carrierIds: Record<string, string> = {};
   for (const key of new Set([...problem.trucks, ...problem.drivers].map((x) => x.carrier_id))) {
     if (!key) continue;
-    const existing = carriers.find((c) => c.name === key);
-    carrierIds[key] = existing?.id ?? (await api.call<Named>("POST", "/carriers", { name: key })).id;
+    const name = `${NAME_TAG}${key}`;
+    const existing = carriers.find((c) => c.name === name);
+    carrierIds[key] = existing?.id ?? (await api.call<Named>("POST", "/carriers", { name })).id;
   }
 
   // Dépôts
   const depots = await api.all("/depots");
   const depotIds: Record<string, string> = {};
   for (const depot of problem.depots) {
-    const existing = depots.find((d) => d.code === depot.code);
+    const code = `${TAG}${depot.code}`;
+    const existing = depots.find((d) => d.code === code);
     depotIds[depot.id] =
       existing?.id ??
       (
         await api.call<Named>("POST", "/depots", {
-          code: depot.code,
-          name: depot.name,
+          code,
+          name: `${NAME_TAG}${depot.name}`,
           lat: depot.lat,
           lon: depot.lon,
           opening_hours: openingHours(depot.windows),
@@ -211,14 +284,14 @@ export async function seedPlan(options: SeedOptions): Promise<SeedResult> {
   const stations = await api.all("/stations");
   const stationIds: Record<string, string> = {};
   for (const station of problem.stations) {
-    const existing = stations.find((s) => s.code === station.code);
+    const code = `${TAG}${station.code}`;
+    const existing = stations.find((s) => s.code === code);
     stationIds[station.id] =
       existing?.id ??
       (
         await api.call<Named>("POST", "/stations", {
-          code: station.code,
-          name: station.name,
-          city: "Douala",
+          code,
+          name: `${NAME_TAG}${station.name}`,
           lat: station.lat,
           lon: station.lon,
           opening_hours: openingHours(station.windows),
@@ -233,12 +306,13 @@ export async function seedPlan(options: SeedOptions): Promise<SeedResult> {
   const truckIds: Record<string, string> = {};
   const usedTrucks = problem.trucks.slice(0, options.maxTrucks ?? problem.trucks.length);
   for (const truck of problem.trucks) {
-    const existing = trucks.find((t) => t.plate === truck.plate);
+    const plate = `${TAG}${truck.plate}`;
+    const existing = trucks.find((t) => t.plate === plate);
     truckIds[truck.id] =
       existing?.id ??
       (
         await api.call<Named>("POST", "/trucks", {
-          plate: truck.plate,
+          plate,
           size: truck.size,
           carrier_id: truck.carrier_id ? carrierIds[truck.carrier_id] : null,
           compartments: truck.compartments.map((c) => ({
@@ -254,22 +328,25 @@ export async function seedPlan(options: SeedOptions): Promise<SeedResult> {
   const drivers = await api.all("/drivers");
   const driverIds: Record<string, string> = {};
   for (const driver of problem.drivers) {
-    const existing = drivers.find((d) => d.full_name === driver.full_name);
+    const fullName = `${NAME_TAG}${driver.full_name}`;
+    const existing = drivers.find((d) => d.full_name === fullName);
     driverIds[driver.id] =
       existing?.id ??
       (
         await api.call<Named>("POST", "/drivers", {
-          full_name: driver.full_name,
+          full_name: fullName,
           phone: `+237 6 77 00 ${driver.id.replace(/\D/g, "").padStart(2, "0")} 00`,
-          license_no: `P-${fixture.replace("demo_", "").toUpperCase()}-${driver.id}`,
-          license_expiry: driver.license_expiry,
-          hazmat_cert: driver.hazmat_cert,
-          hazmat_expiry: driver.hazmat_expiry,
+          license_no: `${TAG}${fixture.replace("demo_", "").toUpperCase()}-${driver.id}`,
+          license_expiry: DOCUMENTS_EXPIRY,
+          hazmat_cert: true,
+          hazmat_expiry: DOCUMENTS_EXPIRY,
           carrier_id: driver.carrier_id ? carrierIds[driver.carrier_id] : null,
           default_truck_id: driver.default_truck_id ? truckIds[driver.default_truck_id] : null,
         })
       ).id;
   }
+
+  await setInService(api, true);
 
   // Disponibilité du jour : seules les ressources du jeu sont disponibles.
   const wantedTrucks = new Set(usedTrucks.map((t) => truckIds[t.id]));
@@ -291,13 +368,21 @@ export async function seedPlan(options: SeedOptions): Promise<SeedResult> {
     })),
   });
 
-  // Stocks du jour
+  // Stocks du jour : ceux du jeu pour ses dépôts ; zéro partout ailleurs, pour que le plan ne charge pas au
+  // dépôt d'un autre lot (un stock non renseigné n'est qu'un avertissement, RM-08).
+  const ownDepots = new Set(Object.values(depotIds));
+  const foreignDepots = (await api.all("/depots")).filter((depot) => !ownDepots.has(depot.id));
   await api.call("PUT", `/availability/depot-stocks?day=${day}`, {
-    items: problem.depot_stocks.map((s) => ({
-      depot_id: depotIds[s.depot_id],
-      product_id: productId(s.product_id),
-      available_l: options.stocks?.[s.product_id] ?? s.available_l,
-    })),
+    items: [
+      ...problem.depot_stocks.map((s) => ({
+        depot_id: depotIds[s.depot_id],
+        product_id: productId(s.product_id),
+        available_l: options.stocks?.[s.product_id] ?? s.available_l,
+      })),
+      ...foreignDepots.flatMap((depot) =>
+        products.map((product) => ({ depot_id: depot.id, product_id: product.id, available_l: 0 })),
+      ),
+    ],
   });
 
   // Commandes du jour, puis confirmation en masse
@@ -329,9 +414,10 @@ export async function seedPlan(options: SeedOptions): Promise<SeedResult> {
 
 // Exécution directe : node --experimental-strip-types e2e/l12-seed.ts <jeu> <jour>
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const [fixture = "demo_douala", day = freshDay(), ...rest] = process.argv.slice(2);
+  const [fixture = "demo_douala", requestedDay, ...rest] = process.argv.slice(2);
   const stocks = Object.fromEntries(rest.map((pair) => pair.split("=")).map(([k, v]) => [k, Number(v)]));
-  seedPlan({ fixture: fixture as SeedOptions["fixture"], day, stocks })
+  (requestedDay ? Promise.resolve(requestedDay) : freshDay())
+    .then((day) => seedPlan({ fixture: fixture as SeedOptions["fixture"], day, stocks }))
     .then((result) => console.log(JSON.stringify({ day: result.day, planId: result.planId })))
     .catch((error) => {
       console.error(error);
