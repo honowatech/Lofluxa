@@ -70,6 +70,8 @@ export default function LoadingPage() {
     [trips, loadingFilter, statusFilter],
   );
   const selected = trips.find((trip) => trip.id === selectedId) ?? null;
+  // Plusieurs plans publiés le même jour (plan initial + reliquats) : chaque tournée rappelle le sien.
+  const severalPlans = new Set(trips.map((trip) => trip.plan_id)).size > 1;
 
   // Sans sélection, la première tournée encore au dépôt est ouverte : l'agent saisit sans chercher.
   useEffect(() => {
@@ -158,6 +160,7 @@ export default function LoadingPage() {
                   <TripCard
                     trip={trip}
                     selected={trip.id === selected?.id}
+                    showPlan={severalPlans}
                     onSelect={() => setParam("trip", trip.id)}
                   />
                 </li>
@@ -181,10 +184,12 @@ export default function LoadingPage() {
 function TripCard({
   trip,
   selected,
+  showPlan,
   onSelect,
 }: {
   trip: TripLoading;
   selected: boolean;
+  showPlan: boolean;
   onSelect: () => void;
 }) {
   const warning = !!trip.loading?.out_of_tolerance;
@@ -207,6 +212,7 @@ function TripCard({
       </span>
       <span className="truncate text-xs text-muted-foreground">
         {trip.driver_name ?? t.list.noDriver} · {trip.depot_code}
+        {showPlan && ` · ${t.list.plan(trip.plan_version, trip.plan_label ?? null)}`}
       </span>
       <span className="flex items-center gap-2 text-xs">
         <span>

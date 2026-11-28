@@ -52,6 +52,30 @@ export function computeGap(loadedL: number, plannedL: number, tolerancePct: numb
   };
 }
 
+/**
+ * Décomposition de l'écart RM-13, même convention que le serveur : `écart = température + volume`, avec
+ * température = volume à 15 °C − volume observé (négatif au-dessus de 15 °C)
+ * et volume = volume observé − volume planifié.
+ */
+export interface GapParts {
+  temperatureL: number;
+  temperaturePct: number | null;
+  observedL: number;
+  observedPct: number | null;
+}
+
+export function decomposeGap(observedL: number, at15L: number, plannedL: number): GapParts {
+  const temperatureL = roundCenti(at15L - observedL);
+  const volumeL = roundCenti(observedL - plannedL);
+  const pct = (value: number) => (plannedL > 0 ? roundCenti((value * 100) / plannedL) : null);
+  return {
+    temperatureL,
+    temperaturePct: pct(temperatureL),
+    observedL: volumeL,
+    observedPct: pct(volumeL),
+  };
+}
+
 /* ------------------------------------------------------------------ heures */
 
 const HM = /^([01]\d|2[0-3]):[0-5]\d$/;

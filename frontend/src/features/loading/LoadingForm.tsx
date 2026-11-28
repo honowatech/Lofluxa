@@ -29,12 +29,14 @@ import {
 } from "./api";
 import {
   computeGap,
+  decomposeGap,
   isTimeHM,
   localTimeToUtc,
   nowLocalTime,
   utcToLocalTime,
   volumeAt15,
   type Gap,
+  type GapParts,
 } from "./conversion";
 
 const t = fr.screens.loading;
@@ -91,6 +93,8 @@ interface LineView {
   /** Volume à 15 °C : valeur du serveur si la ligne n'a pas été modifiée, calcul en direct sinon. */
   at15: number | null;
   gap: Gap | null;
+  /** Part de la température et part du volume chargé dans l'écart. */
+  parts: GapParts | null;
   errors: { observed?: string; temp?: string; density?: string };
 }
 
@@ -162,7 +166,16 @@ export function LoadingForm({
         }
         let at15: number | null = null;
         let gap: Gap | null = null;
+        let parts: GapParts | null = null;
         if (saved) {
+          if (saved.gap_temperature_l !== null && saved.gap_observed_l !== null) {
+            parts = {
+              temperatureL: saved.gap_temperature_l,
+              temperaturePct: saved.gap_temperature_pct,
+              observedL: saved.gap_observed_l,
+              observedPct: saved.gap_observed_pct,
+            };
+          }
           at15 = saved.volume_15_l;
           gap = {
             plannedL: saved.planned_l ?? load.planned_l,
@@ -179,9 +192,10 @@ export function LoadingForm({
           if (coeff !== undefined) {
             at15 = volumeAt15(row.observed, row.temp, coeff);
             gap = computeGap(at15, load.planned_l, tolerance);
+            parts = decomposeGap(row.observed, at15, load.planned_l);
           }
         }
-        return { load, row, at15, gap, errors };
+        return { load, row, at15, gap, parts, errors };
       }),
     [loads, draft.rows, useServer, loading, products, tolerance],
   );
@@ -210,6 +224,17 @@ export function LoadingForm({
           ).outOfTolerance,
         }
       : computeGap(at15Total, plannedTotal, tolerance);
+
+  const totalParts: GapParts | null = !anyFilled
+    ? null
+    : useServer && loading
+      ? {
+          temperatureL: loading.gap_temperature_l,
+          temperaturePct: loading.gap_temperature_pct,
+          observedL: loading.gap_observed_l,
+          observedPct: loading.gap_observed_pct,
+        }
+      : decomposeGap(observedTotal, at15Total, plannedTotal);
 
   // RM-13 : compartiments hors tolérance (un compartiment planifié non chargé compte pour 0 L) et total.
   const warnings: string[] = [];
@@ -392,16 +417,16 @@ export function LoadingForm({
               <Th>{t.form.position}</Th>
               <Th>{t.form.product}</Th>
               <Th right>{t.form.planned}</Th>
-              <Th className="w-36">{`${t.form.observed} (${t.form.litersUnit})`}</Th>
-              <Th className="w-28">{`${t.form.temperature} (${t.form.tempUnit})`}</Th>
-              <Th className="w-28">{`${t.form.density} (${t.form.densityUnit})`}</Th>
+              <Th className="w-32">{`${t.form.observed} (${t.form.litersUnit})`}</Th>
+              <Th className="w-24">{`${t.form.temperature} (${t.form.tempUnit})`}</Th>
+              <Th className="w-24">{`${t.form.density} (${t.form.densityUnit})`}</Th>
               <Th right>{t.form.at15}</Th>
               <Th right>{t.form.gap}</Th>
               <Th right>{t.form.gapPct}</Th>
             </tr>
           </thead>
           <tbody>
-            {lines.map(({ load, row, at15, gap, errors }) => {
+            {lines.map(({ load, row, at15, gap, parts, errors }) => {
               const position = load.compartment_position ?? 0;
               const out = gap?.outOfTolerance === true;
               return (
@@ -465,6 +490,14 @@ export function LoadingForm({
                   </td>
                   <td className={cn("num px-2 py-1.5 text-right", out && "font-semibold text-warning")}>
                     {gap ? signed(gap.gapL, 2) : formatNumber(null)}
+                    {parts && (
+                      <span
+                        className="block whitespace-nowrap font-sans text-xs font-normal tabular-nums text-muted-foreground"
+                        data-testid="gap-parts"
+                      >
+                        {t.form.partsShort(signed(parts.temperatureL, 0), signed(parts.observedL, 0))}
+                      </span>
+                    )}
                   </td>
                   <td className={cn("num px-2 py-1.5 text-right", out && "font-semibold text-warning")}>
                     <span className="inline-flex items-center justify-end gap-1">
@@ -512,11 +545,22 @@ export function LoadingForm({
             {t.rm13.title(toleranceLabel)}
           </p>
           <p>{warnings.join(" ; ")}.</p>
+          {totalParts && (
+            <p data-testid="rm13-parts">
+              {t.rm13.parts(
+                liters(totalParts.temperatureL),
+                signedPct(totalParts.temperaturePct),
+                liters(totalParts.observedL),
+                signedPct(totalParts.observedPct),
+              )}
+            </p>
+          )}
+          {useServer && loading?.gap_explanation && <p>{loading.gap_explanation}</p>}
           {!useServer && <p className="opacity-80">{t.rm13.liveSuffix}</p>}
         </Notice>
       )}
       {anyFilled && warnings.length === 0 && tolerance !== null && lineErrors.length === 0 && (
-        <Notice tone="info" icon={<CheckCircle2 className="size-4 shrink-0" aria-hidden />}>
+        <Notice tone="success" icon={<CheckCircle2 className="size-4 shrink-0" aria-hidden />}>
           {t.rm13.within(toleranceLabel)}
         </Notice>
       )}

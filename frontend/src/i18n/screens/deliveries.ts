@@ -12,6 +12,7 @@ export const deliveriesTexts = {
   list: {
     title: "Tournées du plan publié",
     trip: (seq: number) => `Tournée ${seq}`,
+    plan: (version: number, label: string | null) => (label ? `${label} (v${version})` : `Plan v${version}`),
     noDriver: "Chauffeur non affecté",
     progress: (done: number, total: number) => `${done} / ${total} arrêt${total > 1 ? "s" : ""}`,
     progressLabel: (done: number, total: number) =>
@@ -85,10 +86,11 @@ export const deliveriesTexts = {
     skipReasonFor: (seq: number) => `Motif de l'arrêt sauté, arrêt ${seq}`,
     skipPlaceholder: "Station fermée, cuve pleine, accès impossible…",
     skipConfirm: "Confirmer l'arrêt sauté",
-    skipWarning: "Non réversible : les commandes de l'arrêt repartent à replanifier.",
+    skipWarning:
+      "Non réversible. Un arrêt sauté ne compte pas comme livré : ses commandes repassent « Confirmée » et sont replanifiées au prochain calcul.",
     skippedBecause: (reason: string) => `Motif : ${reason}`,
     skippedLocked:
-      "Arrêt sauté : non réversible. Ses commandes sont reparties à replanifier (statut « Confirmée »).",
+      "Arrêt sauté : non réversible. Il ne compte pas comme livré ; ses commandes (statut « Confirmée ») seront replanifiées au prochain calcul.",
     deliveredLocked:
       "Livraison enregistrée : les heures et volumes restent corrigeables tant que la tournée est en cours, mais l'arrêt ne peut plus être marqué « sauté ».",
     saved: (seq: number) => `Livraison de l'arrêt ${seq} enregistrée`,
@@ -109,7 +111,8 @@ export const deliveriesTexts = {
   close: {
     title: "Clôture de la tournée",
     returnAt: "Heure de retour au dépôt",
-    returnHint: "Vide : heure de l'enregistrement.",
+    returnHint:
+      "Vide : heure de l'enregistrement, ou la dernière heure réelle saisie si elle est plus tardive.",
     distance: "Kilomètres réels",
     distanceUnit: "km",
     distanceHint: (planned: string) => `Prévu : ${planned}`,

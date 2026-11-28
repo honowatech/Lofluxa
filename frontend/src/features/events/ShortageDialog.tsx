@@ -21,6 +21,7 @@ import { fr } from "@/i18n/fr";
 import type { IsoDate } from "@/lib/types";
 
 import { ApiErrorNotice } from "./ApiErrorNotice";
+import { EventTimeField, parseEventTime } from "./EventTime";
 import { useDepots, useProductShortage, useProducts, type ShortageOut } from "./api";
 import { ShortageOverview } from "./ImpactDialog";
 
@@ -46,6 +47,8 @@ export function ShortageDialog({
   const [productId, setProductId] = useState("");
   const [liters, setLiters] = useState<number | null>(null);
   const [invalid, setInvalid] = useState(false);
+  const [time, setTime] = useState("");
+  const eventTime = parseEventTime(day, time);
   const [declared, setDeclared] = useState<ShortageOut | null>(null);
 
   const reset = () => {
@@ -53,6 +56,7 @@ export function ShortageDialog({
     setProductId("");
     setLiters(null);
     setInvalid(false);
+    setTime("");
     setDeclared(null);
     shortage.reset();
   };
@@ -65,7 +69,7 @@ export function ShortageDialog({
   const error = shortage.error;
 
   const submit = async () => {
-    if (!depotId || !productId || liters === null || liters < 0) {
+    if (!depotId || !productId || liters === null || liters < 0 || !eventTime.valid) {
       setInvalid(true);
       return;
     }
@@ -77,6 +81,7 @@ export function ShortageDialog({
           product_id: productId,
           new_available_l: liters,
           day,
+          ...(eventTime.occurredAt ? { occurred_at: eventTime.occurredAt } : {}),
         }),
       );
       notify.success(t.done.toast);
@@ -202,7 +207,13 @@ export function ShortageDialog({
                   {t.newStockHint}
                 </p>
               </div>
-              {invalid && (
+              <EventTimeField
+                label={fr.screens.events.eventTime.shortage}
+                value={time}
+                onChange={setTime}
+                invalid={!eventTime.valid}
+              />
+              {invalid && (!depotId || !productId || liters === null || liters < 0) && (
                 <p role="alert" className="text-xs text-destructive">
                   {t.required}
                 </p>

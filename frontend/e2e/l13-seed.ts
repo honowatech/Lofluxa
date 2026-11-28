@@ -103,38 +103,44 @@ const HOURS = Object.fromEntries(
 
 /** Stations de Douala ajoutées aux deux du fichier modèle (code, nom, lat, lon, e-mail du gérant). */
 const STATIONS: [string, string, number, number, string | null][] = [
-  ["ST-DEIDO", "OLA Deido", 4.0672, 9.7071, "deido@example.cm"],
-  ["ST-BONAP", "OLA Bonapriso", 4.0262, 9.6968, "bonapriso@example.cm"],
-  ["ST-NDOKO", "OLA Ndokoti", 4.0461, 9.7402, "ndokoti@example.cm"],
-  ["ST-BEPAN", "OLA Bépanda", 4.0621, 9.7289, null],
-  ["ST-LOGBA", "OLA Logbaba", 4.0398, 9.7741, "logbaba@example.cm"],
-  ["ST-MAKEP", "OLA Makepe", 4.0836, 9.7553, "makepe@example.cm"],
-  ["ST-YASSA", "OLA Yassa", 4.0015, 9.8031, null],
-  ["ST-BONAM", "OLA Bonamoussadi", 4.0903, 9.7362, "bonamoussadi@example.cm"],
+  ["L13-DEIDO", "OLA Deido (L13)", 4.0672, 9.7071, "deido@example.cm"],
+  ["L13-BONAP", "OLA Bonapriso (L13)", 4.0262, 9.6968, "bonapriso@example.cm"],
+  ["L13-NDOKO", "OLA Ndokoti (L13)", 4.0461, 9.7402, "ndokoti@example.cm"],
+  ["L13-BEPAN", "OLA Bépanda (L13)", 4.0621, 9.7289, null],
+  ["L13-LOGBA", "OLA Logbaba (L13)", 4.0398, 9.7741, "logbaba@example.cm"],
+  ["L13-MAKEP", "OLA Makepe (L13)", 4.0836, 9.7553, "makepe@example.cm"],
+  ["L13-YASSA", "OLA Yassa (L13)", 4.0015, 9.8031, null],
+  ["L13-BONAM", "OLA Bonamoussadi (L13)", 4.0903, 9.7362, "bonamoussadi@example.cm"],
 ];
 /** Camions (immatriculation, gabarit, capacités des compartiments). */
 const TRUCKS: [string, "medium" | "large", number[]][] = [
-  ["LT 782 KD", "large", [12000, 10000, 8000, 5000]],
-  ["LT 915 GH", "large", [11000, 11000, 11000]],
-  ["LT 334 BX", "medium", [9000, 9000, 6000]],
-  ["LT 608 EM", "medium", [8000, 7000, 5000]],
+  ["L13 782 KD", "large", [12000, 10000, 8000, 5000]],
+  ["L13 915 GH", "large", [11000, 11000, 11000]],
+  ["L13 334 BX", "medium", [9000, 9000, 6000]],
+  ["L13 608 EM", "medium", [8000, 7000, 5000]],
 ];
-const DRIVERS = ["Emmanuel Tchoua", "Rodrigue Essomba", "Alain Fotso", "Hervé Ndjock"];
+/** Chauffeurs, retrouvés par leur numéro de permis (`L13-…`). */
+const DRIVERS = [
+  "Emmanuel Tchoua (L13)",
+  "Rodrigue Essomba (L13)",
+  "Alain Fotso (L13)",
+  "Hervé Ndjock (L13)",
+];
 /** Commandes du jour (station, produit, litres, priorité). */
 const ORDERS: [string, string, number, "normal" | "urgent"][] = [
-  ["ST-DEIDO", "SUPER", 12000, "normal"],
-  ["ST-DEIDO", "GASOIL", 8000, "normal"],
-  ["ST-BONAP", "SUPER", 9000, "urgent"],
-  ["ST-NDOKO", "GASOIL", 11000, "normal"],
-  ["ST-NDOKO", "SUPER", 10000, "normal"],
-  ["ST-BEPAN", "GASOIL", 9000, "normal"],
-  ["ST-BEPAN", "PETROLE", 5000, "normal"],
-  ["ST-LOGBA", "GASOIL", 11000, "normal"],
-  ["ST-MAKEP", "SUPER", 9000, "normal"],
-  ["ST-MAKEP", "GASOIL", 6000, "normal"],
-  ["ST-YASSA", "GASOIL", 8000, "urgent"],
-  ["ST-BONAM", "SUPER", 8000, "normal"],
-  ["ST-BONAM", "PETROLE", 5000, "normal"],
+  ["L13-DEIDO", "SUPER", 12000, "normal"],
+  ["L13-DEIDO", "GASOIL", 8000, "normal"],
+  ["L13-BONAP", "SUPER", 9000, "urgent"],
+  ["L13-NDOKO", "GASOIL", 11000, "normal"],
+  ["L13-NDOKO", "SUPER", 10000, "normal"],
+  ["L13-BEPAN", "GASOIL", 9000, "normal"],
+  ["L13-BEPAN", "PETROLE", 5000, "normal"],
+  ["L13-LOGBA", "GASOIL", 11000, "normal"],
+  ["L13-MAKEP", "SUPER", 9000, "normal"],
+  ["L13-MAKEP", "GASOIL", 6000, "normal"],
+  ["L13-YASSA", "GASOIL", 8000, "urgent"],
+  ["L13-BONAM", "SUPER", 8000, "normal"],
+  ["L13-BONAM", "PETROLE", 5000, "normal"],
 ];
 
 /** Stations, camions et chauffeurs supplémentaires (créés une seule fois, retrouvés par code / nom). */
@@ -181,16 +187,18 @@ async function ensureFleet(admin: string, productId: (code: string) => string): 
       },
     });
   }
-  const drivers = (await call<Paged<{ full_name: string }>>("/drivers?limit=200", { token: admin })).items;
+  const drivers = (await call<Paged<{ license_no: string | null }>>("/drivers?limit=200", { token: admin }))
+    .items;
   for (const [index, full_name] of DRIVERS.entries()) {
-    if (drivers.some((driver) => driver.full_name === full_name)) continue;
+    const license_no = `L13-2022-01${index}7`;
+    if (drivers.some((driver) => driver.license_no === license_no)) continue;
     await call("/drivers", {
       method: "POST",
       token: admin,
       body: {
         full_name,
         phone: `+237 677 10 20 ${String(30 + index)}`,
-        license_no: `CM-2022-01${index}7`,
+        license_no,
         license_expiry: "2045-12-31",
         hazmat_cert: true,
         hazmat_expiry: "2045-12-31",
@@ -253,8 +261,9 @@ export async function seedPublishedPlan(requestedDay?: string): Promise<Seed> {
   const day = requestedDay ?? (await freeDay(admin));
   await ensureUsers(admin);
 
-  // Référentiels des fichiers modèles, importés une seule fois.
-  const existing = await call<Paged<Named>>("/stations?limit=1", { token: admin });
+  // Dépôts (et référentiels) des fichiers modèles : seulement sur une base sans dépôt. Sur une base déjà
+  // remplie par d'autres lots, le script n'ajoute que ses propres stations, camions et chauffeurs (`L13…`).
+  const existing = await call<Paged<Named>>("/depots?limit=1", { token: admin });
   if (existing.total === 0) {
     for (const kind of ["depots", "stations", "trucks", "drivers"]) await importFile(admin, kind);
   }

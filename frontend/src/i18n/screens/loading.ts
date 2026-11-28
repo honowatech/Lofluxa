@@ -22,6 +22,7 @@ export const loadingTexts = {
         ? `${total} tournée${total > 1 ? "s" : ""}`
         : `${shown} sur ${total} tournée${total > 1 ? "s" : ""}`,
     trip: (seq: number) => `Tournée ${seq}`,
+    plan: (version: number, label: string | null) => (label ? `${label} (v${version})` : `Plan v${version}`),
     noDriver: "Chauffeur non affecté",
     start: "Arrivée prévue",
     depart: "Départ prévu",
@@ -81,11 +82,12 @@ export const loadingTexts = {
     capacity: "Capacité",
     planned: "Planifié",
     observed: "Volume observé",
-    temperature: "Température",
+    temperature: "Temp.",
     density: "Densité",
     at15: "À 15 °C (L)",
     gap: "Écart (L)",
     gapPct: "Écart %",
+    partsShort: (temperature: string, volume: string) => `T° ${temperature} · vol. ${volume}`,
     total: "Total",
     litersUnit: "L",
     tempUnit: "°C",
@@ -120,6 +122,8 @@ export const loadingTexts = {
     compartment: (position: number | string, gap: string, pct: string) =>
       `compartiment ${position} : ${gap} (${pct})`,
     total: (gap: string, pct: string) => `total de la tournée : ${gap} (${pct})`,
+    parts: (temperature: string, temperaturePct: string, volume: string, volumePct: string) =>
+      `Écart total = correction de température ${temperature} (${temperaturePct}) + volume chargé ${volume} (${volumePct}).`,
     liveSuffix: "L'avertissement sera porté sur la tournée et sur la fiche de chargement.",
     within: (tolerance: string) => `Écarts dans la tolérance (${tolerance}).`,
   },

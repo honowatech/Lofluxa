@@ -12,7 +12,8 @@ Zones d'ombre rencontrées, valeur par défaut adoptée en attendant la réponse
 | L13-4 | L6-4 (volumes planifiés en litres observés comparés à un volume à 15 °C) : à 24–30 °C, la seule correction de température consomme 1,1 à 1,8 % de la tolérance de 2 %. Sur le jeu d'essai, un chargement strictement conforme au plan frôle l'avertissement, et un écart de 1 % au compteur le déclenche. | Rien de corrigé côté écran (règle appliquée telle quelle). À trancher avec OLA avant la journée B, sinon presque toutes les tournées porteront un RM-13. |
 | L13-5 | Envoi de la fiche : destinataires proposés. | Une case par station de la tournée (adresse du gérant, `stations.contact_email`), cochée par défaut, plus un champ d'adresses libres ; l'écran envoie toujours la liste explicite. Les stations sans adresse sont signalées avant et après l'envoi. |
 | L13-6 | Heure de départ réelle au passage à « En cours ». | Champ facultatif ; vide = heure du serveur (L6-18). Les heures saisies sont des heures locales du **jour du plan**. |
-| L13-7 | Deux plans publiés le même jour (plan initial + plan des reliquats, L5-7) : `GET /loadings` renvoie deux « Tournée 1 » sans libellé de plan. | Affichées telles quelles (numéro, camion, chauffeur les distinguent le plus souvent). Un `plan_version` ou `plan_label` dans `TripLoadingOut` lèverait l'ambiguïté. |
+| L13-7 | Deux plans publiés le même jour (plan initial + plan des reliquats, L5-7) : deux « Tournée 1 ». | Résolu : `GET /loadings` renvoie `plan_version` et `plan_label` ; les écrans 7 et 8 les affichent sur chaque tournée dès que plusieurs plans publiés coexistent. |
+| L13-7b | Décomposition de l'écart RM-13 (température / volume chargé). | Affichée par compartiment et au total, en direct (même convention que le serveur : écart = [15 °C − observé] + [observé − planifié]) puis avec les valeurs et la phrase `gap_explanation` du serveur après enregistrement. Répond en pratique à L13-4 : l'agent voit quelle part de l'écart vient de la température. |
 
 ## Écran 8 — Suivi des livraisons
 
@@ -55,11 +56,10 @@ tous les appels sont dans `frontend/src/features/events/api.ts`.
   connexion. Attendu : n'effacer les jetons que sur un refus d'authentification, pas sur une erreur réseau.
 - **`GET /stops/{id}`** : pas de lecture unitaire d'un arrêt ; `StopOut` du plan ne porte pas `contact_email`
   (l'écran 7 lit `/stations` pour proposer les destinataires).
-- **`POST /events/{id}/resolve`, action `reduce` sans `deliveries`** : stock de 30 000 L dont 8 000 L déjà chargés ;
-  `GET /events/{id}/impact` annonce pour la tournée 3 `covered_l: 3000` avec `reduce` dans ses `options` (tournée 4 :
-  `covered_l: 0`). Attendu : réduction à 3 000 L. Constaté : 422 `nothing_left_to_load` (le calcul retranche le volume
-  de toutes les autres tournées impactées, y compris non couvertes). L'écran envoie donc les reports et changements de
-  dépôt avant les réductions ; réduire une seule tournée sans traiter les autres reste refusé.
-- **Horodatage du journal** : chargements, livraisons, publications et pénuries portent l'heure réelle du serveur,
-  alors qu'une panne porte l'`occurred_at` saisi ; sur un jour J autre qu'aujourd'hui, le fil mélange les deux.
-  `POST /events/product-shortage` n'accepte pas d'`occurred_at`.
+- **Corrigés depuis par le back-end** (constats du premier rendu) : `resolve` avec `reduce` dans n'importe quel ordre de
+  tournées ; `occurred_at` accepté par `product-shortage` et `resolve` (proposé dans les formulaires) ; clôture sans
+  heure de retour sur une journée datée dans le futur ; libellé de plan dans `GET /loadings`.
+- **Toujours ouverts côté socle** : `loading.write` limité à `fleet` et écran Journal invisible pour `supply` dans
+  `lib/auth/roles.ts` (contournement conservé à l'écran 7 ; pénurie déclarée en `admin` dans le parcours e2e).
+- **Jeu de données des parcours** : tout ce que `e2e/l13-seed.ts` crée est préfixé `L13` (stations `L13-…`, camions
+  `L13 …`, permis `L13-…`, noms suffixés « (L13) ») et le script est rejouable sur une base remplie par d'autres lots.
