@@ -106,8 +106,9 @@ async def list_plans(
     )
     plans = list(rows.scalars())
     creators = await views._by_id(session, User, {p.created_by for p in plans})
+    context = await views.plan_context(session, plans)
     return Page[PlanSummaryOut](
-        items=[views.plan_summary(p, creators.get(p.created_by)) for p in plans],
+        items=[views.plan_summary(p, creators.get(p.created_by), context) for p in plans],
         total=total or 0,
         limit=page.limit,
         offset=page.offset,

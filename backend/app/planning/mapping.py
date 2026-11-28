@@ -13,11 +13,13 @@ from __future__ import annotations
 import asyncio
 import uuid
 from collections.abc import Iterable
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.availability import service as availability_service
 from app.core.config import get_config
@@ -279,6 +281,17 @@ def apply_trip_schedule(row: Trip, trip: TripD, day: date, tz_name: str) -> None
 # --------------------------------------------------------------------------- problème du jour
 
 
+# Volume qu'une livraison retire du « reste à planifier » de sa commande : le volume réellement
+# livré une fois l'arrêt livré (il peut être inférieur au planifié), sinon le volume planifié.
+_ENGAGED_L = case(
+    (
+        (Stop.status == StopStatus.DELIVERED) & StopDelivery.actual_l.is_not(None),
+        func.least(StopDelivery.actual_l, StopDelivery.planned_l),
+    ),
+    else_=StopDelivery.planned_l,
+)
+
+
 async def planned_elsewhere(
     session: AsyncSession,
     order_ids: Iterable[uuid.UUID],
@@ -286,14 +299,15 @@ async def planned_elsewhere(
     exclude_root_id: uuid.UUID | None = None,
 ) -> dict[uuid.UUID, float]:
     """Volume déjà planifié par commande dans les plans `published` (RM-16, reliquat), hors arrêts
-    sautés (`skipped`).
+    sautés (`skipped`). Pour un arrêt livré, c'est le volume réellement livré qui compte : ce qui
+    n'a pas été livré redevient à planifier.
 
     `exclude_root_id` : lignée de versions à ignorer (le plan en cours de modification)."""
     ids = list(order_ids)
     if not ids:
         return {}
     stmt = (
-        select(StopDelivery.order_id, func.sum(StopDelivery.planned_l))
+        select(StopDelivery.order_id, func.sum(_ENGAGED_L))
         .join(Stop, Stop.id == StopDelivery.stop_id)
         .join(Trip, Trip.id == Stop.trip_id)
         .join(Plan, Plan.id == Trip.plan_id)
@@ -330,6 +344,80 @@ async def committed_depot_volumes(
     return {(str(d), str(p)): float(total) for d, p, total in (await session.execute(stmt)).all()}
 
 
+FOREIGN_SEQ_BASE = 9000  # numéros réservés aux tournées des autres plans publiés du jour
+
+
+@dataclass
+class ForeignTrips:
+    """Tournées des **autres plans publiés calculés du jour** (hors lignée du plan contrôlé).
+
+    Elles occupent camions et chauffeurs (RM-02), comptent dans les chargements du jour (RM-14) et
+    dans la durée de service des chauffeurs (RM-11). Vues du moteur et des règles, ce sont des
+    tournées figées d'un autre plan : présentes pour les cumuls, jamais réécrites, jamais
+    rattachées au plan courant. Elles sont transmises sans livraisons ni plan de chargement : leurs
+    volumes sont déjà retirés du stock dépôt (`committed_depot_volumes`) et du reliquat des
+    commandes (`planned_elsewhere`)."""
+
+    trips: list[TripD] = field(default_factory=list)
+    labels: dict[int, str] = field(default_factory=dict)  # seq réservé → « 2 du plan publié (version 3) »
+    rows: list[Trip] = field(default_factory=list)
+
+    @property
+    def seqs(self) -> set[int]:
+        return {t.seq for t in self.trips}
+
+    @property
+    def refs(self) -> set[str]:
+        return {t.ref for t in self.trips if t.ref}
+
+
+async def foreign_trips(
+    session: AsyncSession, day: date, tz_name: str, *, exclude_root_id: uuid.UUID | None = None
+) -> ForeignTrips:
+    stmt = (
+        select(Trip, Plan.version)
+        .join(Plan, Plan.id == Trip.plan_id)
+        .where(Plan.day == day, Plan.status == PlanStatus.PUBLISHED, Plan.kind == PlanKind.COMPUTED)
+        .options(selectinload(Trip.stops))
+        .order_by(Plan.id, Trip.seq, Trip.id)
+    )
+    if exclude_root_id is not None:
+        stmt = stmt.where(func.coalesce(Plan.root_plan_id, Plan.id) != exclude_root_id)
+    found = ForeignTrips()
+    for index, (row, version) in enumerate((await session.execute(stmt)).all(), start=1):
+        seq = FOREIGN_SEQ_BASE + index
+        found.rows.append(row)
+        found.labels[seq] = f"{row.seq} du plan publié (version {version})"
+        found.trips.append(
+            TripD(
+                seq=seq,
+                truck_id=str(row.truck_id),
+                depot_id=str(row.depot_id),
+                driver_id=str(row.driver_id) if row.driver_id else None,
+                start_s=to_seconds(day, row.planned_start_at, tz_name),
+                depart_s=to_seconds(day, row.planned_depart_at, tz_name),
+                return_s=to_seconds(day, row.planned_return_at, tz_name),
+                distance_m=row.distance_m,
+                duration_s=row.duration_s,
+                stops=[
+                    StopD(
+                        seq=stop.seq,
+                        station_id=str(stop.station_id),
+                        arrival_s=to_seconds(day, stop.planned_arrival_at, tz_name),
+                        departure_s=to_seconds(day, stop.planned_departure_at, tz_name),
+                        distance_from_prev_m=stop.distance_from_prev_m,
+                        status=str(StopStatus(stop.status).value),
+                        ref=str(stop.id),
+                    )
+                    for stop in sorted(row.stops, key=lambda x: x.seq)
+                ],
+                locked=True,
+                ref=str(row.id),
+            )
+        )
+    return found
+
+
 def without_skipped(trips: list[TripD]) -> list[TripD]:
     """Retire (en place) les livraisons des arrêts sautés : vu des règles et du moteur, un arrêt
     sauté ne livre rien — sa commande reste à servir. L'arrêt lui-même reste dans la tournée."""
@@ -353,6 +441,7 @@ async def assemble_problem(
     extra_driver_ids: Iterable[uuid.UUID] = (),
     net_of_published: bool = False,
     exclude_root_id: uuid.UUID | None = None,
+    foreign: ForeignTrips | None = None,
 ) -> PlanningProblem:
     """Assemble le problème du jour J : commandes données, toutes les ressources (avec statut et
     disponibilité du jour), affectation du jour, stock dépôt courant, fenêtres du jour.
@@ -369,6 +458,13 @@ async def assemble_problem(
     extra_depots: set[uuid.UUID] = set(extra_depot_ids)
     station_ids: set[uuid.UUID] = {o.station_id for o in orders}
     product_ids: set[uuid.UUID] = {o.product_id for o in orders}
+    for trip in foreign.rows if foreign is not None else []:
+        # Ressources et lieux des tournées des autres plans publiés du jour (cumuls RM-02/11/14).
+        extra_trucks.add(trip.truck_id)
+        extra_depots.add(trip.depot_id)
+        if trip.driver_id:
+            extra_drivers.add(trip.driver_id)
+        station_ids.update(stop.station_id for stop in trip.stops)
     if plan is not None:
         for trip in plan.trips:
             extra_trucks.add(trip.truck_id)

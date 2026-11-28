@@ -171,19 +171,21 @@ async def test_journee_perturbee_penurie_panne_arret_saute_et_second_plan(api, d
     # ================================================================== second calcul du jour
     second = await compute_day(api, db, tasks, summary)
     assert second["kind"] == "computed" and second["root_plan_id"] != plan["root_plan_id"]
-    served = {d["order_id"] for t in second["trips"] for s in t["stops"] for d in s["deliveries"]}
-    assert served == skipped  # les commandes de l'arrêt sauté, et elles seules (pas les reportées)
-    assert second["unserved"] == [] and second["blocking_count"] == 0, second["violations"]
-    published = (await api.call("POST", f"/plans/{second['id']}/publish", "dispatcher")).json()
-    # Le premier plan reste publié : le second est une lignée distincte, pas une nouvelle version.
+    # Le second plan tient compte des tournées du premier plan publié (RM-02, RM-14 — lot L5, question
+    # L5-34) : les trois camions valides ont déjà fait leurs deux chargements du jour et le quatrième
+    # est en panne. La commande de l'arrêt sauté n'est donc pas confiée à un camion déjà à sa limite :
+    # elle est listée non servie, avec sa raison (F4.4), et reste « confirmed ».
+    assert second["trips"] == []
+    assert {u["order_id"] for u in second["unserved"]} == skipped
+    assert {u["reason_code"] for u in second["unserved"]} == {"no_truck"}
     plans = await api.get_all("/plans", "manager", day=day)
     assert Counter((p["status"], p["version"]) for p in plans) == {
         ("published", 3): 1,
-        ("published", 1): 1,
+        ("draft", 1): 1,
         ("archived", 1): 1,
         ("archived", 2): 1,
     }
-    # Stock dépôt : ce que les deux plans publiés font sortir du dépôt tient dans le stock saisi
+    # Stock dépôt : ce que le plan publié fait sortir du dépôt tient dans le stock saisi
     # (arrêt sauté compris : le produit a quitté le dépôt — question L5-33).
     stocks = {
         s["product_code"]: s["available_l"]
@@ -192,24 +194,27 @@ async def test_journee_perturbee_penurie_panne_arret_saute_et_second_plan(api, d
     for product, available in stocks.items():
         out = sum(
             d["planned_l"]
-            for p in (plan, published)
-            for t in p["trips"]
+            for t in plan["trips"]
             for s in t["stops"]
             for d in s["deliveries"]
             if d["product_code"] == product
         )
         assert out <= available, f"{product} : {out} L planifiés pour {available} L en stock"
-    await run_day.execute(api, published, None, skip_last=False)
-    assert await _statuses(api, day) == {"delivered": 18, "postponed": 2}
+    assert await _statuses(api, day) == {
+        "delivered": 18 - len(skipped),
+        "postponed": 2,
+        "confirmed": len(skipped),
+    }
 
     # ================================================================== journal de la journée (F6.4)
     events = await api.get_all("/events", "manager", day=day)
     types = Counter(e["type"] for e in events)
     assert types["truck_breakdown"] == 1 and types["product_shortage"] == 1
-    assert types["publish"] == 4  # v1, v2 (pénurie), v3 (panne), second plan
-    trips_run = len(plan["trips"]) + len(published["trips"])
-    assert types["loading_recorded"] == trips_run
-    assert types["delivery_recorded"] == sum(len(t["stops"]) for p in (plan, published) for t in p["trips"])
+    assert (
+        types["publish"] == 3
+    )  # v1, v2 (pénurie), v3 (panne) ; le second plan, sans tournée, reste brouillon
+    assert types["loading_recorded"] == len(plan["trips"])
+    assert types["delivery_recorded"] == sum(len(t["stops"]) for t in plan["trips"])
     assert [e["occurred_at"] for e in events] == sorted((e["occurred_at"] for e in events), reverse=True)
     assert all(e["summary"] and e["type_label"] for e in events)
     panne = next(e for e in events if e["type"] == "truck_breakdown")

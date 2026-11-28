@@ -9,7 +9,7 @@ from collections import Counter
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.enums import EventType, PlanKind, PlanStatus, Severity
@@ -81,9 +81,65 @@ def _counts(plan: Plan) -> tuple[int, int]:
     return blocking, len(plan.violations) - blocking
 
 
-def _summary_fields(plan: Plan, creator: User | None) -> dict:
+@dataclass
+class PlanContext:
+    """Ce qu'il faut savoir des autres plans pour présenter un plan : la version en vigueur de
+    chaque lignée, et le rang de chaque lignée de plans calculés dans sa journée."""
+
+    current: set[uuid.UUID] = field(default_factory=set)
+    rank: dict[uuid.UUID, int] = field(default_factory=dict)  # lignée → rang dans le jour (1, 2…)
+    lineages: dict = field(default_factory=dict)  # jour → nombre de lignées de plans calculés
+
+
+async def plan_context(session: AsyncSession, plans: Iterable[Plan]) -> PlanContext:
+    plans = list(plans)
+    context = PlanContext()
+    if not plans:
+        return context
+    root = func.coalesce(Plan.root_plan_id, Plan.id)
+    rows = (
+        await session.execute(
+            select(Plan.id, root, Plan.day, Plan.kind, Plan.status, Plan.version)
+            .where(Plan.day.in_({p.day for p in plans}))
+            .order_by(Plan.day, root, Plan.version)
+        )
+    ).all()
+    by_root: dict[uuid.UUID, list] = {}
+    for row in rows:
+        by_root.setdefault(row[1], []).append(row)
+    for root_id, versions_ in by_root.items():
+        published = [r for r in versions_ if r[4] == PlanStatus.PUBLISHED]
+        drafts = [r for r in versions_ if r[4] == PlanStatus.DRAFT]
+        chosen = (published or drafts or [None])[-1]
+        if chosen is not None:
+            context.current.add(chosen[0])
+        day, kind = versions_[0][2], versions_[0][3]
+        if kind == PlanKind.COMPUTED:
+            context.lineages[day] = context.lineages.get(day, 0) + 1
+            context.rank[root_id] = context.lineages[
+                day
+            ]  # lignées triées par identifiant (UUID v7 : par date)
+    return context
+
+
+def display_label(plan: Plan, context: PlanContext) -> str:
+    """Libellé d'affichage d'un plan dans un sélecteur."""
+    if plan.kind == PlanKind.MANUAL_REFERENCE:
+        return "Journée de référence" + (f" — {plan.label}" if plan.label else "")
+    if plan.kind == PlanKind.REPLAY:
+        return f"Rejeu du {plan.day:%d/%m}" + (f" — {plan.label}" if plan.label else "")
+    name = "Plan du jour"
+    if context.lineages.get(plan.day, 1) > 1:
+        name = f"Plan n° {context.rank.get(checking.root_id(plan), 1)} du jour"
+    return f"{name} — version {plan.version}"
+
+
+def _summary_fields(plan: Plan, creator: User | None, context: PlanContext | None = None) -> dict:
     blocking, warning = _counts(plan)
+    context = context or PlanContext()
     return dict(
+        display_label=display_label(plan, context),
+        is_current=plan.id in context.current,
         id=plan.id,
         day=plan.day,
         kind=plan.kind,
@@ -108,8 +164,10 @@ def _summary_fields(plan: Plan, creator: User | None) -> dict:
     )
 
 
-def plan_summary(plan: Plan, creator: User | None = None) -> PlanSummaryOut:
-    return PlanSummaryOut(**_summary_fields(plan, creator))
+def plan_summary(
+    plan: Plan, creator: User | None = None, context: PlanContext | None = None
+) -> PlanSummaryOut:
+    return PlanSummaryOut(**_summary_fields(plan, creator, context))
 
 
 def trip_out(trip: Trip, labels: Labels, violations: Counter | None = None) -> TripOut:
@@ -298,7 +356,7 @@ async def plan_out(session: AsyncSession, plan: Plan, *, with_last_edit: bool = 
     )
 
     return PlanOut(
-        **_summary_fields(plan, labels.users.get(plan.created_by)),
+        **_summary_fields(plan, labels.users.get(plan.created_by), await plan_context(session, [plan])),
         last_edit=getattr(plan, "last_edit", None) if with_last_edit else None,
         params_snapshot=plan.params_snapshot,
         solver_log=plan.solver_log,

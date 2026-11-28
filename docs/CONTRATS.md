@@ -66,6 +66,12 @@ Ajouts du lot L5 (mêmes conventions) : `run_compute` / `run_recompute` (logique
 identifiant de tournée et d'arrêt, pour F6.1/F6.2), `order_remainders` (reliquat RM-16) ; `checking.load_plan`
 et `checking.log_event` ; `views.plan_out` (plan complet de l'API). Modèle de versions : `planning/versions.py`.
 
+Plusieurs plans publiés le même jour (sans changement du domaine) : le service de plans ajoute à
+`problem.locked_trips` les tournées des autres plans publiés calculés du jour, sans livraisons ni plan de
+chargement, avec `locked = True`, leur `ref` et un numéro `seq` > 9000. Le moteur doit les traiter comme toute
+tournée figée (camion et chauffeur occupés, chargement compté) et les renvoyer telles quelles ; le service les
+retire du résultat. Les règles les reçoivent dans `trips` avec celles du plan (`checking.check_with_foreign`).
+
 ## 6. Imports — `backend/app/imports/` (lot L3)
 
 `ImportSource` (protocole de la spec §8.3) et `ExcelImportSource`, seule implémentation du MVP. Tout lot qui a

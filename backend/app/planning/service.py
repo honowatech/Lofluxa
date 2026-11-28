@@ -76,17 +76,34 @@ async def build_problem(
         "extra_truck_ids": extra_truck_ids,
         "extra_driver_ids": extra_driver_ids,
     }
+    problem, _ = await _day_problem(
+        session, day, params_override=params_override, order_ids=order_ids, **extra
+    )
+    return problem
+
+
+async def _day_problem(
+    session: AsyncSession,
+    day: date,
+    *,
+    params_override: dict[str, Any] | None = None,
+    order_ids: list[uuid.UUID] | None = None,
+    **extra: Iterable[uuid.UUID],
+) -> tuple[PlanningProblem, mapping.ForeignTrips]:
+    """Problème du jour et tournées des autres plans publiés du jour (vides pour un rejeu)."""
     params = await load_params(session, validate_params_override(params_override))
     if order_ids is not None:
         orders = list((await session.execute(select(Order).where(Order.id.in_(order_ids)))).scalars())
-        return await mapping.assemble_problem(session, day, params, orders, **extra)
+        return await mapping.assemble_problem(session, day, params, orders, **extra), mapping.ForeignTrips()
 
     rows = await session.execute(select(Order).where(Order.day == day, Order.status == OrderStatus.CONFIRMED))
     orders = list(rows.scalars())
     requested, orders = await _remainders(session, orders)
-    return await mapping.assemble_problem(
-        session, day, params, orders, requested=requested, net_of_published=True, **extra
+    foreign = await mapping.foreign_trips(session, day, params.timezone)
+    problem = await mapping.assemble_problem(
+        session, day, params, orders, requested=requested, net_of_published=True, foreign=foreign, **extra
     )
+    return problem, foreign
 
 
 async def _remainders(
@@ -218,7 +235,7 @@ async def run_compute(
     elle reçoit sa session (testable sans Celery)."""
     notify = progress or (lambda pct, message: None)
     notify(2, "Lecture des commandes, des ressources et des stocks")
-    problem = await build_problem(session, day, params_override=params_override, order_ids=order_ids)
+    problem, foreign = await _day_problem(session, day, params_override=params_override, order_ids=order_ids)
     if not problem.orders:
         raise ConflictError(
             f"Aucune commande confirmée à planifier pour le {day:%d/%m/%Y}.", code="no_orders_to_plan"
@@ -226,8 +243,12 @@ async def run_compute(
     notify(8, "Calcul des distances")
     matrix = await mapping.build_plan_matrix(session, problem)
     notify(15, "Calcul des tournées")
+    # Les tournées des autres plans publiés du jour sont figées pour le moteur : leurs camions et
+    # chauffeurs sont occupés, leurs chargements comptent (RM-02, RM-11, RM-14).
+    problem.locked_trips = list(foreign.trips)
     result = engine.solve(problem, matrix, lambda pct, message: notify(15 + int(pct * 0.75), message))
     result.approximate = bool(result.approximate or matrix.approximate)
+    _drop_foreign(result, problem, matrix, foreign)
     notify(92, "Enregistrement du plan")
     plan = await persist_result(
         session,
@@ -240,6 +261,27 @@ async def run_compute(
     )
     notify(100, "Plan calculé")
     return plan
+
+
+def _drop_foreign(
+    result: PlanningResult, problem: PlanningProblem, matrix: Any, foreign: mapping.ForeignTrips
+) -> None:
+    """Retire du résultat du moteur les tournées des autres plans (jamais rattachées au plan courant)
+    et recalcule les violations du point de vue du plan courant."""
+    if not foreign.trips:
+        return
+    result.trips = [t for t in result.trips if t.ref not in foreign.refs]
+    # Une tournée du plan ne garde jamais un numéro de la plage réservée aux autres plans.
+    used = {t.seq for t in result.trips if t.seq <= mapping.FOREIGN_SEQ_BASE}
+    seq = 0
+    for trip in result.trips:
+        if trip.seq > mapping.FOREIGN_SEQ_BASE:
+            seq += 1
+            while seq in used:
+                seq += 1
+            used.add(seq)
+            trip.seq = seq
+    result.violations = checking.check_with_foreign(problem, result.trips, result.unserved, matrix, foreign)
 
 
 async def run_recompute(
@@ -273,7 +315,9 @@ async def run_recompute(
             select(Order.id).where(Order.day == plan.day, Order.status == OrderStatus.CONFIRMED)
         )
         extra = set(rows.scalars())
-    problem = await checking.plan_problem(session, plan, params_override=override, extra_order_ids=extra)
+    problem, foreign = await checking.plan_context(
+        session, plan, params_override=override, extra_order_ids=extra
+    )
     if plan.kind == PlanKind.COMPUTED:
         # Les commandes d'un arrêt sauté ne sont pas servies par la tournée figée : elles restent à planifier.
         frozen_orders = {
@@ -293,15 +337,15 @@ async def run_recompute(
             o for o in problem.orders if o.id in frozen_orders or statuses.get(uuid.UUID(o.id)) in keep
         ]
     tz_name = problem.params.timezone
-    problem.locked_trips = mapping.without_skipped(
-        [mapping.trip_to_domain(t, plan.day, tz_name) for t in frozen]
-    )
+    own_locked = mapping.without_skipped([mapping.trip_to_domain(t, plan.day, tz_name) for t in frozen])
+    problem.locked_trips = [*own_locked, *foreign.trips]
 
     notify(8, "Calcul des distances")
     matrix = await mapping.build_plan_matrix(session, problem)
     notify(15, "Calcul des tournées")
     result = engine.solve(problem, matrix, lambda pct, message: notify(15 + int(pct * 0.75), message))
     result.approximate = bool(result.approximate or matrix.approximate)
+    _drop_foreign(result, problem, matrix, foreign)
 
     notify(92, "Enregistrement du plan")
     for row in [t for t in plan.trips if str(t.id) not in frozen_ids]:

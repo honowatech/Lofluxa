@@ -133,7 +133,9 @@ class FakeEngine:
         if progress:
             progress(10, "Préparation")
         locked = list(problem.locked_trips)
-        busy_trucks = {t.truck_id for t in locked}
+        busy: dict[str, list[TripD]] = {}
+        for trip in locked:
+            busy.setdefault(trip.truck_id, []).append(trip)
         served = {d.order_id for t in locked for s in t.stops for d in s.deliveries}
         stations = {s.id: s for s in problem.stations}
         pending = sorted(
@@ -155,8 +157,14 @@ class FakeEngine:
         for truck in problem.trucks:
             if not pending:
                 break
-            if not truck.affectable or truck.id in busy_trucks:
+            if not truck.affectable:
                 continue
+            # Camion déjà pris par des tournées figées : il recharge après son retour, dans la
+            # limite des chargements du jour (RM-14) ; sinon il n'est plus disponible.
+            earlier = busy.get(truck.id, [])
+            if len(earlier) >= problem.max_loadings(depot):
+                continue
+            start_s = max((t.return_s for t in earlier), default=problem.params.day_start_s)
             capacity = truck.total_capacity_l * (1 - margin / 100)
             taken, volumes = [], {}
             for order in list(pending):
@@ -184,11 +192,11 @@ class FakeEngine:
             driver_id = problem.driver_by_truck.get(truck.id) or next(
                 (d.id for d in problem.drivers if d.default_truck_id == truck.id), None
             )
-            if driver_id in drivers_used:
+            if driver_id in drivers_used and driver_id not in {t.driver_id for t in earlier}:
                 driver_id = None
             drivers_used.add(driver_id)
             trip = TripD(seq=seq, truck_id=truck.id, depot_id=depot.id, driver_id=driver_id, stops=stops)
-            timing.schedule_trip(trip, problem, matrix, start_s=problem.params.day_start_s)
+            timing.schedule_trip(trip, problem, matrix, start_s=start_s)
             trip.loads = compartments.assign_compartments(truck, volumes, margin) or []
             trips.append(trip)
 

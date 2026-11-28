@@ -243,6 +243,15 @@ class PlanSummaryOut(BaseModel):
     root_plan_id: uuid.UUID | None = None
     parent_plan_id: uuid.UUID | None = None
     label: str | None = None
+    display_label: str = Field(
+        default="",
+        description="Libellé à afficher dans un sélecteur : « Plan du jour — version 2 », "
+        "« Journée de référence », « Rejeu du 12/01 »…",
+    )
+    is_current: bool = Field(
+        default=False,
+        description="Version en vigueur de sa lignée : la publiée, à défaut le brouillon le plus récent.",
+    )
     approximate: bool
     engine_version: str | None = None
     computed_at: UtcDatetime | None = None

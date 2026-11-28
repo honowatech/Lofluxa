@@ -7,9 +7,10 @@ métriques. Aucune règle métier n'est codée ici : tout vient de `violations/r
 
 from __future__ import annotations
 
+import re
 import uuid
-from collections import defaultdict
-from dataclasses import fields
+from collections import Counter, defaultdict
+from dataclasses import fields, replace
 from typing import Any
 
 from sqlalchemy import select
@@ -120,6 +121,21 @@ async def plan_problem(
 ) -> PlanningProblem:
     """Problème correspondant à un plan existant : ses commandes (servies et non servies), plus
     `extra_order_ids`. Le volume demandé est le reliquat après les autres plans publiés (RM-16)."""
+    problem, _ = await plan_context(
+        session, plan, params_override=params_override, extra_order_ids=extra_order_ids
+    )
+    return problem
+
+
+async def plan_context(
+    session: AsyncSession,
+    plan: Plan,
+    *,
+    params_override: dict[str, Any] | None = None,
+    extra_order_ids: set[uuid.UUID] | None = None,
+) -> tuple[PlanningProblem, mapping.ForeignTrips]:
+    """Comme `plan_problem`, et renvoie aussi les tournées des autres plans publiés du jour, à
+    soumettre au moteur et aux règles avec celles du plan (RM-02, RM-11, RM-14)."""
     params = await load_params(session, snapshot_override(plan, params_override))
     ids = plan_order_ids(plan) | (extra_order_ids or set())
     orders = list((await session.execute(select(Order).where(Order.id.in_(ids)))).scalars()) if ids else []
@@ -132,16 +148,67 @@ async def plan_problem(
         remainder = float(order.requested_l) - elsewhere.get(order.id, 0.0)
         if 0 < remainder < float(order.requested_l):
             requested[order.id] = remainder
-    return await mapping.assemble_problem(
+    computed = plan.kind == PlanKind.COMPUTED
+    foreign = mapping.ForeignTrips()
+    if computed:
+        foreign = await mapping.foreign_trips(
+            session, plan.day, params.timezone, exclude_root_id=root_id(plan)
+        )
+    problem = await mapping.assemble_problem(
         session,
         plan.day,
         params,
         orders,
         requested=requested,
         plan=plan,
-        net_of_published=plan.kind == PlanKind.COMPUTED,
+        net_of_published=computed,
         exclude_root_id=root_id(plan),
+        foreign=foreign,
     )
+    return problem, foreign
+
+
+_FOREIGN_SEQ = re.compile(rf"\b{mapping.FOREIGN_SEQ_BASE // 1000}\d{{3}}\b")
+
+
+def check_with_foreign(
+    problem: PlanningProblem,
+    trips: list[TripD],
+    unserved: list[UnservedD] | None,
+    matrix: Matrix | None,
+    foreign: mapping.ForeignTrips,
+) -> list[ViolationD]:
+    """`rules.check_plan` sur le plan **et** les tournées des autres plans publiés du jour.
+
+    Les règles voient toutes les tournées du jour (chevauchements RM-02, chargements RM-14, cumul
+    de service RM-11). Ne sont gardées que les violations qui concernent le plan contrôlé : celles
+    que les autres plans présentent déjà à eux seuls sont écartées. Une violation que les règles
+    rattachent à une tournée d'un autre plan est enregistrée au niveau du plan, et son message
+    désigne cette tournée en clair (« tournée 2 du plan publié (version 3) »)."""
+    if not foreign.trips:
+        return list(rules.check_plan(problem, trips, unserved, matrix))
+
+    combined = rules.check_plan(problem, [*trips, *foreign.trips], unserved, matrix)
+    alone_problem = replace(problem, orders=[], locked_trips=[])
+    alone = Counter(
+        (v.rule_code, v.message)
+        for v in rules.check_plan(alone_problem, list(foreign.trips), [], matrix)
+        if v.trip_seq in foreign.seqs
+    )
+    kept: list[ViolationD] = []
+    for violation in combined:
+        if violation.trip_seq in foreign.seqs:
+            key = (violation.rule_code, violation.message)
+            if alone[key] > 0:
+                alone[key] -= 1
+                continue  # défaut propre à l'autre plan : il y est déjà signalé
+            violation.trip_seq = None
+            violation.stop_seq = None
+        violation.message = _FOREIGN_SEQ.sub(
+            lambda m: foreign.labels.get(int(m.group()), m.group()), violation.message
+        )
+        kept.append(violation)
+    return kept
 
 
 def schedule_all(trips: list[TripD], problem: PlanningProblem, matrix: Matrix) -> None:
@@ -242,8 +309,9 @@ async def recheck(
     d'un plan chargé par `load_plan` (F5.2). Un plan avec violations est enregistré tel quel."""
     ensure_not_reference(plan)
     await session.flush()
+    foreign = mapping.ForeignTrips()
     if problem is None:
-        problem = await plan_problem(session, plan)
+        problem, foreign = await plan_context(session, plan)
     if matrix is None:
         matrix = await mapping.build_plan_matrix(session, problem)
     tz_name = problem.params.timezone
@@ -257,7 +325,7 @@ async def recheck(
 
     unserved = await checked_unserved(session, plan)
     # Vu des règles, un arrêt sauté ne livre rien (RM-15, RM-16).
-    violations = list(rules.check_plan(problem, mapping.without_skipped(trips), unserved, matrix))
+    violations = check_with_foreign(problem, mapping.without_skipped(trips), unserved, matrix, foreign)
     for failure in failures:
         already = any(
             v.trip_seq == failure.trip_seq
